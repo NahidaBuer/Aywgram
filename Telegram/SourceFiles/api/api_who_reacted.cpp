@@ -31,6 +31,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_chat.h"
 #include "styles/style_chat_helpers.h"
 
+#include "ayu/ayu_settings.h"
+
 namespace Api {
 namespace {
 
@@ -652,6 +654,7 @@ QString FormatReadDate(TimeId date, const QDateTime &now) {
 	const auto parsed = base::unixtime::parse(date);
 	const auto readDate = parsed.date();
 	const auto nowDate = now.date();
+	const auto &settings = AyuSettings::getInstance();
 
 	if (readDate.year() < nowDate.year()) {
 		return tr::lng_mediaview_date_time(
@@ -666,18 +669,18 @@ QString FormatReadDate(TimeId date, const QDateTime &now) {
 				lt_year,
 				QString::number(readDate.year())),
 			lt_time,
-			QLocale().toString(parsed.time(), "HH:mm:ss"));
+			QLocale().toString(parsed.time(), settings.showMessageSeconds ? "HH:mm:ss" : QLocale::system().timeFormat(QLocale::ShortFormat)));
 	}
 	if (readDate == nowDate) {
 		return tr::lng_mediaview_today(
 			tr::now,
 			lt_time,
-			QLocale().toString(parsed.time(), "HH:mm:ss"));
+			QLocale().toString(parsed.time(), settings.showMessageSeconds ? "HH:mm:ss" : QLocale::system().timeFormat(QLocale::ShortFormat)));
 	} else if (readDate.addDays(1) == nowDate) {
 		return tr::lng_mediaview_yesterday(
 			tr::now,
 			lt_time,
-			QLocale().toString(parsed.time(), "HH:mm:ss"));
+			QLocale().toString(parsed.time(), settings.showMessageSeconds ? "HH:mm:ss" : QLocale::system().timeFormat(QLocale::ShortFormat)));
 	}
 	return tr::lng_mediaview_date_time(
 		tr::now,
@@ -689,7 +692,7 @@ QString FormatReadDate(TimeId date, const QDateTime &now) {
 			lt_day,
 			QString::number(readDate.day())),
 		lt_time,
-		QLocale().toString(parsed.time(), "HH:mm:ss"));
+		QLocale().toString(parsed.time(), settings.showMessageSeconds ? "HH:mm:ss" : QLocale::system().timeFormat(QLocale::ShortFormat)));
 }
 
 bool WhoReadExists(not_null<HistoryItem*> item) {
