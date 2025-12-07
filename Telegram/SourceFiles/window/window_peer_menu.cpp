@@ -2594,6 +2594,68 @@ base::weak_qptr<Ui::BoxContent> ShowChooseRecipientBox(
 		typesRestriction));
 }
 
+// Source from share box
+QPointer<Ui::BoxContent> ShowNewForwardMessagesBox(
+		not_null<Window::SessionNavigation*> navigation,
+		MessageIdsList &&msgIds,
+		bool no_quote,
+		FnMut<void()>&& successCallback) {
+	const auto item = navigation->session().data().message(msgIds[0]);
+	const auto history = item->history();
+	const auto owner = &history->owner();
+	const auto session = &history->session();
+	const auto isGame = item->getMessageBot()
+		&& item->media()
+		&& (item->media()->game() != nullptr);
+
+	const auto items = owner->idsToItems(msgIds);
+	const auto hasCaptions = ranges::any_of(items, [](auto item) {
+		return item->media()
+			&& !item->originalText().text.isEmpty()
+			&& item->media()->allowsEditCaption();
+	});
+	const auto hasOnlyForcedForwardedInfo = hasCaptions
+		? false
+		: ranges::all_of(items, [](auto item) {
+			return item->media() && item->media()->forceForwardedInfo();
+		});
+
+	const auto requiredRight = item->requiredSendRight();
+	const auto requiresInline = item->requiresSendInlineRight();
+	auto filterCallback = [=](not_null<Data::Thread*> thread) {
+		if (const auto user = thread->peer()->asUser()) {
+			if (user->canSendIgnoreMoneyRestrictions()) {
+				return true;
+			}
+		}
+		return Data::CanSend(thread, requiredRight)
+			&& (!requiresInline
+				|| Data::CanSend(thread, ChatRestriction::SendInline))
+			&& (!isGame || !thread->peer()->isBroadcast());
+	};
+	const auto weak = std::make_shared<base::weak_qptr<Ui::BoxContent>>();
+
+	ShareBox::Descriptor desc = { session };
+
+	desc.submitCallback = ShareBox::DefaultForwardCallback(
+		navigation->parentController()->uiShow(),
+		history,
+		msgIds,
+		TimeId(0),
+		no_quote,
+		std::move(successCallback));
+
+	desc.filterCallback = std::move(filterCallback);
+	desc.titleOverride = no_quote ? tr::lng_title_forward_as_copy() : tr::lng_title_multiple_forward();
+	desc.forwardOptions.sendersCount = ItemsForwardSendersCount(items);
+	desc.forwardOptions.captionsCount = ItemsForwardCaptionsCount(items);
+	desc.forwardOptions.show = !hasOnlyForcedForwardedInfo;
+	desc.moneyRestrictionError = WriteMoneyRestrictionError;
+	
+	*weak = navigation->parentController()->show(Box<ShareBox>(std::move(desc)), Ui::LayerOption::CloseOther);
+	return weak->get();
+}
+
 base::weak_qptr<Ui::BoxContent> ShowForwardMessagesBox(
 		std::shared_ptr<ChatHelpers::Show> show,
 		Data::ForwardDraft &&draft,

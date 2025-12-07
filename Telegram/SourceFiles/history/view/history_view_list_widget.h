@@ -878,6 +878,7 @@ private:
 
 void ConfirmDeleteSelectedItems(not_null<ListWidget*> widget);
 void ConfirmForwardSelectedItems(not_null<ListWidget*> widget);
+void ConfirmForwardNoQuoteSelectedItems(not_null<ListWidget*> widget);
 void ConfirmSendNowSelectedItems(not_null<ListWidget*> widget);
 
 [[nodiscard]] CopyRestrictionType CopyRestrictionTypeFor(

@@ -377,15 +377,27 @@ bool AddForwardSelectedAction(
 
 	menu->addAction(tr::lng_context_forward_selected(tr::now), [=] {
 		const auto weak = base::make_weak(list);
-		const auto callback = [=] {
-			if (const auto strong = weak.get()) {
-				strong->cancelSelection();
-			}
-		};
-		Window::ShowForwardMessagesBox(
+		Window::ShowNewForwardMessagesBox(
 			request.navigation,
 			ExtractIdsList(request.selectedItems),
-			callback);
+			false,
+			[=] {
+				if (const auto strong = weak.get()) {
+					strong->cancelSelection();
+				}
+			});
+	}, &st::menuIconForward);
+	menu->addAction(tr::lng_context_forward_selected_no_quote(tr::now), [=] {
+		const auto weak = base::make_weak(list);
+		Window::ShowNewForwardMessagesBox(
+				request.navigation,
+				ExtractIdsList(request.selectedItems),
+				true,
+				[=] {
+					if (const auto strong = weak.get()) {
+						strong->cancelSelection();
+					}
+				});
 	}, &st::menuIconForward);
 	return true;
 }
@@ -410,15 +422,41 @@ bool AddForwardMessageAction(
 		}
 	}
 	const auto itemId = item->fullId();
-	menu->addAction(tr::lng_context_forward_msg(tr::now), [=] {
+	auto fwdSubmenu = std::make_unique<Ui::PopupMenu>(list, st::popupMenuWithIcons);
+	fwdSubmenu->addAction(tr::lng_context_forward_msg(tr::now), [=] {
 		if (const auto item = owner->message(itemId)) {
-			Window::ShowForwardMessagesBox(
+			const auto weak = base::make_weak(list);
+			Window::ShowNewForwardMessagesBox(
 				request.navigation,
 				(asGroup
 					? owner->itemOrItsGroup(item)
-					: MessageIdsList{ 1, itemId }));
+					: MessageIdsList{ 1, itemId }), false,
+				[=] {
+					if (const auto strong = weak.get()) {
+						strong->cancelSelection();
+					}
+				});
 		}
 	}, &st::menuIconForward);
+	fwdSubmenu->addAction(tr::lng_context_forward_msg_no_quote(tr::now), [=] {
+		if (const auto item = owner->message(itemId)) {
+			const auto weak = base::make_weak(list);
+			Window::ShowNewForwardMessagesBox(
+					request.navigation,
+					(asGroup
+					 ? owner->itemOrItsGroup(item)
+					 : MessageIdsList{ 1, itemId }),
+					true,
+					[=] {
+					if (const auto strong = weak.get()) {
+						strong->cancelSelection();
+					}
+				});
+		}
+	}, &st::menuIconForward);
+	if (!fwdSubmenu->empty()) {
+		menu->addAction(tr::lng_context_forward(tr::now), std::move(fwdSubmenu), &st::menuIconForward);
+	}
 	return true;
 }
 
@@ -1049,12 +1087,15 @@ void AddMessageActions(
 		AyuUi::AddHistoryAction(menu, request.item);
 		AyuUi::AddHideMessageAction(menu, request.item);
 		AyuUi::AddUserMessagesAction(menu, request.item);
-		AyuUi::AddRepeatMessageAction(menu, request.item);
+		//AyuUi::AddRepeatMessageAction(menu, request.item);
 		AyuUi::AddMessageDetailsAction(menu, request.item);
 	}
 
 	AddPostLinkAction(menu, request);
 	AddForwardAction(menu, request, list);
+	if (request.item) {
+		AyuUi::AddRepeatMessageAction(menu, request.item);
+	}
 	AddSendNowAction(menu, request, list);
 	AddDeleteAction(menu, request, list);
 	AddDownloadFilesAction(menu, request, list);

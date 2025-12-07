@@ -1348,9 +1348,10 @@ void ListWidget::forwardItems(MessageIdsList &&items) {
 				strong->clearSelected();
 			}
 		};
-		setActionBoxWeak(Window::ShowForwardMessagesBox(
+		setActionBoxWeak(Window::ShowNewForwardMessagesBox(
 			_controller,
 			std::move(items),
+			false,
 			std::move(callback)));
 	}
 }

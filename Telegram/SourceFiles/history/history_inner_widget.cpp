@@ -2571,7 +2571,7 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 		AyuUi::AddHistoryAction(_menu, item);
 		AyuUi::AddHideMessageAction(_menu, item);
 		AyuUi::AddUserMessagesAction(_menu, item);
-		AyuUi::AddRepeatMessageAction(_menu, item);
+		//AyuUi::AddRepeatMessageAction(_menu, item);
 		AyuUi::AddMessageDetailsAction(_menu, item);
 	};
 	const auto addPhotoActions = [&](not_null<PhotoData*> photo, HistoryItem *item) {
@@ -2902,6 +2902,10 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 				_menu->addAction(tr::lng_context_forward_selected(tr::now), [=] {
 					_widget->forwardSelected();
 				}, &st::menuIconForward);
+				_menu->addAction(tr::lng_context_forward_selected_no_quote(tr::now), [=] {
+					_widget->forwardNoQuoteSelected();
+				}, &st::menuIconForward);
+				AyuUi::AddRepeatMessageAction(_menu, item);
 			}
 			if (selectedState.count > 0 && selectedState.canDeleteCount == selectedState.count) {
 				_menu->addAction(tr::lng_context_delete_selected(tr::now), [=] {
@@ -2918,11 +2922,21 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 			const auto itemId = item->fullId();
 			const auto blockSender = item->history()->peer->isRepliesChat();
 			if (isUponSelected != -2) {
+				auto fwdSubmenu = std::make_unique<Ui::PopupMenu>(this, st::popupMenuWithIcons);
 				if (item->allowsForward()) {
-					_menu->addAction(tr::lng_context_forward_msg(tr::now), [=] {
+					fwdSubmenu->addAction(tr::lng_context_forward_msg(tr::now), [=] {
 						forwardItem(itemId);
 					}, &st::menuIconForward);
+					fwdSubmenu->addAction(tr::lng_context_forward_msg_no_quote(tr::now), [=] {
+						forwardItemNoQuote(itemId);
+					}, &st::menuIconForward);
+					if (!fwdSubmenu->empty()) {
+						_menu->addAction(tr::lng_context_forward(tr::now), std::move(fwdSubmenu), &st::menuIconForward);
+					}
 				}
+
+				AyuUi::AddRepeatMessageAction(_menu, item);
+
 				if (HistoryView::CanAddOfferToMessage(item)) {
 					_menu->addAction(tr::lng_context_add_offer(tr::now), [=] {
 						Api::AddOfferToMessage(_controller->uiShow(), itemId);
@@ -3166,7 +3180,11 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 				_menu->addAction(tr::lng_context_forward_selected(tr::now), [=] {
 					_widget->forwardSelected();
 				}, &st::menuIconForward);
+				_menu->addAction(tr::lng_context_forward_selected_no_quote(tr::now), [=] {
+					_widget->forwardNoQuoteSelected();
+				}, &st::menuIconForward);
 			}
+			AyuUi::AddRepeatMessageAction(_menu, item);
 			if (selectedState.count > 0 && selectedState.count == selectedState.canDeleteCount) {
 				_menu->addAction(tr::lng_context_delete_selected(tr::now), [=] {
 					_widget->confirmDeleteSelected();
@@ -3180,11 +3198,21 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 			}, &st::menuIconSelect);
 		} else if (item && ((isUponSelected != -2 && (canForward || canDelete)) || item->isRegular())) {
 			if (isUponSelected != -2) {
+				auto fwdSubmenu = std::make_unique<Ui::PopupMenu>(this, st::popupMenuWithIcons);
 				if (canForward) {
-					_menu->addAction(tr::lng_context_forward_msg(tr::now), [=] {
+					fwdSubmenu->addAction(tr::lng_context_forward_msg(tr::now), [=] {
 						forwardAsGroup(itemId);
 					}, &st::menuIconForward);
+					fwdSubmenu->addAction(tr::lng_context_forward_msg_no_quote(tr::now), [=] {
+						forwardAsGroupNoQuote(itemId);
+					}, &st::menuIconForward);
+					if (!fwdSubmenu->empty()) {
+						_menu->addAction(tr::lng_context_forward(tr::now), std::move(fwdSubmenu), &st::menuIconForward);
+					}
 				}
+
+				AyuUi::AddRepeatMessageAction(_menu, item);
+
 				if (HistoryView::CanAddOfferToMessage(item)) {
 					_menu->addAction(tr::lng_context_add_offer(tr::now), [=] {
 						Api::AddOfferToMessage(_controller->uiShow(), itemId);
@@ -4911,14 +4939,50 @@ void HistoryInner::changeSelectionAsGroup(
 }
 
 void HistoryInner::forwardItem(FullMsgId itemId) {
-	Window::ShowForwardMessagesBox(_controller, { 1, itemId });
+	const auto weak = base::make_weak(this);
+	Window::ShowNewForwardMessagesBox(_controller, { 1, itemId }, false, [=] {
+		if (const auto strong = weak.get()) {
+			strong->clearSelected();
+		}
+	});
 }
 
 void HistoryInner::forwardAsGroup(FullMsgId itemId) {
 	if (const auto item = session().data().message(itemId)) {
-		Window::ShowForwardMessagesBox(
+		const auto weak = base::make_weak(this);
+		Window::ShowNewForwardMessagesBox(
 			_controller,
-			session().data().itemOrItsGroup(item));
+			session().data().itemOrItsGroup(item),
+			false,
+			[=] {
+				if (const auto strong = weak.get()) {
+					strong->clearSelected();
+				}
+			});
+	}
+}
+
+void HistoryInner::forwardItemNoQuote(FullMsgId itemId) {
+	const auto weak = base::make_weak(this);
+	Window::ShowNewForwardMessagesBox(_controller, { 1, itemId }, true, [=] {
+		if (const auto strong = weak.get()) {
+			strong->clearSelected();
+		}
+	});
+}
+
+void HistoryInner::forwardAsGroupNoQuote(FullMsgId itemId) {
+	if (const auto item = session().data().message(itemId)) {
+		const auto weak = base::make_weak(this);
+		Window::ShowNewForwardMessagesBox(
+			_controller,
+			session().data().itemOrItsGroup(item),
+			true,
+			[=] {
+				if (const auto strong = weak.get()) {
+					strong->clearSelected();
+				}
+			});
 	}
 }
 

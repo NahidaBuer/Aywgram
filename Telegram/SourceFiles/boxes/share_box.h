@@ -114,7 +114,9 @@ public:
 		std::shared_ptr<Ui::Show> show,
 		not_null<History*> history,
 		MessageIdsList msgIds,
-		std::optional<TimeId> videoTimestamp = {});
+		std::optional<TimeId> videoTimestamp = {},
+		bool no_quote = false,
+		FnMut<void()>&& successCallback = nullptr);
 
 	struct Descriptor {
 		not_null<Main::Session*> session;

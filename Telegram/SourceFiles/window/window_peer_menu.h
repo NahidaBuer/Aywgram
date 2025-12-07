@@ -177,6 +177,12 @@ Fn<void()> DeleteSublistHandler(
 	not_null<Window::SessionController*> controller,
 	not_null<Data::SavedSublist*> sublist);
 
+QPointer<Ui::BoxContent> ShowNewForwardMessagesBox(
+	not_null<Window::SessionNavigation*> navigation,
+	MessageIdsList &&items,
+	bool no_quote,
+	FnMut<void()>&& successCallback = nullptr);
+
 object_ptr<Ui::BoxContent> PrepareChooseRecipientBox(
 	not_null<Main::Session*> session,
 	FnMut<bool(not_null<Data::Thread*>)> &&chosen,
