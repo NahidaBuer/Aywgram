@@ -2905,7 +2905,6 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 				_menu->addAction(tr::lng_context_forward_selected_no_quote(tr::now), [=] {
 					_widget->forwardNoQuoteSelected();
 				}, &st::menuIconForward);
-				AyuUi::AddRepeatMessageAction(_menu, item);
 			}
 			if (selectedState.count > 0 && selectedState.canDeleteCount == selectedState.count) {
 				_menu->addAction(tr::lng_context_delete_selected(tr::now), [=] {
@@ -3184,7 +3183,6 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 					_widget->forwardNoQuoteSelected();
 				}, &st::menuIconForward);
 			}
-			AyuUi::AddRepeatMessageAction(_menu, item);
 			if (selectedState.count > 0 && selectedState.count == selectedState.canDeleteCount) {
 				_menu->addAction(tr::lng_context_delete_selected(tr::now), [=] {
 					_widget->confirmDeleteSelected();
