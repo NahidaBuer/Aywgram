@@ -67,3 +67,6 @@ settings.local.json
 
 # Project specific
 Telegram/SourceFiles/_other/packer_private.h
+/Telegram/build/CMakeFiles/
+/Telegram/build/CMakeCache.txt
+/Telegram/build/.cmake/

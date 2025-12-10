@@ -1,0 +1,17 @@
+# Release mode optimizations (applied via CI)
+target_compile_options(common_options
+INTERFACE
+    $<$<CONFIG:Release>:/O2>      # Maximum speed optimization
+    $<$<CONFIG:Release>:/Oy>      # Omit frame pointers
+    $<$<CONFIG:Release>:/GS->     # Disable buffer security checks
+    $<$<CONFIG:Release>:/Gy>      # Enable function-level linking
+)
+
+target_link_options(common_options
+INTERFACE
+    $<$<CONFIG:Release>:/OPT:REF>     # Remove unreferenced functions/data
+    $<$<CONFIG:Release>:/OPT:ICF=5>   # Identical COMDAT folding
+    $<$<CONFIG:Release>:/MERGE:.rdata=.text>  # Merge read-only data section
+    $<$<CONFIG:Release>:/DEBUG:NONE>  # No debug info in Release
+)
+
