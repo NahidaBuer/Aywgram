@@ -73,3 +73,18 @@ exteraBadgeToast: Toast(defaultToast) {
 supportLogoSize: 96px;
 
 unreadPillPadding: 12px;
+
+infoProfileLabeledButtonRegistrationDate: IconButton(defaultIconButton) {
+	width: 34px;
+	height: 34px;
+	icon: icon {{ "menu/calendar", windowActiveTextFg }};
+	iconOver: icon {{ "menu/calendar", windowActiveTextFg }};
+	rippleAreaPosition: point(0px, 0px);
+	rippleAreaSize: 34px;
+	ripple: defaultRippleAnimation;
+}
+registrationDateImportantTooltipLabel: FlatLabel(defaultImportantTooltipLabel) {
+	style: TextStyle(defaultTextStyle) {
+		font: font(12px);
+	}
+}

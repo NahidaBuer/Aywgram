@@ -40,6 +40,7 @@ set(style_files
     intro/intro.style
     iv/iv.style
     media/player/media_player.style
+    media/stories/media_stories.style
     passport/passport.style
     payments/ui/payments.style
     profile/profile.style
@@ -74,6 +75,8 @@ PRIVATE
     calls/group/ui/calls_group_recording_box.h
     calls/group/ui/calls_group_scheduled_labels.cpp
     calls/group/ui/calls_group_scheduled_labels.h
+    calls/group/ui/calls_group_stars_coloring.cpp
+    calls/group/ui/calls_group_stars_coloring.h
     calls/group/ui/desktop_capture_choose_source.cpp
     calls/group/ui/desktop_capture_choose_source.h
     calls/ui/calls_device_menu.cpp
@@ -102,6 +105,9 @@ PRIVATE
     data/data_channel_earn.h
     data/data_credits.h
     data/data_credits_earn.h
+    data/data_passkey_deserialize.cpp
+    data/data_passkey_deserialize.h
+    data/data_peer_colors.h
     data/data_premium_subscription_option.h
     data/data_statistics_chart.cpp
     data/data_statistics_chart.h
@@ -152,10 +158,15 @@ PRIVATE
     history/view/controls/history_view_voice_record_button.cpp
     history/view/controls/history_view_voice_record_button.h
 
+    info/info_flexible_scroll.cpp
+    info/info_flexible_scroll.h
+
     info/profile/info_profile_icon.cpp
     info/profile/info_profile_icon.h
     info/profile/info_profile_text.cpp
     info/profile/info_profile_text.h
+    info/profile/info_profile_top_bar_action_button.cpp
+    info/profile/info_profile_top_bar_action_button.h
     info/userpic/info_userpic_bubble_wrap.cpp
     info/userpic/info_userpic_bubble_wrap.h
     info/userpic/info_userpic_color_circle_button.cpp
@@ -234,14 +245,19 @@ PRIVATE
 
     platform/linux/current_geo_location_linux.cpp
     platform/linux/current_geo_location_linux.h
+    platform/linux/text_recognition_linux.h
     platform/mac/file_bookmark_mac.h
     platform/mac/file_bookmark_mac.mm
     platform/mac/current_geo_location_mac.h
     platform/mac/current_geo_location_mac.mm
+    platform/mac/text_recognition_mac.h
+    platform/mac/text_recognition_mac.mm
     platform/win/current_geo_location_win.cpp
     platform/win/current_geo_location_win.h
+    platform/win/text_recognition_win.h
     platform/platform_file_bookmark.h
     platform/platform_current_geo_location.h
+    platform/platform_text_recognition.h
 
     settings/settings_common.cpp
     settings/settings_common.h
@@ -389,6 +405,8 @@ PRIVATE
     ui/controls/download_bar.h
     ui/controls/emoji_button.cpp
     ui/controls/emoji_button.h
+    ui/controls/feature_list.cpp
+    ui/controls/feature_list.h
     ui/controls/filter_link_header.cpp
     ui/controls/filter_link_header.h
     ui/controls/jump_down_button.cpp
@@ -432,6 +450,8 @@ PRIVATE
     ui/effects/glare.h
     ui/effects/loading_element.cpp
     ui/effects/loading_element.h
+    ui/effects/ministar_particles.cpp
+    ui/effects/ministar_particles.h
     ui/effects/outline_segments.cpp
     ui/effects/outline_segments.h
     ui/effects/premium_bubble.cpp
@@ -482,6 +502,8 @@ PRIVATE
     ui/widgets/discrete_sliders.h
     ui/widgets/gradient_round_button.cpp
     ui/widgets/gradient_round_button.h
+    ui/widgets/horizontal_fit_container.cpp
+    ui/widgets/horizontal_fit_container.h
     ui/widgets/level_meter.cpp
     ui/widgets/level_meter.h
     ui/widgets/multi_select.cpp
@@ -506,6 +528,8 @@ PRIVATE
     ui/grouped_layout.h
     ui/new_badges.cpp
     ui/new_badges.h
+    ui/peer/color_sample.cpp
+    ui/peer/color_sample.h
     ui/power_saving.cpp
     ui/power_saving.h
     ui/vertical_list.cpp

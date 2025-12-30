@@ -65,7 +65,7 @@ ShowButton::ShowButton(not_null<Ui::RpWidget*> parent)
 : RpWidget(parent)
 , _button(this, tr::lng_usernames_activate_confirm(tr::now)) {
 	_button.sizeValue(
-	) | rpl::start_with_next([=](const QSize &s) {
+	) | rpl::on_next([=](const QSize &s) {
 		resize(
 			s.width() + st::defaultEmojiSuggestions.fadeRight.width(),
 			s.height());
@@ -165,7 +165,7 @@ void TranslateBox(
 		rpl::combine(
 			container->widthValue(),
 			original->geometryValue()
-		) | rpl::start_with_next([=](int width, const QRect &rect) {
+		) | rpl::on_next([=](int width, const QRect &rect) {
 			show->moveToLeft(
 				width - show->width() - st::boxRowPadding.right(),
 				rect.y() + std::abs(lineHeight - show->height()) / 2);
@@ -173,7 +173,7 @@ void TranslateBox(
 		original->entity()->heightValue(
 		) | rpl::filter([](int height) {
 			return height > 0;
-		}) | rpl::take(1) | rpl::start_with_next([=](int height) {
+		}) | rpl::take(1) | rpl::on_next([=](int height) {
 			if (height > lineHeight) {
 				show->show(anim::type::instant);
 			}
@@ -193,7 +193,7 @@ void TranslateBox(
 			state->to.value() | rpl::map(LanguageName));
 
 		// Workaround.
-		state->to.value() | rpl::start_with_next([=] {
+		state->to.value() | rpl::on_next([=] {
 			subtitle->resizeToWidth(container->width()
 				- padding.left()
 				- padding.right());
@@ -233,7 +233,7 @@ void TranslateBox(
 		const auto reqId = Ayu::Translator::TranslateManager::currentInstance()->request(
 			&peer->session(),
 			MTP_flags(flags),
-			msgId ? peer->input : MTP_inputPeerEmpty(),
+			msgId ? peer->input() : MTP_inputPeerEmpty(),
 			(msgId
 				? MTP_vector<MTPint>(1, MTP_int(msgId))
 				: MTPVector<MTPint>()),
@@ -251,7 +251,7 @@ void TranslateBox(
 			const auto &list = data.vresult().v;
 			if (list.isEmpty()) {
 				showText(
-					Ui::Text::Italic(tr::lng_translate_box_error(tr::now)));
+					tr::italic(tr::lng_translate_box_error(tr::now)));
 			} else {
 				showText(Api::ParseTextWithEntities(
 					&peer->session(),
@@ -259,15 +259,15 @@ void TranslateBox(
 			}
 		}).fail([=](const MTP::Error &error) {
 			showText(
-				Ui::Text::Italic(tr::lng_translate_box_error(tr::now)));
+				tr::italic(tr::lng_translate_box_error(tr::now)));
 		}).send();
 
-		box->boxClosing() | rpl::start_with_next([=]
+		box->boxClosing() | rpl::on_next([=]
 		{
 			Ayu::Translator::TranslateManager::currentInstance()->cancel(reqId);
 		}, box->lifetime());
 	};
-	state->to.value() | rpl::start_with_next(send, box->lifetime());
+	state->to.value() | rpl::on_next(send, box->lifetime());
 
 	box->addLeftButton(tr::lng_settings_language(), [=] {
 		if (loading->toggled()) {

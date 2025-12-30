@@ -98,9 +98,9 @@ private:
 	std::unordered_map<ID, CustomBadge> _customBadges = {};
 
 	QString _donateUsername = QString("@ayugramOwner");
-	QString _donateAmountUsd = QString("4.00");
-	QString _donateAmountTon = QString("1.30");
-	QString _donateAmountRub = QString("300");
+	QString _donateAmountUsd = QString("4.50");
+	QString _donateAmountTon = QString("3.00");
+	QString _donateAmountRub = QString("360");
 
 	QTimer* _timer = nullptr;
 

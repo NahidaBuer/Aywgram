@@ -10,6 +10,9 @@
 #include <latch>
 #include <QTimer>
 
+#include <QtCore/QJsonDocument>
+#include <QtCore/QJsonObject>
+
 #include "apiwrap.h"
 
 #include "lang_auto.h"
@@ -39,22 +42,30 @@
 #include "ayu/ayu_state.h"
 #include "ayu/data/messages_storage.h"
 #include "ayu/features/filters/filters_controller.h"
+#include "base/unixtime.h"
 #include "data/data_chat.h"
 #include "data/data_poll.h"
 #include "data/data_saved_sublist.h"
-#include "lang/lang_text_entity.h"
+#include "data/stickers/data_custom_emoji.h"
+#include "data/stickers/data_stickers.h"
+#include "lang/lang_keys.h"
 #include "main/main_domain.h"
 #include "styles/style_ayu_styles.h"
 #include "ui/text/text_utilities.h"
+#include "ui/text/text_entity.h"
 #include "ui/toast/toast.h"
-
-#include "unicode/regex.h"
 
 namespace {
 
 constexpr auto usernameResolverBotId = 7424190611L;
 const auto usernameResolverBotUsername = QString("tgdb_search_bot");
 const auto usernameResolverEmpty = QString("Error, username or id invalid/not found.");
+
+constexpr auto regDateBotId = 8083294286L;
+const auto regDateBotUsername = QString("exteraAuthBot");
+
+constexpr auto regDateBotFallbackId = 6247153446L;
+const auto regDateBotFallbackUsername = QString("ayugrambot");
 
 }
 
@@ -153,31 +164,31 @@ Fn<void()> badgeClickHandler(not_null<PeerData*> peer) {
 								  tr::now,
 								  lt_item,
 								  TextWithEntities{peer->name()},
-								  Ui::Text::RichLangValue)
+								  tr::rich)
 							  : tr::ayu_SupporterPopup(
 								  tr::now,
 								  lt_item,
 								  TextWithEntities{peer->name()},
-								  Ui::Text::RichLangValue))
-					   : Ui::Text::RichLangValue(custom.text);
+								  tr::rich))
+					   : tr::rich(custom.text);
 		} else if (isExtera) {
 			text = peer->isUser()
 					   ? tr::ayu_DeveloperPopup(
 						   tr::now,
 						   lt_item,
 						   TextWithEntities{peer->name()},
-						   Ui::Text::RichLangValue)
+						   tr::rich)
 					   : tr::ayu_OfficialResourcePopup(
 						   tr::now,
 						   lt_item,
 						   TextWithEntities{peer->name()},
-						   Ui::Text::RichLangValue);
+						   tr::rich);
 		} else if (isSupporter) {
 			text = tr::ayu_SupporterPopup(
 				tr::now,
 				lt_item,
 				TextWithEntities{peer->name()},
-				Ui::Text::RichLangValue);
+				tr::rich);
 		} else {
 			return;
 		}
@@ -220,7 +231,7 @@ void readMentions(base::weak_ptr<Data::Thread> weakThread) {
 	using Flag = MTPmessages_ReadMentions::Flag;
 	peer->session().api().request(MTPmessages_ReadMentions(
 		MTP_flags(rootId ? Flag::f_top_msg_id : Flag()),
-		peer->input,
+		peer->input(),
 		MTP_int(rootId)
 	)).done([=](const MTPmessages_AffectedHistory &result)
 	{
@@ -247,9 +258,9 @@ void readReactions(base::weak_ptr<Data::Thread> weakThread) {
 	using Flag = MTPmessages_ReadReactions::Flag;
 	peer->session().api().request(MTPmessages_ReadReactions(
 		MTP_flags(rootId ? Flag::f_top_msg_id : Flag(0)),
-		peer->input,
+		peer->input(),
 		MTP_int(rootId),
-		sublist ? sublist->sublistPeer()->input : MTPInputPeer()
+		sublist ? sublist->sublistPeer()->input() : MTPInputPeer()
 	)).done([=](const MTPmessages_AffectedHistory &result)
 	{
 		const auto offset = peer->session().api().applyAffectedHistory(
@@ -318,13 +329,13 @@ void readHistory(not_null<HistoryItem*> message) {
 					 {
 						 if (const auto channel = history->peer->asChannel()) {
 							 return history->session().api().request(MTPchannels_ReadHistory(
-								 channel->inputChannel,
+								 channel->inputChannel(),
 								 MTP_int(tillId)
 							 )).done([=] { AyuWorker::markAsOnline(&history->session()); }).send();
 						 }
 
 						 return history->session().api().request(MTPmessages_ReadHistory(
-							 history->peer->input,
+							 history->peer->input(),
 							 MTP_int(tillId)
 						 )).done([=](const MTPmessages_AffectedMessages &result)
 						 {
@@ -684,7 +695,7 @@ void searchPeerInner(const QString &peerId, Main::Session *session, const Userna
 
 	session->api().request(MTPmessages_GetInlineBotResults(
 		MTP_flags(0),
-		bot->inputUser,
+		bot->inputUser(),
 		MTP_inputPeerEmpty(),
 		MTPInputGeoPoint(),
 		MTP_string(peerId),
@@ -915,6 +926,54 @@ bool mediaDownloadable(const Data::Media *media) {
 	return true;
 }
 
+TextWithEntities reverseLocalPremiumEmoji(const TextWithEntities &text, not_null<History *> history, bool isForQuote) {
+	if (text.empty()) {
+		return text;
+	}
+
+	const auto channel = history->peer->asChannel();
+	const auto hasCustomEmoji = channel && channel->mgInfo && channel->mgInfo->emojiSet.id;
+	const auto sets = hasCustomEmoji && channel
+		? &channel->owner().stickers().sets()
+		: nullptr;
+	const auto set = sets
+		? sets->find(channel->mgInfo->emojiSet.id)
+		: decltype(sets->cend()){};
+	const auto emojiAllowed = [=](const EntityInText& entity)
+	{
+		if (!sets || set == sets->cend()) {
+			return false;
+		}
+		const auto emojiId = Data::ParseCustomEmojiData(entity.data());
+		if (!emojiId) {
+			return false;
+		}
+		const auto &emojiMap = set->second->emoji;
+		for (const auto &[emoji, documents] : emojiMap) {
+			for (const auto &document : documents) {
+				if (document->id == emojiId) {
+					return true;
+				}
+			}
+		}
+		return false;
+	};
+
+	auto result = text;
+	for (auto &entity : result.entities) {
+		if (entity.type() == EntityType::CustomEmoji && entity.isLocal()) {
+			if (isForQuote || !history->peer->isSelf() && !(history->owner().session().user()->flags() & UserDataFlag::Premium) && !emojiAllowed(entity)) {
+				entity = EntityInText(
+					EntityType::CustomUrl,
+					entity.offset(),
+					entity.length(),
+					u"tg://emoji?id="_q + entity.data());
+			}
+		}
+	}
+	return result;
+}
+
 void resolveAllChats(const std::map<long long, QString> &peers) {
 	auto session = currentSession();
 
@@ -989,4 +1048,248 @@ PeerData *getPeerFromDialogId(ID id) {
 
 PeerData *getPeerFromDialogId(unsigned long long id) {
 	return getPeerFromDialogId<unsigned long long>(id);
+}
+
+void getUserRegistrationDateInner(
+	not_null<UserData*> user,
+	ID botId,
+	Fn<void(TextWithEntities)> callback) {
+	const auto session = &user->session();
+	const auto userId = getBareID(user);
+	const auto userName = user->name();
+	const auto isSelf = user->isSelf();
+
+	const auto bot = session->data().userLoaded(botId);
+	if (!bot) {
+		callback(TextWithEntities{});
+		return;
+	}
+
+	session->api().request(MTPmessages_GetInlineBotResults(
+		MTP_flags(0),
+		bot->inputUser(),
+		MTP_inputPeerEmpty(),
+		MTPInputGeoPoint(),
+		MTP_string(qsl("regdate ") + QString::number(userId)),
+		MTP_string("")
+	)).done([=](const MTPmessages_BotResults &result)
+	{
+		TextWithEntities resultText;
+
+		if (result.type() != mtpc_messages_botResults) {
+			callback(resultText);
+			return;
+		}
+
+		auto &d = result.c_messages_botResults();
+		session->data().processUsers(d.vusers());
+
+		auto &v = d.vresults().v;
+
+		for (const auto &res : v) {
+			const auto message = res.match(
+				[&](const MTPDbotInlineResult &data)
+				{
+					return &data.vsend_message();
+				},
+				[&](const MTPDbotInlineMediaResult &data)
+				{
+					return &data.vsend_message();
+				});
+
+			const auto text = message->match(
+				[&](const MTPDbotInlineMessageMediaAuto &data)
+				{
+					return QString();
+				},
+				[&](const MTPDbotInlineMessageText &data)
+				{
+					return qs(data.vmessage());
+				},
+				[&](const MTPDbotInlineMessageMediaGeo &data)
+				{
+					return QString();
+				},
+				[&](const MTPDbotInlineMessageMediaVenue &data)
+				{
+					return QString();
+				},
+				[&](const MTPDbotInlineMessageMediaContact &data)
+				{
+					return QString();
+				},
+				[&](const MTPDbotInlineMessageMediaInvoice &data)
+				{
+					return QString();
+				},
+				[&](const MTPDbotInlineMessageMediaWebPage &data)
+				{
+					return QString();
+				});
+
+			if (text.isEmpty() || text == "failed") {
+				continue;
+			}
+
+			const auto json = QJsonDocument::fromJson(text.toUtf8());
+			if (!json.isObject()) {
+				continue;
+			}
+
+			const auto obj = json.object();
+			const auto flag = obj["flag"].toString();
+			const auto date = obj["date"].toString();
+
+			const auto parsedDate = QDate::fromString(date, "dd.MM.yyyy");
+			const auto formattedDate = langDayOfMonthFull(parsedDate);
+
+			if (flag == "EXACT" || flag == "INTERPOLATED") {
+				if (!isSelf) {
+					resultText = tr::ayu_CreationDateUserApproximately(
+						tr::now,
+						lt_item1,
+						TextWithEntities{userName},
+						lt_item2,
+						TextWithEntities{formattedDate},
+						tr::rich
+					);
+				} else {
+					resultText = tr::ayu_CreationDateSelfApproximately(
+						tr::now,
+						lt_item,
+						TextWithEntities{formattedDate},
+						tr::rich
+					);
+				}
+			} else if (flag == "LT") {
+				if (!isSelf) {
+					resultText = tr::ayu_CreationDateUserEarlier(
+						tr::now,
+						lt_item1,
+						TextWithEntities{userName},
+						lt_item2,
+						TextWithEntities{formattedDate},
+						tr::rich
+					);
+				} else {
+					resultText = tr::ayu_CreationDateSelfEarlier(
+						tr::now,
+						lt_item,
+						TextWithEntities{formattedDate},
+						tr::rich
+					);
+				}
+			} else if (flag == "ET") {
+				if (!isSelf) {
+					resultText = tr::ayu_CreationDateUserLater(
+						tr::now,
+						lt_item1,
+						TextWithEntities{userName},
+						lt_item2,
+						TextWithEntities{formattedDate},
+						tr::rich
+					);
+				} else {
+					resultText = tr::ayu_CreationDateSelfLater(
+						tr::now,
+						lt_item,
+						TextWithEntities{formattedDate},
+						tr::rich
+					);
+				}
+			}
+			break;
+		}
+
+		callback(resultText);
+	}).fail([=]
+	{
+		callback(TextWithEntities{});
+	}).handleAllErrors().send();
+}
+
+void getUserRegistrationDate(not_null<UserData*> user, Fn<void(TextWithEntities)> callback) {
+	const auto session = &user->session();
+	const auto selfId = getDialogIdFromPeer(session->user());
+	const auto isSupporter = isSupporterPeer(selfId) || isExteraPeer(selfId);
+
+	const auto botId = isSupporter ? regDateBotId : regDateBotFallbackId;
+	const auto botUsername = isSupporter ? regDateBotUsername : regDateBotFallbackUsername;
+
+	if (session->data().userLoaded(botId)) {
+		getUserRegistrationDateInner(user, botId, callback);
+	} else {
+		resolvePeer(
+			QString::number(botId),
+			botUsername,
+			session,
+			[=](const QString &title, PeerData *data)
+			{
+				getUserRegistrationDateInner(user, botId, callback);
+			});
+	}
+}
+
+void getChannelJoinOrCreateDate(not_null<ChannelData*> channel, Fn<void(TextWithEntities)> callback) {
+	TextWithEntities result;
+
+	if (channel->inviteDate) {
+		const auto formattedDate = langDayOfMonthFull(base::unixtime::parse(channel->inviteDate).date());
+		result = tr::ayu_JoinDateChat(
+			tr::now,
+			lt_item1,
+			TextWithEntities{channel->name()},
+			lt_item2,
+			TextWithEntities{formattedDate},
+			tr::rich
+		);
+	} else if (channel->date) {
+		const auto formattedDate = langDayOfMonthFull(base::unixtime::parse(channel->date).date());
+		result = tr::ayu_CreationDateChat(
+			tr::now,
+			lt_item1,
+			TextWithEntities{channel->name()},
+			lt_item2,
+			TextWithEntities{formattedDate},
+			tr::rich
+		);
+	}
+
+	if (callback) {
+		callback(result);
+	}
+}
+
+void getChatCreateDate(not_null<ChatData*> chat, Fn<void(TextWithEntities)> callback) {
+	TextWithEntities result;
+
+	if (chat->date) {
+		const auto formattedDate = langDayOfMonthFull(base::unixtime::parse(chat->date).date());
+		result = tr::ayu_CreationDateChat(
+			tr::now,
+			lt_item1,
+			TextWithEntities{chat->name()},
+			lt_item2,
+			TextWithEntities{formattedDate},
+			tr::rich
+		);
+	}
+
+	if (callback) {
+		callback(result);
+	}
+}
+
+void getRegistrationDate(not_null<PeerData*> peer, Fn<void(TextWithEntities)> callback) {
+	if (const auto user = peer->asUser()) {
+		getUserRegistrationDate(user, callback);
+	} else if (const auto channel = peer->asChannel()) {
+		getChannelJoinOrCreateDate(channel, callback);
+	} else if (const auto chat = peer->asChat()) {
+		getChatCreateDate(chat, callback);
+	} else {
+		if (callback) {
+			callback(TextWithEntities{});
+		}
+	}
 }

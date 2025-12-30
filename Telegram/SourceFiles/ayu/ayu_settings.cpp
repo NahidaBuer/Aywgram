@@ -25,8 +25,6 @@ using json = nlohmann::json;
 
 namespace AyuSettings {
 
-const std::string filename = "tdata/ayu_settings.json";
-
 std::optional<AyuGramSettings> settings = std::nullopt;
 
 rpl::variable<bool> sendReadMessagesReactive;
@@ -70,7 +68,7 @@ void initialize() {
 		[=](bool val)
 		{
 			return (val != settings->sendReadMessages);
-		}) | start_with_next(
+		}) | on_next(
 		[=](bool val)
 		{
 			ghostModeEnabled =
@@ -82,7 +80,7 @@ void initialize() {
 		[=](bool val)
 		{
 			return (val != settings->sendReadStories);
-		}) | start_with_next(
+		}) | on_next(
 		[=](bool val)
 		{
 			ghostModeEnabled =
@@ -94,7 +92,7 @@ void initialize() {
 		[=](bool val)
 		{
 			return (val != settings->sendOnlinePackets);
-		}) | start_with_next(
+		}) | on_next(
 		[=](bool val)
 		{
 			ghostModeEnabled =
@@ -107,7 +105,7 @@ void initialize() {
 		[=](bool val)
 		{
 			return (val != settings->sendUploadProgress);
-		}) | start_with_next(
+		}) | on_next(
 		[=](bool val)
 		{
 			ghostModeEnabled =
@@ -121,7 +119,7 @@ void initialize() {
 		{
 			return (val
 				!= settings->sendOfflinePacketAfterOnline);
-		}) | start_with_next(
+		}) | on_next(
 		[=](bool val)
 		{
 			ghostModeEnabled =
@@ -155,8 +153,12 @@ AyuGramSettings &getInstance() {
 	return settings.value();
 }
 
+std::string getSettingsPath() {
+	return (cWorkingDir() + u"tdata/ayu_settings.json"_q).toStdString();
+}
+
 void load() {
-	std::ifstream file(filename);
+	std::ifstream file(getSettingsPath());
 	if (!file.good()) {
 		return;
 	}
@@ -194,7 +196,7 @@ void save() {
 	json p = settings.value();
 
 	std::ofstream file;
-	file.open(filename);
+	file.open(getSettingsPath());
 	file << p.dump(4);
 	file.close();
 

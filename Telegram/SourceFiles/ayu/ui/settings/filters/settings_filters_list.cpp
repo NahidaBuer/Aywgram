@@ -93,19 +93,20 @@ void AyuFiltersList::addNewFilter(const RegexFilter &filter, bool exclusion) {
 		button->setColorOverride(st::storiesComposeGrayText->c);
 	}
 
-	auto defaultClickHandler = [=, this]() mutable
+	auto defaultClickHandler = [=, dialogId = dialogId]() mutable
 	{
 		auto _contextMenu = new Ui::PopupMenu(this, st::popupMenuWithIcons);
 		_contextMenu->setAttribute(Qt::WA_DeleteOnClose);
 
 		_contextMenu->addAction(
 			tr::lng_theme_edit(tr::now),
-			[=, this]
+			[=]
 			{
 				_controller->show(
 					RegexEditBox(
 						state,
-						nullptr
+						nullptr,
+						dialogId
 						));
 			},
 			&st::menuIconEdit);

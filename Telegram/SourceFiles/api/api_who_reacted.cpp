@@ -176,7 +176,7 @@ struct State {
 	}
 	session->changes().messageUpdates(
 		Data::MessageUpdate::Flag::Destroyed
-	) | rpl::start_with_next([=](const Data::MessageUpdate &update) {
+	) | rpl::on_next([=](const Data::MessageUpdate &update) {
 		const auto i = context->cachedRead.find(update.item);
 		if (i != end(context->cachedRead)) {
 			session->api().request(i->second.requestId).cancel();
@@ -194,7 +194,7 @@ struct State {
 		session
 	) | rpl::skip(1) | rpl::filter(
 		rpl::mappers::_1
-	) | rpl::start_with_next([=] {
+	) | rpl::on_next([=] {
 		for (auto &[item, cache] : context->cachedRead) {
 			if (cache.data.current().state == Ui::WhoReadState::MyHidden) {
 				cache.data = Peers{ .state = Ui::WhoReadState::Unknown };
@@ -204,7 +204,7 @@ struct State {
 	session->api().globalPrivacy().hideReadTime(
 	) | rpl::skip(1) | rpl::filter(
 		!rpl::mappers::_1
-	) | rpl::start_with_next([=] {
+	) | rpl::on_next([=] {
 		for (auto &[item, cache] : context->cachedRead) {
 			if (cache.data.current().state == Ui::WhoReadState::MyHidden) {
 				cache.data = Peers{ .state = Ui::WhoReadState::Unknown };
@@ -254,7 +254,7 @@ struct State {
 		} else if (const auto user = item->history()->peer->asUser()) {
 			entry.requestId = session->api().request(
 				MTPmessages_GetOutboxReadDate(
-					user->input,
+					user->input(),
 					MTP_int(item->id)
 				)
 			).done([=](const MTPOutboxReadDate &result) {
@@ -284,7 +284,7 @@ struct State {
 		} else {
 			entry.requestId = session->api().request(
 				MTPmessages_GetMessageReadParticipants(
-					item->history()->peer->input,
+					item->history()->peer->input(),
 					MTP_int(item->id)
 				)
 			).done([=](const MTPVector<MTPReadParticipantDate> &result) {
@@ -342,7 +342,7 @@ struct State {
 					MTP_flags(reaction.empty()
 						? Flag(0)
 						: Flag::f_reaction),
-					item->history()->peer->input,
+					item->history()->peer->input(),
 					MTP_int(item->id),
 					ReactionToMTP(reaction),
 					MTPstring(), // offset
@@ -592,7 +592,7 @@ rpl::producer<Ui::WhoReadContent> WhoReacted(
 		}
 		std::move(
 			idsWithReactions
-		) | rpl::start_with_next([=](PeersWithReactions &&peers) {
+		) | rpl::on_next([=](PeersWithReactions &&peers) {
 			if (peers.state == WhoReadState::Unknown) {
 				state->userpics.clear();
 				consumer.put_next(Ui::WhoReadContent{
@@ -626,7 +626,7 @@ rpl::producer<Ui::WhoReadContent> WhoReacted(
 		item->history()->session().downloaderTaskFinished(
 		) | rpl::filter([=] {
 			return state->someUserpicsNotLoaded && !state->scheduled;
-		}) | rpl::start_with_next([=] {
+		}) | rpl::on_next([=] {
 			for (const auto &userpic : state->userpics) {
 				if (userpic.peer->userpicUniqueKey(userpic.view)
 					!= userpic.uniqueKey) {

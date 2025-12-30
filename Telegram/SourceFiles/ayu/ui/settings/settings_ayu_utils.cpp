@@ -6,6 +6,7 @@
 // Copyright @Radolyn, 2025
 #include "settings_ayu_utils.h"
 
+#include "lang/lang_text_entity.h"
 #include "settings/settings_common.h"
 #include "styles/style_info.h"
 #include "styles/style_layers.h"
@@ -88,7 +89,7 @@ not_null<Ui::RpWidget*> AddInnerToggle(not_null<Ui::VerticalLayout*> container,
 	{
 		const auto separator = Ui::CreateChild<Ui::RpWidget>(container.get());
 		separator->paintRequest(
-		) | start_with_next([=, bg = st.textBgOver]
+		) | on_next([=, bg = st.textBgOver]
 							{
 								auto p = QPainter(separator);
 								p.fillRect(separator->rect(), bg);
@@ -97,7 +98,7 @@ not_null<Ui::RpWidget*> AddInnerToggle(not_null<Ui::VerticalLayout*> container,
 		const auto separatorHeight = 2 * st.toggle.border
 			+ st.toggle.diameter;
 		button->geometryValue(
-		) | start_with_next([=](const QRect &r)
+		) | on_next([=](const QRect &r)
 							{
 								const auto w = st::rightsButtonToggleWidth;
 								constexpr auto kLineWidth = 1;
@@ -117,14 +118,14 @@ not_null<Ui::RpWidget*> AddInnerToggle(not_null<Ui::VerticalLayout*> container,
 		const auto checkWidget = Ui::CreateChild<Ui::RpWidget>(toggleButton);
 		checkWidget->resize(checkView->getSize());
 		checkWidget->paintRequest(
-		) | start_with_next([=]
+		) | on_next([=]
 							{
 								auto p = QPainter(checkWidget);
 								checkView->paint(p, 0, 0, checkWidget->width());
 							},
 							checkWidget->lifetime());
 		toggleButton->sizeValue(
-		) | start_with_next([=](const QSize &s)
+		) | on_next([=](const QSize &s)
 							{
 								checkWidget->moveToRight(
 									st.toggleSkip,
@@ -137,7 +138,7 @@ not_null<Ui::RpWidget*> AddInnerToggle(not_null<Ui::VerticalLayout*> container,
 
 	state->anyChanges.events_starting_with(
 		rpl::empty_value()
-	) | rpl::map(countChecked) | start_with_next([=](int count)
+	) | rpl::map(countChecked) | on_next([=](int count)
 												 {
 													 if (toggledWhenAll) {
 														 checkView->setChecked(count == totalInnerChecks,
@@ -160,7 +161,7 @@ not_null<Ui::RpWidget*> AddInnerToggle(not_null<Ui::VerticalLayout*> container,
 			) | rpl::map(countChecked)
 		) | rpl::map([=](const QString &t, int checked)
 		{
-			auto count = Ui::Text::Bold("  "
+			auto count = tr::bold("  "
 				+ QString::number(checked)
 				+ '/'
 				+ QString::number(totalInnerChecks));
@@ -173,7 +174,7 @@ not_null<Ui::RpWidget*> AddInnerToggle(not_null<Ui::VerticalLayout*> container,
 		const auto &icon = st::permissionsExpandIcon;
 		arrow->resize(icon.size());
 		arrow->paintRequest(
-		) | start_with_next([=, &icon]
+		) | on_next([=, &icon]
 							{
 								auto p = QPainter(arrow);
 								const auto center = QPointF(
@@ -193,7 +194,7 @@ not_null<Ui::RpWidget*> AddInnerToggle(not_null<Ui::VerticalLayout*> container,
 							arrow->lifetime());
 	}
 	button->sizeValue(
-	) | start_with_next([=, &st](const QSize &s)
+	) | on_next([=, &st](const QSize &s)
 						{
 							const auto labelLeft = st.padding.left();
 							const auto labelRight = s.width() - toggleButton->width();
@@ -210,7 +211,7 @@ not_null<Ui::RpWidget*> AddInnerToggle(not_null<Ui::VerticalLayout*> container,
 						},
 						button->lifetime());
 	wrap->toggledValue(
-	) | rpl::skip(1) | start_with_next([=](bool toggled)
+	) | rpl::skip(1) | on_next([=](bool toggled)
 									   {
 										   state->animation.start(
 											   [=]
@@ -226,14 +227,14 @@ not_null<Ui::RpWidget*> AddInnerToggle(not_null<Ui::VerticalLayout*> container,
 	wrap->ease = anim::easeOutCubic;
 
 	button->clicks(
-	) | start_with_next([=]
+	) | on_next([=]
 						{
 							wrap->toggle(!wrap->toggled(), anim::type::normal);
 						},
 						button->lifetime());
 
 	toggleButton->clicks(
-	) | start_with_next([=]
+	) | on_next([=]
 						{
 							const auto checked = !checkView->checked();
 							for (const auto &innerCheck : state->innerChecks) {
@@ -270,7 +271,7 @@ void AddCollapsibleToggle(not_null<Ui::VerticalLayout*> container,
 			combine(
 				verticalLayout->widthValue(),
 				checkbox->geometryValue()
-			) | start_with_next([=](int w, const QRect &r)
+			) | on_next([=](int w, const QRect &r)
 								{
 									button->setGeometry(0, r.y(), w, r.height());
 								},
@@ -287,7 +288,7 @@ void AddCollapsibleToggle(not_null<Ui::VerticalLayout*> container,
 			return checkView;
 		}();
 		checkView->checkedChanges(
-		) | start_with_next([=](bool checked)
+		) | on_next([=](bool checked)
 							{
 							},
 							verticalLayout->lifetime());
@@ -303,7 +304,7 @@ void AddCollapsibleToggle(not_null<Ui::VerticalLayout*> container,
 	for (const auto &entry : checkboxes) {
 		const auto c = addCheckbox(verticalLayout, entry.checkboxLabel, entry.initial);
 		c->checkedValue(
-		) | start_with_next([=](bool enabled)
+		) | on_next([=](bool enabled)
 							{
 								entry.callback(enabled);
 							},
@@ -322,7 +323,7 @@ void AddCollapsibleToggle(not_null<Ui::VerticalLayout*> container,
 		toggledWhenAll);
 	container->add(std::move(wrap));
 	container->widthValue(
-	) | start_with_next([=](int w)
+	) | on_next([=](int w)
 						{
 							raw->resizeToWidth(w);
 						},

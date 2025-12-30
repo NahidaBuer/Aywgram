@@ -14,6 +14,7 @@
 #include "base/platform/base_platform_info.h"
 #include "boxes/delete_messages_box.h"
 #include "core/mime_type.h"
+#include "lang/lang_text_entity.h"
 #include "media/audio/media_audio.h"
 #include "media/view/media_view_pip.h"
 #include "styles/style_boxes.h"
@@ -115,7 +116,7 @@ not_null<Ui::SlideWrap<Ui::FlatLabel>*> AddError(
 				st::settingLocalPasscodeError), st::settingsCheckboxPadding));
 	error->hide(anim::type::instant);
 	if (input) {
-		input->changes() | rpl::start_with_next(
+		input->changes() | rpl::on_next(
 			[=]
 			{
 				error->hide(anim::type::normal);
@@ -234,7 +235,7 @@ void RegexEditBuilder(
 					Ui::Toast::Show(Ui::Toast::Config{
 						.text = tr::ayu_RegexFilterBulletinText(
 							tr::now,
-							Ui::Text::RichLangValue
+							tr::rich
 						),
 						.filter = onClick,
 						.adaptive = true
@@ -244,7 +245,7 @@ void RegexEditBuilder(
 		});
 	};
 
-	regexValue->submits() | rpl::start_with_next(saveAndClose, regexValue->lifetime());
+	regexValue->submits() | rpl::on_next(saveAndClose, regexValue->lifetime());
 	box->addButton(tr::lng_settings_save(), saveAndClose);
 	box->addButton(tr::lng_cancel(),
 				   [=]

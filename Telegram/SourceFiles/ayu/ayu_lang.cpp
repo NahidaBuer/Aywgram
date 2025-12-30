@@ -6,10 +6,14 @@
 // Copyright @Radolyn, 2025
 #include "ayu_lang.h"
 
+#include <QDir>
+#include <QFile>
+
 #include "qjsondocument.h"
 #include "core/application.h"
 #include "core/core_settings.h"
 #include "lang/lang_instance.h"
+#include "storage/localstorage.h"
 
 // hard-coded languages
 std::map<QString, QString> langMapping = {
@@ -35,14 +39,72 @@ AyuLanguage::AyuLanguage() = default;
 
 void AyuLanguage::init() {
 	if (!instance) instance = new AyuLanguage;
+	instance->loadCachedLanguage();
 }
 
 AyuLanguage *AyuLanguage::currentInstance() {
 	return instance;
 }
 
+QString AyuLanguage::getCacheDir() const {
+	return cWorkingDir() + u"tdata/ayu/languages/"_q;
+}
+
+QString AyuLanguage::getCachePath(const QString &langId) const {
+	return getCacheDir() + langId + u".json"_q;
+}
+
+void AyuLanguage::loadCachedLanguage() {
+	const auto langPackId = Lang::GetInstance().id();
+	const auto langPackBaseId = Lang::GetInstance().baseId();
+	auto finalLangPackId = langMapping.contains(langPackId) ? langMapping[langPackId] : langPackId;
+
+	if (finalLangPackId.isEmpty()) {
+		finalLangPackId = langPackBaseId;
+	}
+	if (finalLangPackId.isEmpty()) {
+		return;
+	}
+
+	const auto cachePath = getCachePath(finalLangPackId);
+	QFile file(cachePath);
+	if (!file.exists()) {
+		const auto basePath = getCachePath(langPackBaseId);
+		if (!QFile::exists(basePath)) {
+			return;
+		}
+		file.setFileName(basePath);
+	}
+
+	if (file.open(QIODevice::ReadOnly)) {
+		const auto data = file.readAll();
+		file.close();
+
+		QJsonParseError error{};
+		const auto doc = QJsonDocument::fromJson(data, &error);
+		if (error.error == QJsonParseError::NoError) {
+			LOG(("Loading cached AyuGram language: %1").arg(finalLangPackId));
+			applyLanguageJson(doc);
+		}
+	}
+}
+
+void AyuLanguage::saveCachedLanguage(const QByteArray &json, const QString &langId) {
+	const auto cacheDir = getCacheDir();
+	QDir().mkpath(cacheDir);
+
+	const auto cachePath = getCachePath(langId);
+	QFile file(cachePath);
+	if (file.open(QIODevice::WriteOnly)) {
+		file.write(json);
+		file.close();
+		LOG(("Cached AyuGram language: %1").arg(langId));
+	}
+}
+
 void AyuLanguage::fetchLanguage(const QString &id, const QString &baseId) {
 	auto finalLangPackId = langMapping.contains(id) ? langMapping[id] : id;
+	_currentLangId = finalLangPackId.isEmpty() ? baseId : finalLangPackId;
 
 	if (Core::App().settings().proxy().isEnabled()) {
 		const auto proxy = Core::App().settings().proxy().selected();
@@ -84,6 +146,7 @@ void AyuLanguage::fetchFinished() {
 		QJsonParseError error{};
 		const auto doc = QJsonDocument::fromJson(result, &error);
 		if (error.error == QJsonParseError::NoError) {
+			saveCachedLanguage(result, _currentLangId);
 			applyLanguageJson(doc);
 		} else {
 			LOG(("Incorrect language JSON File."));
@@ -137,8 +200,10 @@ void AyuLanguage::applyLanguageJson(QJsonDocument doc) {
 			val = val.replace(qsl("%1$d"), qsl("{count}"));
 		} else if (val.contains(qsl("%1$d")) && val.contains(qsl("%2$d"))) {
 			val = val.replace(qsl("%1$d"), qsl("{count1}")).replace(qsl("%2$d"), qsl("{count2}"));
-		} else if (val.contains(qsl("%1$s"))) {
+		} else if (val.contains(qsl("%1$s")) && !val.contains(qsl("%2$s"))) {
 			val = val.replace(qsl("%1$s"), qsl("{item}"));
+		} else if (val.contains(qsl("%1$s")) && val.contains(qsl("%2$s"))) {
+			val = val.replace(qsl("%1$s"), qsl("{item1}")).replace(qsl("%2$s"), qsl("{item2}"));
 		}
 
 		Lang::GetInstance().resetValue(key.toUtf8());

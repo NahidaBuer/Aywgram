@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "info/profile/info_profile_widget.h"
 #include "info/profile/info_profile_values.h"
 #include "info/media/info_media_widget.h"
+#include "info/stories/info_stories_widget.h"
 #include "info/info_content_widget.h"
 #include "info/info_controller.h"
 #include "info/info_memento.h"
@@ -75,8 +76,13 @@ const style::InfoTopBar &TopBarStyle(Wrap wrap) {
 [[nodiscard]] bool HasCustomTopBar(not_null<const Controller*> controller) {
 	const auto section = controller->section();
 	return (section.type() == Section::Type::BotStarRef)
+		|| (section.type() == Section::Type::Profile)
 		|| ((section.type() == Section::Type::Settings)
-			&& section.settingsType()->hasCustomTopBar());
+			&& section.settingsType()->hasCustomTopBar())
+		|| (section.type() == Section::Type::Stories
+			&& controller->key().storiesAlbumId() != Stories::ArchiveId()
+			&& controller->key().storiesPeer()
+			&& controller->key().storiesPeer()->isSelf());
 }
 
 [[nodiscard]] Fn<Ui::StringWithNumbers(int)> SelectedTitleForMedia(
@@ -133,12 +139,12 @@ WrapWidget::WrapWidget(
 		) | rpl::flatten_latest() | rpl::distinct_until_changed());
 
 	_wrap.changes(
-	) | rpl::start_with_next([this] {
+	) | rpl::on_next([this] {
 		setupTop();
 		finishShowContent();
 	}, lifetime());
 	selectedListValue(
-	) | rpl::start_with_next([this](SelectedItems &&items) {
+	) | rpl::on_next([this](SelectedItems &&items) {
 		InvokeQueued(this, [this, items = std::move(items)]() mutable {
 			if (_topBar) {
 				_topBar->setSelectedItems(std::move(items));
@@ -149,7 +155,7 @@ WrapWidget::WrapWidget(
 
 	if (const auto topic = _controller->topic()) {
 		topic->destroyed(
-		) | rpl::start_with_next([=] {
+		) | rpl::on_next([=] {
 			if (_wrap.current() == Wrap::Layer) {
 				_controller->parentController()->hideSpecialLayer();
 			} else if (_wrap.current() == Wrap::Narrow) {
@@ -170,7 +176,7 @@ void WrapWidget::setupShortcuts() {
 		return requireTopBarSearch()
 			&& (Core::App().activeWindow()
 				== &_controller->parentController()->window());
-	}) | rpl::start_with_next([=](not_null<Shortcuts::Request*> request) {
+	}) | rpl::on_next([=](not_null<Shortcuts::Request*> request) {
 		using Command = Shortcuts::Command;
 		request->check(Command::Search) && request->handle([=] {
 			_topBar->showSearch();
@@ -209,7 +215,7 @@ void WrapWidget::startInjectingActivePeerProfiles() {
 		(_1 == Wrap::Side) && _2
 	) | rpl::map(
 		_2
-	) | rpl::start_with_next([this](Dialogs::Key key) {
+	) | rpl::on_next([this](Dialogs::Key key) {
 		injectActiveProfile(key);
 	}, lifetime());
 
@@ -350,14 +356,14 @@ void WrapWidget::createTopBar() {
 		TopBarStyle(wrapValue),
 		std::move(selectedItems));
 	_topBar->selectionActionRequests(
-	) | rpl::start_with_next([=](SelectionAction action) {
+	) | rpl::on_next([=](SelectionAction action) {
 		_content->selectionAction(action);
 	}, _topBar->lifetime());
 
 	if (hasBackButton()) {
 		_topBar->enableBackButton();
 		_topBar->backRequest(
-		) | rpl::start_with_next([=] {
+		) | rpl::on_next([=] {
 			checkBeforeClose([=] { _controller->showBackFromStack(); });
 		}, _topBar->lifetime());
 	} else if (wrapValue == Wrap::Side) {
@@ -369,7 +375,7 @@ void WrapWidget::createTopBar() {
 			_controller->parentController()->closeThirdSection();
 		});
 	}
-	_topBar->storyClicks() | rpl::start_with_next([=] {
+	_topBar->storyClicks() | rpl::on_next([=] {
 		if (const auto peer = _controller->key().peer()) {
 			_controller->parentController()->openPeerStories(peer->id);
 		}
@@ -425,8 +431,7 @@ void WrapWidget::setupTopBarMenuToggle() {
 				const auto button = _topBar->addButton(
 					base::make_unique_q<Ui::IconButton>(_topBar, st));
 				button->addClickHandler([show, self] {
-					show->show(
-						Box(Ui::FillPeerQrBox, self, std::nullopt, nullptr));
+					Ui::DefaultShowFillPeerQrBoxCallback(show, self);
 				});
 			}
 		} else if (section.settingsType() == ::Settings::AyuFiltersList::Id()) {
@@ -495,7 +500,7 @@ void WrapWidget::setupTopBarMenuToggle() {
 			manager.loadingListChanges() | rpl::map_to(false),
 			manager.loadedAdded() | rpl::map_to(true),
 			manager.loadedRemoved() | rpl::map_to(false)
-		) | rpl::start_with_next([=, &manager](bool definitelyHas) {
+		) | rpl::on_next([=, &manager](bool definitelyHas) {
 			const auto has = [&] {
 				for ([[maybe_unused]] const auto id : manager.loadingList()) {
 					return true;
@@ -562,7 +567,7 @@ void WrapWidget::addTopBarMenuButton() {
 	Shortcuts::Requests(
 	) | rpl::filter([=] {
 		return (_controller->section().type() == Section::Type::Profile);
-	}) | rpl::start_with_next([=](not_null<Shortcuts::Request*> request) {
+	}) | rpl::on_next([=](not_null<Shortcuts::Request*> request) {
 		using Command = Shortcuts::Command;
 
 		request->check(Command::ShowChatMenu, 1) && request->handle([=] {
@@ -593,7 +598,7 @@ void WrapWidget::addProfileCallsButton() {
 		return user->hasCalls();
 	}) | rpl::take(
 		1
-	) | rpl::start_with_next([=] {
+	) | rpl::on_next([=] {
 		_topBar->addButton(
 			base::make_unique_q<Ui::IconButton>(
 				_topBar,
@@ -741,11 +746,11 @@ void WrapWidget::finishShowContent() {
 	_contentChanges.fire({});
 
 	_content->scrollBottomSkipValue(
-	) | rpl::start_with_next([=] {
+	) | rpl::on_next([=] {
 		updateContentGeometry();
 	}, _content->lifetime());
 
-	AyuSettings::get_filtersUpdate() | rpl::start_with_next([=]
+	AyuSettings::get_filtersUpdate() | rpl::on_next([=]
 	{
 		auto contentMemento = _content->createMemento();
 		if (!contentMemento) {
@@ -1012,7 +1017,11 @@ void WrapWidget::showNewContent(
 void WrapWidget::showNewContent(not_null<ContentMemento*> memento) {
 	// Validates contentGeometry().
 	setupTop();
-	showContent(createContent(memento, _controller.get()));
+	auto newContent = createContent(memento, _controller.get());
+	if (!_topBar && hasBackButton()) {
+		newContent->enableBackButton();
+	}
+	showContent(std::move(newContent));
 }
 
 void WrapWidget::resizeEvent(QResizeEvent *e) {

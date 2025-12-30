@@ -51,7 +51,8 @@ void RCManager::makeRequest() {
 
 	clearSentRequest();
 
-	const auto request = QNetworkRequest(QUrl("https://update.ayugram.one/rc/current/desktop2"));
+	auto request = QNetworkRequest(QUrl("https://update.ayugram.one/rc/current/desktop2"));
+	request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
 	_reply = _manager->get(request);
 	connect(_reply,
 			&QNetworkReply::finished,

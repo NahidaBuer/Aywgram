@@ -27,9 +27,10 @@ struct ResultCover
 	bool noCover;
 };
 
-class AyuMusicButton final : public Ui::RippleButton {
+class AyuMusicButton final : public Ui::RippleButton
+{
 public:
-	AyuMusicButton(QWidget *parent, MusicButtonData data, Fn<void()> handler);
+	AyuMusicButton(QWidget *parent, MusicButtonData data, std::optional<QColor> overrideBg, Fn<void()> handler);
 	~AyuMusicButton();
 
 	void updateData(MusicButtonData data);
@@ -53,6 +54,8 @@ private:
 
 	QString _performerText;
 	QString _titleText;
+
+	std::optional<QColor> _overrideBg;
 
 };
 

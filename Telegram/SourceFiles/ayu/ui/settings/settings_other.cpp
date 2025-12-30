@@ -88,7 +88,7 @@ QImage getImage(const QString &name) {
 	auto icon = getImage(name);
 	iconWidget->resize(icon.size() / style::DevicePixelRatio());
 	iconWidget->paintRequest(
-	) | rpl::start_with_next([=]
+	) | rpl::on_next([=]
 							 {
 								 auto p = QPainter(iconWidget);
 								 p.drawImage(0, 0, icon);
@@ -96,7 +96,7 @@ QImage getImage(const QString &name) {
 							 iconWidget->lifetime());
 
 	button->sizeValue(
-	) | rpl::start_with_next([=](const QSize &s)
+	) | rpl::on_next([=](const QSize &s)
 							 {
 								 iconWidget->moveToLeft(
 									 button->st().iconLeft
@@ -168,7 +168,7 @@ void SetupDonations(not_null<Ui::VerticalLayout*> container, not_null<Window::Se
 					   rpl::single(
 						   Ui::Text::Link(tr::ayu_SupportDescription1(tr::now), QString("tg://support"))
 					   ),
-					   Ui::Text::WithEntities
+					   tr::marked
 				   )
 	);
 }
@@ -191,7 +191,7 @@ void SetupCrashReporting(not_null<Ui::VerticalLayout*> container) {
 		[=](bool enabled)
 		{
 			return (enabled != settings->crashReporting);
-		}) | start_with_next(
+		}) | on_next(
 		[=](bool enabled)
 		{
 			AyuSettings::set_crashReporting(enabled);
@@ -222,10 +222,11 @@ void SetupOtherThings(not_null<Ui::VerticalLayout*> container, not_null<Window::
 	)->setClickedCallback([=]
 	{
 		controller->show(Ui::MakeConfirmBox({
-			.text = tr::ayu_ResetSettingsConfirmation(Ui::Text::RichLangValue),
+			.text = tr::ayu_ResetSettingsConfirmation(tr::rich),
 			.confirmed = [=](Fn<void()> &&close)
 			{
 				AyuSettings::reset();
+				controller->showToast(tr::lng_box_done(tr::now));
 				close();
 			},
 			.confirmText = tr::lng_box_yes(),

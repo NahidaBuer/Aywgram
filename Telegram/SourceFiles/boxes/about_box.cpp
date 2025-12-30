@@ -46,7 +46,7 @@ rpl::producer<TextWithEntities> Text() {
 		rpl::single(Ui::Text::Link(
 			"GitHub",
 			"https://github.com/AyuGram/AyuGramDesktop")),
-		Ui::Text::WithEntities);
+		tr::marked);
 }
 
 } // namespace
@@ -136,7 +136,7 @@ void ArchiveHintBox(
 		owned->setNaturalWidth(rect.width());
 		const auto widget = box->addRow(std::move(owned), style::al_top);
 		widget->paintRequest(
-		) | rpl::start_with_next([=] {
+		) | rpl::on_next([=] {
 			auto p = Painter(widget);
 			auto hq = PainterHighQualityEnabler(p);
 			p.setPen(Qt::NoPen);
@@ -167,11 +167,11 @@ void ArchiveHintBox(
 						lt_emoji,
 						rpl::single(
 							Ui::Text::IconEmoji(&st::textMoreIconEmoji)),
-						Ui::Text::RichLangValue
+						tr::rich
 					) | rpl::map([](TextWithEntities text) {
 						return Ui::Text::Link(std::move(text), 1);
 					}),
-					Ui::Text::RichLangValue),
+					tr::rich),
 				st::channelEarnHistoryRecipientLabel));
 		label->resizeToWidth(box->width()
 			- rect::m::sum::h(st::boxRowPadding));
@@ -213,13 +213,13 @@ void ArchiveHintBox(
 			const auto left = Ui::CreateChild<Ui::RpWidget>(
 				box->verticalLayout().get());
 			left->paintRequest(
-			) | rpl::start_with_next([=] {
+			) | rpl::on_next([=] {
 				auto p = Painter(left);
 				icon.paint(p, 0, 0, left->width());
 			}, left->lifetime());
 			left->resize(icon.size());
 			top->geometryValue(
-			) | rpl::start_with_next([=](const QRect &g) {
+			) | rpl::on_next([=](const QRect &g) {
 				left->moveToLeft(
 					(g.left() - left->width()) / 2,
 					g.top() + st::channelEarnHistoryThreeSkip);
