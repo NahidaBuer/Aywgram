@@ -1395,14 +1395,15 @@ void AddRegistrationOrCreationButton(const not_null<Window::SessionController*> 
 	fitLabelToButton(registrationDateButton, idInfo.subtext, rightSkip);
 	registrationDateButton->setClickedCallback([=, show = controller->uiShow()]
 	{
+		const auto weak = QPointer<Ui::IconButton>(registrationDateButton);
 		getRegistrationDate(
 			peer,
 			[=](const TextWithEntities &result)
 			{
-				if (result.empty()) {
+				if (result.empty() || !weak) {
 					return;
 				}
-				const auto parent = registrationDateButton->window();
+				const auto parent = weak->window();
 				const auto tooltip = Ui::CreateChild<Ui::ImportantTooltip>(
 					parent,
 					Ui::MakeNiceTooltipLabel(
@@ -1415,8 +1416,8 @@ void AddRegistrationOrCreationButton(const not_null<Window::SessionController*> 
 
 				const auto geometry = Ui::MapFrom(
 					parent,
-					registrationDateButton,
-					registrationDateButton->rect());
+					weak.data(),
+					weak->rect());
 				const auto countPosition = [=](QSize size)
 				{
 					const auto left = geometry.x()
@@ -1429,22 +1430,22 @@ void AddRegistrationOrCreationButton(const not_null<Window::SessionController*> 
 				};
 				tooltip->pointAt(geometry, RectPart::Top, countPosition);
 
-				const auto weak = QPointer(tooltip);
-				tooltip->setHiddenCallback([weak]
+				const auto weakTooltip = QPointer(tooltip);
+				tooltip->setHiddenCallback([weakTooltip]
 				{
-					if (weak) {
-						weak->deleteLater();
+					if (weakTooltip) {
+						weakTooltip->deleteLater();
 					}
 				});
 
 				base::install_event_filter(
 					tooltip,
 					qApp,
-					[weak](not_null<QEvent*> e)
+					[weakTooltip](not_null<QEvent*> e)
 					{
 						if (e->type() == QEvent::MouseButtonPress) {
-							if (weak) {
-								weak->toggleAnimated(false);
+							if (weakTooltip) {
+								weakTooltip->toggleAnimated(false);
 							}
 						}
 						return base::EventFilterResult::Continue;
