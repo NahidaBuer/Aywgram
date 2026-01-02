@@ -113,10 +113,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 // AyuGram includes
 #include "ayu/ayu_settings.h"
 #include "ayu/features/filters/filters_cache_controller.h"
+#include "ayu/features/forward/ayu_forward.h"
 #include "ayu/ui/context_menu/context_menu.h"
 #include "ayu/ui/settings/filters/edit_filter.h"
 #include "ayu/utils/telegram_helpers.h"
 #include "data/data_document_media.h"
+#include "ui/toast/toast.h"
 
 
 namespace {
@@ -2943,17 +2945,36 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 			const auto blockSender = item->history()->peer->isRepliesChat();
 			if (isUponSelected != -2) {
 				auto fwdSubmenu = std::make_unique<Ui::PopupMenu>(this, st::popupMenuWithIcons);
-				if (item->allowsForward()) {
-					fwdSubmenu->addAction(tr::lng_context_forward_msg(tr::now), [=] {
-						forwardItem(itemId);
-					}, &st::menuIconForward);
-					fwdSubmenu->addAction(tr::lng_context_forward_msg_no_quote(tr::now), [=] {
-						forwardItemNoQuote(itemId);
-					}, &st::menuIconForward);
+				fwdSubmenu->addAction(tr::lng_context_forward_msg(tr::now), [=] {
+					forwardItem(itemId);
+				}, &st::menuIconForward);
+				fwdSubmenu->addAction(tr::lng_context_forward_msg_no_quote(tr::now), [=] {
+					forwardItemNoQuote(itemId);
+				}, &st::menuIconForward);
+				fwdSubmenu->addAction(tr::lng_forward_to_saved_message(tr::now), [=] {
+					if (item->id <= 0) return;
+					const auto api = &item->history()->peer->session().api();
+					auto action = Api::SendAction(item->history()->peer->owner().history(api->session().user()->asUser()));
+					action.clearDraft = false;
+					action.generateLocal = false;
+
+					const auto history = item->history()->peer->owner().history(api->session().user()->asUser());
+					auto resolved = history->resolveForwardDraft(Data::ForwardDraft{ .ids = MessageIdsList(1, itemId) });
+
+					const bool isAyuForward = AyuForward::isFullAyuForwardNeeded(resolved.items.front()) 
+					 || AyuForward::isAyuForwardNeeded(resolved.items);
+
+					api->forwardMessages(std::move(resolved), action, [] {
+						Ui::Toast::Show(tr::lng_share_done(tr::now));
+					});
+
+					if (isAyuForward) {
+						Ui::Toast::Show(tr::lng_title_forwarded(tr::now)); 
+					}
+					}, &st::menuIconFave);
 					if (!fwdSubmenu->empty()) {
 						_menu->addAction(tr::lng_context_forward(tr::now), std::move(fwdSubmenu), &st::menuIconForward);
 					}
-				}
 
 				AyuUi::AddRepeatMessageAction(_menu, item);
 
@@ -3225,6 +3246,27 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 					fwdSubmenu->addAction(tr::lng_context_forward_msg_no_quote(tr::now), [=] {
 						forwardAsGroupNoQuote(itemId);
 					}, &st::menuIconForward);
+					fwdSubmenu->addAction(tr::lng_forward_to_saved_message(tr::now), [=] {
+						if (item->id <= 0) return;
+						const auto api = &item->history()->peer->session().api();
+						auto action = Api::SendAction(item->history()->peer->owner().history(api->session().user()->asUser()));
+						action.clearDraft = false;
+						action.generateLocal = false;
+
+						const auto history = item->history()->peer->owner().history(api->session().user()->asUser());
+						auto resolved = history->resolveForwardDraft(Data::ForwardDraft{ .ids = MessageIdsList(1, itemId) });
+
+						const bool isAyuForward = AyuForward::isFullAyuForwardNeeded(resolved.items.front()) 
+							|| AyuForward::isAyuForwardNeeded(resolved.items);
+
+						api->forwardMessages(std::move(resolved), action, [] {
+							Ui::Toast::Show(tr::lng_share_done(tr::now));
+						});
+
+						if (isAyuForward) {
+							Ui::Toast::Show(tr::lng_title_forwarded(tr::now)); 
+						}
+					}, &st::menuIconFave);
 					if (!fwdSubmenu->empty()) {
 						_menu->addAction(tr::lng_context_forward(tr::now), std::move(fwdSubmenu), &st::menuIconForward);
 					}

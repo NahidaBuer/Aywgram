@@ -454,6 +454,27 @@ bool AddForwardMessageAction(
 				});
 		}
 	}, &st::menuIconForward);
+	fwdSubmenu->addAction(tr::lng_forward_to_saved_message(tr::now), [=] {
+		if (item->id <= 0) return;
+		const auto api = &item->history()->peer->session().api();
+		auto action = Api::SendAction(item->history()->peer->owner().history(api->session().user()->asUser()));
+		action.clearDraft = false;
+		action.generateLocal = false;
+
+		const auto history = item->history()->peer->owner().history(api->session().user()->asUser());
+		auto resolved = history->resolveForwardDraft(Data::ForwardDraft{ .ids = MessageIdsList(1, itemId) });
+		
+		const bool isAyuForward = AyuForward::isFullAyuForwardNeeded(resolved.items.front()) 
+							|| AyuForward::isAyuForwardNeeded(resolved.items);
+
+		api->forwardMessages(std::move(resolved), action, [] {
+			Ui::Toast::Show(tr::lng_share_done(tr::now));
+		});
+
+		if (isAyuForward) {
+			Ui::Toast::Show(tr::lng_title_forwarded(tr::now)); 
+		}
+		}, &st::menuIconFave);
 	if (!fwdSubmenu->empty()) {
 		menu->addAction(tr::lng_context_forward(tr::now), std::move(fwdSubmenu), &st::menuIconForward);
 	}
