@@ -1682,9 +1682,13 @@ ShareBox::SubmitCallback ShareBox::DefaultForwardCallback(
 		bool no_quote,
 		FnMut<void()>&& successCallback) {
 	struct State final {
+		State(FnMut<void()>&& callback)
+		: submitCallback(std::move(callback)) {
+		}
 		base::flat_set<mtpRequestId> requests;
+		FnMut<void()> submitCallback;
 	};
-	const auto state = std::make_shared<State>();
+	const auto state = std::make_shared<State>(std::move(successCallback));
 	return [=](
 			std::vector<not_null<Data::Thread*>> &&result,
 			Fn<bool()> checkPaid,
@@ -1898,6 +1902,9 @@ ShareBox::SubmitCallback ShareBox::DefaultForwardCallback(
 				return threadHistory->sendRequestId;
 			});
 			state->requests.insert(threadHistory->sendRequestId);
+		}
+		if (state->submitCallback) {
+			state->submitCallback();
 		}
 	};
 }
