@@ -1109,14 +1109,14 @@ void AddMessageActions(
 		AyuUi::AddHistoryAction(menu, request.item);
 		AyuUi::AddHideMessageAction(menu, request.item);
 		AyuUi::AddUserMessagesAction(menu, request.item);
-		//AyuUi::AddRepeatMessageAction(menu, request.item);
 		AyuUi::AddMessageDetailsAction(menu, request.item);
 	}
 
 	AddPostLinkAction(menu, request);
 	AddForwardAction(menu, request, list);
 	if (request.item) {
-		AyuUi::AddRepeatMessageAction(menu, request.item);
+		const auto context = request.view ? request.view->context() : Context::History;
+		AyuUi::AddRepeatMessageAction(menu, request.item, context);
 	}
 	AddSendNowAction(menu, request, list);
 	AddDeleteAction(menu, request, list);

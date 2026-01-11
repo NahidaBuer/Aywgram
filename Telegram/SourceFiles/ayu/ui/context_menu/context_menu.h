@@ -7,9 +7,14 @@
 #pragma once
 
 #include "data/data_document.h"
+#include "history/view/history_view_element.h"
 #include "ui/widgets/popup_menu.h"
 #include "window/window_peer_menu.h"
 #include "window/window_session_controller.h"
+
+namespace HistoryView {
+	enum class Context : char;
+}
 
 namespace AyuUi {
 
@@ -39,7 +44,7 @@ void AddHistoryAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item);
 void AddHideMessageAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item);
 void AddUserMessagesAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item);
 void AddMessageDetailsAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item);
-void AddRepeatMessageAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item);
+void AddRepeatMessageAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item, HistoryView::Context context = HistoryView::Context::History);
 void AddReadUntilAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item);
 void AddBurnAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item);
 void AddCreateFilterAction(not_null<Ui::PopupMenu*> menu,

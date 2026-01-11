@@ -9,6 +9,7 @@
 #include "apiwrap.h"
 #include "lang_auto.h"
 #include "mainwidget.h"
+#include "api/api_sending.h"
 #include "ayu/ayu_settings.h"
 #include "ayu/ayu_state.h"
 #include "ayu/data/messages_storage.h"
@@ -669,66 +670,107 @@ void AddMessageDetailsAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item) {
 	});
 }
 
-void AddRepeatMessageAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item) {
-	const auto &settings = AyuSettings::getInstance();
-	if (!needToShowItem(settings.showRepeatMessageInContextMenu)) {
+void AddRepeatMessageAction(
+    not_null<Ui::PopupMenu*> menu, 
+    HistoryItem *item, 
+    HistoryView::Context context
+) {
+    const auto &settings = AyuSettings::getInstance();
+    if (!needToShowItem(settings.showRepeatMessageInContextMenu)) {
+        return;
+    }
+    if (!item || item->isService() || item->isLocal() || item->id <= 0) {
+        return;
+    }
+
+    const auto history = item->history();
+    const auto peer = history->peer;
+    if (!peer->isUser() && !peer->isChat() && !peer->isMegagroup() && !peer->isGigagroup()) {
+        return;
+    }
+
+	if (peer->amRestricted(ChatRestriction::SendOther) || peer->amRestricted(ChatRestriction::SendStickers)) {
 		return;
 	}
 
-	if (!item || item->isService() || item->isLocal() || !item->allowsForward() || item->id <= 0) {
-		return;
+	if (const auto megagroup = peer->asMegagroup()) {
+		if (!megagroup->amIn()) return;
+	} else if (const auto chat = peer->asChat()) {
+		if (!chat->amIn()) return;
 	}
 
-	const auto history = item->history();
-	const auto peer = history->peer;
-	if (!peer->isUser() && !peer->isChat() && !peer->isMegagroup() && !peer->isGigagroup()) {
-		return;
+	if (const auto topic = item->topic()) {
+		if (topic->closed()) {
+			return;
+		}
 	}
 
-	const auto itemId = item->fullId();
-	const auto session = &history->session();
+    menu->addAction(
+        tr::ayu_RepeatMessage(tr::now),
+        [=] {
+            const auto session = &history->session();
+            const bool shiftPressed = base::IsShiftPressed();
+            const bool inRepliesView = (context == HistoryView::Context::Replies);
+            const bool isReplyMsg = (item->replyTo().messageId.msg != 0);
+            const bool useNoQuote = inRepliesView || shiftPressed;
+            const bool useReply = inRepliesView || (shiftPressed && isReplyMsg);
 
-	menu->addAction(
-		tr::ayu_RepeatMessage(tr::now),
-		[=]
-		{
-			auto sendOptions = Api::SendOptions{
-				.sendAs = session->sendAsPeers().resolveChosen(peer),
-			};
+            auto sendOptions = Api::SendOptions{
+                .sendAs = session->sendAsPeers().resolveChosen(peer),
+            };
 
-			if (peer->isUser() || peer->isChat() || item->history()->peer->isMonoforum()) {
-				sendOptions.sendAs = nullptr;
-			}
+            if (peer->isUser() || peer->isChat() || (item->topic() && item->history()->peer->isMonoforum())) {
+                sendOptions.sendAs = nullptr;
+            }
 
-			auto action = Api::SendAction(history, sendOptions);
-			action.clearDraft = false;
+            auto action = Api::SendAction(history, sendOptions);
+            action.clearDraft = false;
 
-			if (item->topic()) {
-				action.replyTo.topicRootId = item->topicRootId();
-			}
+            if (item->topic()) {
+                action.replyTo.topicRootId = item->topicRootId();
+            }
 
-			if (const auto sublist = item->savedSublist()) {
-				action.replyTo.monoforumPeerId = sublist->monoforumPeerId();
-			}
+            if (const auto sublist = item->savedSublist()) {
+                action.replyTo.monoforumPeerId = sublist->monoforumPeerId();
+            }
 
-			const auto forwardDraft = Data::ForwardDraft{
-				.ids = MessageIdsList{ itemId },
-				.options = base::IsShiftPressed() ? Data::ForwardOptions::NoSenderNames : Data::ForwardOptions::PreserveInfo
-			};
-			auto resolvedDraft = history->resolveForwardDraft(forwardDraft);
+            if (useReply) {
+                action.replyTo.messageId = item->replyTo().messageId;
+            }
 
-			if (AyuForward::isFullAyuForwardNeeded(item)) {
-				crl::async([=]
-				{
-					AyuForward::forwardMessages(session, action, false, resolvedDraft);
-				});
-			} else if (AyuForward::isAyuForwardNeeded(item)) {
-				crl::async([=]
-				{
-					AyuForward::intelligentForward(session, action, resolvedDraft);
-				});
+        	const bool isAyuForward = AyuForward::isFullAyuForwardNeeded(item) || AyuForward::isAyuForwardNeeded(item);
+
+        	const auto media = item->media();
+			const bool allowsDirectSend = !media || media->photo() || media->document();
+
+        	if (!isAyuForward && useNoQuote && allowsDirectSend) {
+
+				auto message = ApiWrap::MessageToSend(action);
+				if (!item->originalText().text.isEmpty()) {
+					message.textWithTags = {
+						item->originalText().text,
+						TextUtilities::ConvertEntitiesToTextTags(item->originalText().entities)
+					};
+				}
+				if (media) {
+					if (auto photo = media->photo()) {
+						Api::SendExistingPhoto(std::move(message), photo);
+					} else if (auto document = media->document()) {
+						Api::SendExistingDocument(std::move(message), document);
+					}
+				} else {
+					session->api().sendMessage(std::move(message));
+				}
 			} else {
-				session->api().forwardMessages(std::move(resolvedDraft), action, [] {});
+				const auto forwardDraft = Data::ForwardDraft{
+					.ids = MessageIdsList{ item->fullId() },
+					.options = useNoQuote ? Data::ForwardOptions::NoSenderNames : Data::ForwardOptions::PreserveInfo
+				};
+				session->api().forwardMessages(
+					history->resolveForwardDraft(forwardDraft),
+					action,
+					[] {}
+				);
 			}
 		},
 		&st::menuIconRestore);
