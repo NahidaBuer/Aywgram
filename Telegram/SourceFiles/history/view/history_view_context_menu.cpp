@@ -374,19 +374,32 @@ bool AddForwardSelectedAction(
 	if (!ranges::all_of(request.selectedItems, &SelectedItem::canForward)) {
 		return false;
 	}
+	
+	const auto session = &list->session();
+	std::vector<not_null<HistoryItem*>> items;
+	items.reserve(request.selectedItems.size());
+	for (const auto &selected : request.selectedItems) {
+		if (const auto item = session->data().message(selected.msgId)) {
+			items.push_back(item);
+		}
+	}
+	const bool isAyuForward = AyuForward::isAyuForwardNeeded(items);
 
-	menu->addAction(tr::lng_context_forward_selected(tr::now), [=] {
-		const auto weak = base::make_weak(list);
-		Window::ShowNewForwardMessagesBox(
-			request.navigation,
-			ExtractIdsList(request.selectedItems),
-			false,
-			[=] {
-				if (const auto strong = weak.get()) {
-					strong->cancelSelection();
-				}
-			});
-	}, &st::menuIconForward);
+
+	if (!isAyuForward) {
+		menu->addAction(tr::lng_context_forward_selected(tr::now), [=] {
+			const auto weak = base::make_weak(list);
+			Window::ShowNewForwardMessagesBox(
+				request.navigation,
+				ExtractIdsList(request.selectedItems),
+				false,
+				[=] {
+					if (const auto strong = weak.get()) {
+						strong->cancelSelection();
+					}
+				});
+		}, &st::menuIconForward);
+	}
 	menu->addAction(tr::lng_context_forward_selected_no_quote(tr::now), [=] {
 		const auto weak = base::make_weak(list);
 		Window::ShowNewForwardMessagesBox(
@@ -421,23 +434,34 @@ bool AddForwardMessageAction(
 			}
 		}
 	}
+	const auto session = &list->session();
+	std::vector<not_null<HistoryItem*>> items;
+	items.reserve(request.selectedItems.size());
+	for (const auto &selected : request.selectedItems) {
+		if (const auto item = session->data().message(selected.msgId)) {
+			items.push_back(item);
+		}
+	}
+	const bool isAyuForward = AyuForward::isAyuForwardNeeded(items);
 	const auto itemId = item->fullId();
 	auto fwdSubmenu = std::make_unique<Ui::PopupMenu>(list, st::popupMenuWithIcons);
-	fwdSubmenu->addAction(tr::lng_context_forward_msg(tr::now), [=] {
-		if (const auto item = owner->message(itemId)) {
-			const auto weak = base::make_weak(list);
-			Window::ShowNewForwardMessagesBox(
-				request.navigation,
-				(asGroup
-					? owner->itemOrItsGroup(item)
-					: MessageIdsList{ 1, itemId }), false,
-				[=] {
-					if (const auto strong = weak.get()) {
-						strong->cancelSelection();
-					}
-				});
-		}
-	}, &st::menuIconForward);
+	if (!isAyuForward) {
+		fwdSubmenu->addAction(tr::lng_context_forward_msg(tr::now), [=] {
+			if (const auto item = owner->message(itemId)) {
+				const auto weak = base::make_weak(list);
+				Window::ShowNewForwardMessagesBox(
+					request.navigation,
+					(asGroup
+						? owner->itemOrItsGroup(item)
+						: MessageIdsList{ 1, itemId }), false,
+					[=] {
+						if (const auto strong = weak.get()) {
+							strong->cancelSelection();
+						}
+					});
+			}
+		}, &st::menuIconForward);
+	}
 	fwdSubmenu->addAction(tr::lng_context_forward_msg_no_quote(tr::now), [=] {
 		if (const auto item = owner->message(itemId)) {
 			const auto weak = base::make_weak(list);
