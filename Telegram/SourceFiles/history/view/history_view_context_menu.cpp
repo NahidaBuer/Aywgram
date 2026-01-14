@@ -364,6 +364,57 @@ MessageIdsList ExtractIdsList(const SelectedItems &items) {
 	) | ranges::to_vector;
 }
 
+namespace {
+std::vector<not_null<HistoryItem*>> CollectForwardItemsFromSelection(
+		const ContextMenuRequest &request,
+		not_null<ListWidget*> list) {
+	decltype(list->session()) &session = list->session();
+	std::vector<not_null<HistoryItem*>> items;
+	items.reserve(request.selectedItems.size());
+	for (const SelectedItem &selected : request.selectedItems) {
+		HistoryItem * const item = session.data().message(selected.msgId);
+		if (item) {
+			items.push_back(item);
+		}
+	}
+	return items;
+}
+
+std::vector<not_null<HistoryItem*>> CollectForwardItemsForItem(
+		not_null<HistoryItem*> item,
+		const bool asGroup) {
+	decltype(item->history()->owner()) &owner = item->history()->owner();
+	std::vector<not_null<HistoryItem*>> items;
+	if (asGroup) {
+		decltype(owner.groups().find(item)) group = owner.groups().find(item);
+		if (group) {
+			items.reserve(group->items.size());
+			for (const not_null<HistoryItem*> groupItem : group->items) {
+				items.push_back(groupItem);
+			}
+			return items;
+		}
+	}
+	items.push_back(item);
+	return items;
+}
+
+bool IsAyuForwardForItems(const std::vector<not_null<HistoryItem*>> &items) {
+	if (items.empty()) {
+		return false;
+	}
+	return AyuForward::isAyuForwardNeeded(items);
+}
+
+bool IsAyuForwardFromResolved(const Data::ResolvedForwardDraft &resolved) {
+	if (resolved.items.empty()) {
+		return false;
+	}
+	return AyuForward::isFullAyuForwardNeeded(resolved.items.front())
+		|| AyuForward::isAyuForwardNeeded(resolved.items);
+}
+} // namespace
+
 bool AddForwardSelectedAction(
 		not_null<Ui::PopupMenu*> menu,
 		const ContextMenuRequest &request,
@@ -374,18 +425,9 @@ bool AddForwardSelectedAction(
 	if (!ranges::all_of(request.selectedItems, &SelectedItem::canForward)) {
 		return false;
 	}
-	
-	const auto session = &list->session();
-	std::vector<not_null<HistoryItem*>> items;
-	items.reserve(request.selectedItems.size());
-	for (const auto &selected : request.selectedItems) {
-		if (const auto item = session->data().message(selected.msgId)) {
-			items.push_back(item);
-		}
-	}
-	const bool isAyuForward = AyuForward::isAyuForwardNeeded(items);
-
-
+	const std::vector<not_null<HistoryItem*>> items =
+		CollectForwardItemsFromSelection(request, list);
+	const bool isAyuForward = IsAyuForwardForItems(items);
 	if (!isAyuForward) {
 		menu->addAction(tr::lng_context_forward_selected(tr::now), [=] {
 			const auto weak = base::make_weak(list);
@@ -428,21 +470,14 @@ bool AddForwardMessageAction(
 	const auto owner = &item->history()->owner();
 	const auto asGroup = (request.pointState != PointState::GroupPart);
 	if (asGroup) {
-		if (const auto group = owner->groups().find(item)) {
-			if (!ranges::all_of(group->items, &HistoryItem::allowsForward)) {
-				return false;
-			}
+		const decltype(owner->groups().find(item)) group = owner->groups().find(item);
+		if (group && !ranges::all_of(group->items, &HistoryItem::allowsForward)) {
+			return false;
 		}
 	}
-	const auto session = &list->session();
-	std::vector<not_null<HistoryItem*>> items;
-	items.reserve(request.selectedItems.size());
-	for (const auto &selected : request.selectedItems) {
-		if (const auto item = session->data().message(selected.msgId)) {
-			items.push_back(item);
-		}
-	}
-	const bool isAyuForward = AyuForward::isAyuForwardNeeded(items);
+	const std::vector<not_null<HistoryItem*>> items =
+		CollectForwardItemsForItem(item, asGroup);
+	const bool isAyuForward = IsAyuForwardForItems(items);
 	const auto itemId = item->fullId();
 	auto fwdSubmenu = std::make_unique<Ui::PopupMenu>(list, st::popupMenuWithIcons);
 	if (!isAyuForward) {
@@ -487,10 +522,7 @@ bool AddForwardMessageAction(
 
 		const auto history = item->history()->peer->owner().history(api->session().user()->asUser());
 		auto resolved = history->resolveForwardDraft(Data::ForwardDraft{ .ids = MessageIdsList(1, itemId) });
-		
-		const bool isAyuForward = AyuForward::isFullAyuForwardNeeded(resolved.items.front()) 
-							|| AyuForward::isAyuForwardNeeded(resolved.items);
-
+		const bool isAyuForward = IsAyuForwardFromResolved(resolved);
 		api->forwardMessages(std::move(resolved), action, [] {
 			Ui::Toast::Show(tr::lng_share_done(tr::now));
 		});

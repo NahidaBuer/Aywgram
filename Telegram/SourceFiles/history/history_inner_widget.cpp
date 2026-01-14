@@ -2366,6 +2366,51 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 		return;
 	}
 	auto selectedState = getSelectionState();
+	
+	const auto collectForwardItemsFromSelected = [](
+		const SelectedItems &selected) -> HistoryItemsList {
+		HistoryItemsList items;
+		items.reserve(selected.size());
+		for (const SelectedItems::value_type &entry : selected) {
+			const not_null<HistoryItem*> item = entry.first;
+			const TextSelection selection = entry.second;
+			if (selection == FullSelection) {
+				items.push_back(item);
+			}
+		}
+		return items;
+	};
+
+	const auto collectForwardItemsForItem = [](
+			not_null<HistoryItem*> item) -> HistoryItemsList {
+		HistoryItemsList items;
+		items.push_back(item);
+		return items;
+	};
+
+	const auto isAyuForwardForItems = [](
+			const HistoryItemsList &items) -> bool {
+		if (items.empty()) {
+			return false;
+		}
+		return AyuForward::isFullAyuForwardNeeded(items.front())
+			|| AyuForward::isAyuForwardNeeded(items);
+	};
+
+	const auto isAyuForwardFromResolved = [](
+			const Data::ResolvedForwardDraft &resolved) -> bool {
+		if (resolved.items.empty()) {
+			return false;
+		}
+		return AyuForward::isFullAyuForwardNeeded(resolved.items.front())
+			|| AyuForward::isAyuForwardNeeded(resolved.items);
+	};
+
+	const HistoryItemsList forwardSelectionItems =
+		collectForwardItemsFromSelected(_selected);
+	const bool isAyuForwardSelection =
+		isAyuForwardForItems(forwardSelectionItems);
+
 
 	// -2 - has full selected items, but not over, -1 - has selection, but no over, 0 - no selection, 1 - over text, 2 - over full selected items
 	auto isUponSelected = 0;
@@ -2883,11 +2928,7 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 		const auto itemId = item ? item->fullId() : FullMsgId();
 		addReplyAction(item);
 
-		const auto api = &item->history()->peer->session().api();
-		const auto history = item->history()->peer->owner().history(api->session().user()->asUser());					
-		auto resolved = history->resolveForwardDraft(Data::ForwardDraft{ .ids = MessageIdsList(1, itemId) });
-		const bool isAyuForward = AyuForward::isFullAyuForwardNeeded(resolved.items.front()) 
-			|| AyuForward::isAyuForwardNeeded(resolved.items);
+		const bool isAyuForwardMenu = item ? isAyuForwardForItems(collectForwardItemsForItem(item)): false;
 
 		if (isUponSelected > 0) {
 			const auto selectedText = getSelectedText();
@@ -2927,7 +2968,7 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 		}
 		if (isUponSelected > 1) {
 			if (selectedState.count > 0 && selectedState.canForwardCount == selectedState.count) {
-				if (!isAyuForward) {
+				if (!isAyuForwardSelection) {
 					_menu->addAction(tr::lng_context_forward_selected(tr::now), [=] {
 						_widget->forwardSelected();
 					}, &st::menuIconForward);
@@ -2952,7 +2993,7 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 			const auto blockSender = item->history()->peer->isRepliesChat();
 			if (isUponSelected != -2) {
 				auto fwdSubmenu = std::make_unique<Ui::PopupMenu>(this, st::popupMenuWithIcons);
-				if (!isAyuForward) {
+				if (!isAyuForwardMenu) {
 					fwdSubmenu->addAction(tr::lng_context_forward_msg(tr::now), [=] {
 					forwardItem(itemId);
 					}, &st::menuIconForward);
@@ -2969,6 +3010,7 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 
 					const auto history = item->history()->peer->owner().history(api->session().user()->asUser());
 					auto resolved = history->resolveForwardDraft(Data::ForwardDraft{ .ids = MessageIdsList(1, itemId) });
+					const bool isAyuForward = isAyuForwardFromResolved(resolved);
 
 					api->forwardMessages(std::move(resolved), action, [] {
 						Ui::Toast::Show(tr::lng_share_done(tr::now));
@@ -3225,13 +3267,7 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 		}
 		if (isUponSelected > 1) {
 			if (selectedState.count > 0 && selectedState.count == selectedState.canForwardCount) {
-				const auto api = &item->history()->peer->session().api();
-				const auto history = item->history()->peer->owner().history(api->session().user()->asUser());					
-				auto resolved = history->resolveForwardDraft(Data::ForwardDraft{ .ids = MessageIdsList(1, itemId) });
-				const bool isAyuForward = AyuForward::isFullAyuForwardNeeded(resolved.items.front()) 
-					|| AyuForward::isAyuForwardNeeded(resolved.items);
-
-				if (!isAyuForward) {
+				if (!isAyuForwardSelection) {
 					_menu->addAction(tr::lng_context_forward_selected(tr::now), [=] {
 						_widget->forwardSelected();
 					}, &st::menuIconForward);
@@ -3255,12 +3291,8 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 			if (isUponSelected != -2) {
 				auto fwdSubmenu = std::make_unique<Ui::PopupMenu>(this, st::popupMenuWithIcons);
 				if (canForward) {
-					const auto api = &item->history()->peer->session().api();
-					const auto history = item->history()->peer->owner().history(api->session().user()->asUser());					
-					auto resolved = history->resolveForwardDraft(Data::ForwardDraft{ .ids = MessageIdsList(1, itemId) });
-					const bool isAyuForward = AyuForward::isFullAyuForwardNeeded(resolved.items.front()) 
-							|| AyuForward::isAyuForwardNeeded(resolved.items);					
-					if (!isAyuForward) {
+					const bool isAyuForwardMenu = isAyuForwardForItems(collectForwardItemsForItem(item));
+					if (!isAyuForwardMenu) {
 						fwdSubmenu->addAction(tr::lng_context_forward_msg(tr::now), [=] {
 							forwardItem(itemId);
 						}, &st::menuIconForward);
@@ -3270,11 +3302,14 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 					}, &st::menuIconForward);
 					fwdSubmenu->addAction(tr::lng_forward_to_saved_message(tr::now), [=] {
 						if (item->id <= 0) return;
+						const auto api = &item->history()->peer->session().api();
+						const auto history = item->history()->peer->owner().history(api->session().user()->asUser());
 						auto action = Api::SendAction(item->history()->peer->owner().history(api->session().user()->asUser()));
 						action.clearDraft = false;
 						action.generateLocal = false;
 
 						auto resolved = history->resolveForwardDraft(Data::ForwardDraft{ .ids = MessageIdsList(1, itemId) });
+						const bool isAyuForward = isAyuForwardFromResolved(resolved);
 						api->forwardMessages(std::move(resolved), action, [] {
 							Ui::Toast::Show(tr::lng_share_done(tr::now));
 						});
