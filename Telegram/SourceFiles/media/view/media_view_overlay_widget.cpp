@@ -962,13 +962,12 @@ void OverlayWidget::initNormalGeometry() {
 	const auto saved = Core::App().settings().mediaViewPosition();
 	const auto adjusted = Core::AdjustToScale(saved, u"Viewer"_q);
 	const auto initial = DefaultPosition();
-	_normalGeometry = initial.rect();
-	if (const auto active = Core::App().activeWindow()) {
-		_normalGeometry = active->widget()->countInitialGeometry(
-			adjusted,
-			initial,
-			{ st::mediaviewMinWidth, st::mediaviewMinHeight });
-	}
+	_normalGeometry = Window::CountInitialGeometry(
+		_window,
+		adjusted,
+		initial,
+		{ st::mediaviewMinWidth, st::mediaviewMinHeight },
+		u"Viewer"_q);
 }
 
 void OverlayWidget::savePosition() {
@@ -1007,7 +1006,8 @@ void OverlayWidget::savePosition() {
 	realPosition = Window::PositionWithScreen(
 		realPosition,
 		_window,
-		{ st::mediaviewMinWidth, st::mediaviewMinHeight });
+		{ st::mediaviewMinWidth, st::mediaviewMinHeight },
+		u"Viewer"_q);
 	if (realPosition.w >= st::mediaviewMinWidth
 		&& realPosition.h >= st::mediaviewMinHeight
 		&& realPosition != savedPosition) {
@@ -1029,12 +1029,24 @@ void OverlayWidget::updateGeometry(bool inMove) {
 	if (_fullscreen) {
 		updateGeometryToScreen(inMove);
 	} else if (_windowed && _normalGeometryInited) {
-		DEBUG_LOG(("Viewer Pos: Setting %1, %2, %3, %4")
-			.arg(_normalGeometry.x())
-			.arg(_normalGeometry.y())
-			.arg(_normalGeometry.width())
-			.arg(_normalGeometry.height()));
-		_window->setGeometry(_normalGeometry);
+		const auto setGeometry = [=](QRect geometry) {
+			DEBUG_LOG(("Viewer Pos: Setting %1, %2, %3, %4")
+				.arg(geometry.x())
+				.arg(geometry.y())
+				.arg(geometry.width())
+				.arg(geometry.height()));
+			_window->setGeometry(geometry);
+		};
+		const auto geometry = _normalGeometry;
+		setGeometry(geometry);
+		if constexpr (Platform::IsMac()) {
+			// Either macOS or Qt immediately overwrite the geometry for
+			// some time (perhaps until the window is really on screen),
+			// try to set again later in event loop
+			InvokeQueued(_window, [=] {
+				setGeometry(geometry);
+			});
+		}
 	}
 	if constexpr (!Platform::IsMac()) {
 		if (_fullscreen) {
@@ -1153,6 +1165,8 @@ bool OverlayWidget::showCopyMediaRestriction(bool skipPRemiumCheck) {
 	} else if (_history) {
 		uiShow()->showToast(_history->peer->isBroadcast()
 			? tr::lng_error_nocopy_channel(tr::now)
+			: _history->peer->isUser()
+			? tr::lng_error_nocopy_user(tr::now)
 			: tr::lng_error_nocopy_group(tr::now));
 	}
 	return true;
@@ -1504,13 +1518,26 @@ void OverlayWidget::updateControls() {
 			height() - st::mediaviewTextTop,
 			qMin(_fromNameLabel.maxWidth(), width() / 3),
 			st::mediaviewFont->height);
+		const auto separatorWidth = st::mediaviewFont->width(Ui::kQBullet);
+		_separatorNav = QRect(
+			st::mediaviewTextLeft
+				+ _nameNav.width()
+				+ st::mediaviewTextSkipHalf,
+			height() - st::mediaviewTextTop,
+			separatorWidth,
+			st::mediaviewFont->height);
 		_dateNav = QRect(
-			st::mediaviewTextLeft + _nameNav.width() + st::mediaviewTextSkip,
+			st::mediaviewTextLeft
+				+ _nameNav.width()
+				+ st::mediaviewTextSkipHalf
+				+ separatorWidth
+				+ st::mediaviewTextSkipHalf,
 			height() - st::mediaviewTextTop,
 			st::mediaviewFont->width(_dateText),
 			st::mediaviewFont->height);
 	} else {
 		_nameNav = QRect();
+		_separatorNav = QRect();
 		_dateNav = QRect(
 			st::mediaviewTextLeft,
 			height() - st::mediaviewTextTop,
@@ -1990,6 +2017,7 @@ bool OverlayWidget::updateControlsAnimation(crl::time now) {
 			: QRect())
 		+ _headerNav
 		+ _nameNav
+		+ _separatorNav
 		+ _dateNav
 		+ _captionRect.marginsAdded(st::mediaviewCaptionPadding)
 		+ _groupThumbsRect
@@ -2006,7 +2034,9 @@ void OverlayWidget::waitingAnimationCallback() {
 }
 
 void OverlayWidget::updateCursor() {
-	setCursor((_controlsState == ControlsHidden)
+	setCursor((_clickHandlerActive || _clickHandlerPressed)
+		? style::cur_pointer
+		: (_controlsState == ControlsHidden)
 		? Qt::BlankCursor
 		: (_over == Over::None || (_over == Over::Video && _stories))
 		? style::cur_default
@@ -2476,18 +2506,16 @@ void OverlayWidget::assignMediaPointer(
 void OverlayWidget::clickHandlerActiveChanged(
 		const ClickHandlerPtr &p,
 		bool active) {
-	setCursor((active || ClickHandler::getPressed())
-		? style::cur_pointer
-		: style::cur_default);
+	_clickHandlerActive = active;
+	updateCursor();
 	update(QRegion(_saveMsg) + captionGeometry());
 }
 
 void OverlayWidget::clickHandlerPressedChanged(
 		const ClickHandlerPtr &p,
 		bool pressed) {
-	setCursor((pressed || ClickHandler::getActive())
-		? style::cur_pointer
-		: style::cur_default);
+	_clickHandlerPressed = pressed;
+	updateCursor();
 	update(QRegion(_saveMsg) + captionGeometry());
 }
 
@@ -3431,7 +3459,7 @@ void OverlayWidget::refreshFromLabel() {
 
 void OverlayWidget::refreshCaption() {
 	_caption = Ui::Text::String();
-	const auto caption = [&] {
+	const auto caption = StripQuoteEntities([&] {
 		if (_stories) {
 			return _stories->captionText();
 		} else if (_message) {
@@ -3449,7 +3477,7 @@ void OverlayWidget::refreshCaption() {
 			return _message->translatedText();
 		}
 		return TextWithEntities();
-	}();
+	}());
 	if (caption.text.isEmpty()) {
 		return;
 	}
@@ -3772,6 +3800,9 @@ void OverlayWidget::displayPhoto(
 	if (photoChanged) {
 		_showRecognitionResults = false;
 		_recognitionResult = {};
+		_recognitionPendingSessionUniqueId = 0;
+		_recognitionPendingPhotoId = 0;
+		_recognitionRetryOnLarge = false;
 	}
 
 	refreshMediaViewer();
@@ -3781,41 +3812,7 @@ void OverlayWidget::displayPhoto(
 		initStreaming();
 	}
 
-	if (!_stories && Platform::TextRecognition::IsAvailable()) {
-		const auto cache = RecognitionCache();
-		const auto id = RecognitionId{
-			.sessionUniqueId = _session->uniqueId(),
-			.photoId = _photo->id,
-		};
-		if (const auto cached = cache->find(id)
-			; cached != cache->end()) {
-			_recognitionResult = cached->second;
-			updateControls();
-		} else {
-			const auto weak = base::make_weak(_widget);
-			const auto photoMedia = _photoMedia;
-			crl::async([=] {
-				const auto image = photoMedia->image(
-					Data::PhotoSize::Large);
-				if (!image) {
-					return;
-				}
-				const auto original = image->original();
-				if (original.isNull()) {
-					return;
-				}
-				auto result = Platform::TextRecognition::RecognizeText(
-					original);
-				crl::on_main(weak, [=, result = std::move(result)]() mutable {
-					const auto cache = RecognitionCache();
-					_recognitionResult = std::move(result);
-					auto &cached = (*cache)[id];
-					cached = _recognitionResult;
-					updateControls();
-				});
-			});
-		}
-	}
+	tryStartTextRecognition();
 
 	initSponsoredButton();
 
@@ -3881,6 +3878,9 @@ void OverlayWidget::displayDocument(
 	if (documentChanged) {
 		_showRecognitionResults = false;
 		_recognitionResult = {};
+		_recognitionPendingSessionUniqueId = 0;
+		_recognitionPendingPhotoId = 0;
+		_recognitionRetryOnLarge = false;
 	}
 
 	_touchbarDisplay.fire(TouchBarItemType::None);
@@ -5144,6 +5144,85 @@ void OverlayWidget::validatePhotoCurrentImage() {
 	if (_staticContent.isNull()) {
 		_photoMedia->wanted(Data::PhotoSize::Small, fileOrigin());
 	}
+	if (_recognitionRetryOnLarge) {
+		if (const auto image = _photoMedia->image(Data::PhotoSize::Large)
+			; image && !image->original().isNull()) {
+			tryStartTextRecognition();
+		}
+	}
+}
+
+void OverlayWidget::tryStartTextRecognition() {
+	if (_stories
+		|| !_session
+		|| !_photo
+		|| !_photoMedia
+		|| !Platform::TextRecognition::IsAvailable()) {
+		return;
+	}
+	const auto cache = RecognitionCache();
+	if (!cache) {
+		return;
+	}
+	const auto id = RecognitionId{
+		.sessionUniqueId = _session->uniqueId(),
+		.photoId = _photo->id,
+	};
+	if (const auto cached = cache->find(id); cached != cache->end()) {
+		_recognitionRetryOnLarge = false;
+		const auto changed = (_recognitionResult.success != cached->second.success)
+			|| (_recognitionResult.items.size() != cached->second.items.size());
+		_recognitionResult = cached->second;
+		if (changed) {
+			updateControls();
+		}
+		return;
+	}
+	if (_recognitionPendingSessionUniqueId == id.sessionUniqueId
+		&& _recognitionPendingPhotoId == id.photoId) {
+		_recognitionRetryOnLarge = false;
+		return;
+	}
+	_photoMedia->wanted(Data::PhotoSize::Large, fileOrigin());
+	const auto image = _photoMedia->image(Data::PhotoSize::Large);
+	if (!image) {
+		_recognitionRetryOnLarge = true;
+		return;
+	}
+	const auto original = image->original();
+	if (original.isNull()) {
+		_recognitionRetryOnLarge = true;
+		return;
+	}
+	_recognitionRetryOnLarge = false;
+	_recognitionPendingSessionUniqueId = id.sessionUniqueId;
+	_recognitionPendingPhotoId = id.photoId;
+	const auto weak = base::make_weak(_widget);
+	crl::async([=] {
+		auto result = Platform::TextRecognition::RecognizeText(original);
+		crl::on_main(weak, [=, result = std::move(result)]() mutable {
+			const auto cache = RecognitionCache();
+			if (!cache) {
+				return;
+			}
+			const auto pendingMatches = (_recognitionPendingSessionUniqueId
+				== id.sessionUniqueId)
+				&& (_recognitionPendingPhotoId == id.photoId);
+			if (pendingMatches) {
+				_recognitionPendingSessionUniqueId = 0;
+				_recognitionPendingPhotoId = 0;
+			}
+			(*cache)[id] = result;
+			if (!_session
+				|| !_photo
+				|| (_session->uniqueId() != id.sessionUniqueId)
+				|| (_photo->id != id.photoId)) {
+				return;
+			}
+			_recognitionResult = std::move(result);
+			updateControls();
+		});
+	});
 }
 
 Ui::GL::ChosenRenderer OverlayWidget::chooseRenderer(
@@ -5626,6 +5705,18 @@ void OverlayWidget::paintFooterContent(
 		}
 	}
 
+	// separator
+	if (_separatorNav.isValid()) {
+		const auto separator = _separatorNav.translated(shift);
+		if (separator.intersects(clip)) {
+			p.setOpacity(controlOpacity(0.) * opacity);
+			p.drawText(
+				separator.left(),
+				separator.top() + st::mediaviewFont->ascent,
+				Ui::kQBullet);
+		}
+	}
+
 	// date
 	if (date.intersects(clip)) {
 		float64 o = overLevel(Over::Date);
@@ -5640,7 +5731,7 @@ void OverlayWidget::paintFooterContent(
 }
 
 QRect OverlayWidget::footerGeometry() const {
-	return _headerNav.united(_nameNav).united(_dateNav);
+	return _headerNav.united(_nameNav).united(_separatorNav).united(_dateNav);
 }
 
 void OverlayWidget::paintCaptionContent(
@@ -6551,6 +6642,7 @@ void OverlayWidget::handleMouseRelease(
 	}
 
 	if (_recognitionResult.success
+		&& !_dragging
 		&& !_recognitionResult.items.empty()
 		&& _showRecognitionResults
 		&& button == Qt::LeftButton) {
@@ -6560,6 +6652,9 @@ void OverlayWidget::handleMouseRelease(
 				QString(),
 				{ tr::lng_text_copied(tr::now) },
 				1000);
+			_over = _down = Over::None;
+			_pressed = false;
+			_dragging = 0;
 			return;
 		}
 	}
@@ -6922,6 +7017,9 @@ void OverlayWidget::clearBeforeHide() {
 
 void OverlayWidget::clearAfterHide() {
 	_recognitionResult = {};
+	_recognitionPendingSessionUniqueId = 0;
+	_recognitionPendingPhotoId = 0;
+	_recognitionRetryOnLarge = false;
 	_body->hide();
 	clearStreaming();
 	destroyThemePreview();

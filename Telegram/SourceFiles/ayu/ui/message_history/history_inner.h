@@ -3,7 +3,7 @@
 // We do not and cannot prevent the use of our code,
 // but be respectful and credit the original author.
 //
-// Copyright @Radolyn, 2025
+// Copyright @Radolyn, 2026
 #pragma once
 
 #include "ayu/ui/message_history/history_item.h"
@@ -77,6 +77,8 @@ public:
 
 	void saveState(not_null<SectionMemento*> memento);
 	void restoreState(not_null<SectionMemento*> memento);
+
+	void applySearch(const QString &query);
 
 	// Ui::AbstractTooltipShower interface.
 	QString tooltipText() const override;
@@ -276,7 +278,6 @@ private:
 	Element *_visibleTopItem = nullptr;
 	int _visibleTopFromItem = 0;
 
-	bool _isChatWide = false;
 	bool _scrollDateShown = false;
 	Ui::Animations::Simple _scrollDateOpacity;
 	SingleQueuedInvokation _scrollDateCheck;
@@ -291,7 +292,11 @@ private:
 	// Don't load anything until the memento was read.
 	bool _upLoaded = true;
 	bool _downLoaded = true;
+	bool _loadingUp = false;
+	bool _loadingDown = false;
+	int _loadRequestNum = 0;
 	Ui::Text::String _emptyText;
+	QString _searchQuery;
 
 	MouseAction _mouseAction = MouseAction::None;
 	TextSelectType _mouseSelectType = TextSelectType::Letters;

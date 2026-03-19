@@ -76,7 +76,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "media/audio/media_audio_capture.h"
 #include "media/audio/media_audio.h"
 #include "menu/menu_send.h"
-#include "settings/settings_premium.h"
+#include "settings/sections/settings_premium.h"
 #include "ui/item_text_options.h"
 #include "ui/text/text_options.h"
 #include "ui/text/text_utilities.h"
@@ -105,6 +105,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 // AyuGram includes
 #include "ayu/ayu_settings.h"
+#include "history/history_item_components.h"
 
 
 namespace HistoryView {
@@ -1814,7 +1815,8 @@ rpl::producer<std::optional<bool>> ComposeControls::attachRequests() const {
 }
 
 void ComposeControls::setMimeDataHook(MimeDataHook hook) {
-	_field->setMimeDataHook(std::move(hook));
+	_field->setMimeDataHook(
+		WrappedMessageFieldMimeHook(std::move(hook), _field));
 }
 
 bool ComposeControls::confirmMediaEdit(Ui::PreparedList &list) {
@@ -2190,12 +2192,36 @@ void ComposeControls::init() {
 		updateAttachBotsMenu();
 	}, _wrap->lifetime());
 
-	AyuSettings::get_historyUpdateReactive() | rpl::on_next([=]
-	{
+	rpl::merge(
+		AyuSettings::getInstance().showAttachButtonInMessageFieldChanges() | rpl::to_empty,
+		AyuSettings::getInstance().showCommandsButtonInMessageFieldChanges() | rpl::to_empty,
+		AyuSettings::getInstance().showEmojiButtonInMessageFieldChanges() | rpl::to_empty,
+		AyuSettings::getInstance().showMicrophoneButtonInMessageFieldChanges() | rpl::to_empty,
+		AyuSettings::getInstance().showAutoDeleteButtonInMessageFieldChanges() | rpl::to_empty,
+		AyuSettings::getInstance().showAttachPopupChanges() | rpl::to_empty,
+		AyuSettings::getInstance().showEmojiPopupChanges() | rpl::to_empty,
+		AyuSettings::getInstance().channelBottomButtonChanges() | rpl::to_empty,
+		AyuSettings::getInstance().removeMessageTailChanges() | rpl::to_empty
+	) | rpl::on_next([=] {
 		updateSendButtonType();
 		updateControlsVisibility();
 		updateControlsGeometry(_wrap->size());
 		orderControls();
+	}, _wrap->lifetime());
+
+	AyuSettings::getInstance().translationProviderChanges(
+	) | rpl::on_next([=](TranslationProvider) {
+		if (_history) {
+			for (const auto &block : _history->blocks) {
+				for (const auto &view : block->messages) {
+					const auto item = view->data();
+					if (item->Has<HistoryMessageTranslation>()) {
+						item->removeTranslationBit();
+						_history->owner().requestItemTextRefresh(item);
+					}
+				}
+			}
+		}
 	}, _wrap->lifetime());
 
 	orderControls();
@@ -2208,7 +2234,7 @@ void ComposeControls::orderControls() {
 
 bool ComposeControls::showRecordButton() const {
 	const auto &settings = AyuSettings::getInstance();
-	if (!settings.showMicrophoneButtonInMessageField) {
+	if (!settings.showMicrophoneButtonInMessageField()) {
 		return false;
 	}
 
@@ -3255,7 +3281,7 @@ void ComposeControls::initVoiceRecordBar() {
 		return Ui::AppInFocus();
 	}) | rpl::on_next([=](not_null<Shortcuts::Request*> request) {
 		using Command = Shortcuts::Command;
-		if (Data::CanSendAnything(_history->peer)) {
+		if (Data::CanSendAnything(_history->peer, !_topicRootId)) {
 			const auto isVoice = request->check(Command::RecordVoice, 1);
 			const auto isRound = !isVoice
 				&& request->check(Command::RecordRound, 1);
@@ -3325,6 +3351,18 @@ SendMenu::Details ComposeControls::sendButtonMenuDetails() const {
 void ComposeControls::updateSendButtonType() {
 	using Type = Ui::SendButton::Type;
 	const auto type = computeSendButtonType();
+	const auto forbidden = [&] {
+		if (type != Type::Record && type != Type::Round) {
+			return false;
+		}
+		if (!_history) {
+			return false;
+		}
+		const auto restriction = (type == Type::Record)
+			? ChatRestriction::SendVoiceMessages
+			: ChatRestriction::SendVideoMessages;
+		return !!Data::RestrictionError(_history->peer, restriction);
+	}();
 	const auto delay = [&] {
 		return (type != Type::Cancel && type != Type::Save)
 			? _slowmodeSecondsLeft.current()
@@ -3341,6 +3379,7 @@ void ComposeControls::updateSendButtonType() {
 			: QColor()),
 		.slowmodeDelay = delay,
 		.starsToSend = shownStarsPerMessage(),
+		.forbidden = forbidden,
 	});
 	_send->setDisabled(_sendDisabledBySlowmode.current()
 		&& (type == Type::Send
@@ -3365,18 +3404,18 @@ void ComposeControls::updateControlsGeometry(QSize size) {
 		- (commentsShown
 			? (_commentsShown->width() + _st.commentsSkip)
 			: 0)
-		- ((_attachToggle && settings.showAttachButtonInMessageField || _sendAs) ? _st.padding.left() : _st.fieldLeft)
-		- (_attachToggle && settings.showAttachButtonInMessageField ? _attachToggle->width() : 0)
+		- (((_attachToggle && settings.showAttachButtonInMessageField()) || _sendAs) ? _st.padding.left() : _st.fieldLeft)
+		- (_attachToggle && settings.showAttachButtonInMessageField() ? _attachToggle->width() : 0)
 		- (_sendAs ? _sendAs->width() : 0)
 		- _st.padding.right()
 		- _send->width()
 		- (_editStars ? _editStars->width() : 0)
-		- (settings.showEmojiButtonInMessageField ? _tabbedSelectorToggle->width() : 0)
+		- (settings.showEmojiButtonInMessageField() ? _tabbedSelectorToggle->width() : 0)
 		- (_likeShown ? _like->width() : 0)
-		- (_botCommandShown && settings.showCommandsButtonInMessageField ? _botCommandStart->width() : 0)
+		- (_botCommandShown && settings.showCommandsButtonInMessageField() ? _botCommandStart->width() : 0)
 		- (_silent ? _silent->width() : 0)
 		- (_scheduled ? _scheduled->width() : 0)
-		- (_ttlInfo && settings.showAutoDeleteButtonInMessageField ? _ttlInfo->width() : 0)
+		- (_ttlInfo && settings.showAutoDeleteButtonInMessageField() ? _ttlInfo->width() : 0)
 		- (_starsReaction
 			? (_st.starsSkip + _starsReaction->width())
 			: 0);
@@ -3401,7 +3440,7 @@ void ComposeControls::updateControlsGeometry(QSize size) {
 	if (_replaceMedia) {
 		_replaceMedia->moveToLeft(left, buttonsTop);
 	}
-	if (_attachToggle && settings.showAttachButtonInMessageField) {
+	if (_attachToggle && settings.showAttachButtonInMessageField()) {
 		_attachToggle->moveToLeft(left, buttonsTop);
 		left += _attachToggle->width();
 	}
@@ -3430,7 +3469,7 @@ void ComposeControls::updateControlsGeometry(QSize size) {
 		_editStars->moveToRight(right, buttonsTop);
 		right += _editStars->width();
 	}
-	if (settings.showEmojiButtonInMessageField) {
+	if (settings.showEmojiButtonInMessageField()) {
 		_tabbedSelectorToggle->moveToRight(right, buttonsTop);
 		right += _tabbedSelectorToggle->width();
 	}
@@ -3447,7 +3486,7 @@ void ComposeControls::updateControlsGeometry(QSize size) {
 	}
 	if (_botCommandStart) {
 		_botCommandStart->moveToRight(right, buttonsTop);
-		if (_botCommandShown && settings.showCommandsButtonInMessageField) {
+		if (_botCommandShown && settings.showCommandsButtonInMessageField()) {
 			right += _botCommandStart->width();
 		}
 	}
@@ -3459,7 +3498,7 @@ void ComposeControls::updateControlsGeometry(QSize size) {
 		_scheduled->moveToRight(right, buttonsTop);
 		right += _scheduled->width();
 	}
-	if (_ttlInfo && settings.showAutoDeleteButtonInMessageField) {
+	if (_ttlInfo && settings.showAutoDeleteButtonInMessageField()) {
 		_ttlInfo->move(size.width() - right - _ttlInfo->width(), buttonsTop);
 	}
 
@@ -3473,7 +3512,7 @@ void ComposeControls::updateControlsVisibility() {
 	const auto &settings = AyuSettings::getInstance();
 
 	if (_botCommandStart) {
-		SWITCH_BUTTON(_botCommandStart, _botCommandShown && settings.showCommandsButtonInMessageField);
+		SWITCH_BUTTON(_botCommandStart, _botCommandShown && settings.showCommandsButtonInMessageField());
 	}
 	if (_like) {
 		_like->setVisible(_likeShown);
@@ -3482,7 +3521,7 @@ void ComposeControls::updateControlsVisibility() {
 		_editStars->show();
 	}
 	if (_ttlInfo) {
-		SWITCH_BUTTON(_ttlInfo, settings.showAutoDeleteButtonInMessageField);
+		SWITCH_BUTTON(_ttlInfo, settings.showAutoDeleteButtonInMessageField());
 	}
 	if (_sendAs) {
 		_sendAs->show();
@@ -3491,7 +3530,7 @@ void ComposeControls::updateControlsVisibility() {
 		_replaceMedia->show();
 	}
 	if (_attachToggle) {
-		SWITCH_BUTTON(_attachToggle, settings.showAttachButtonInMessageField && !_replaceMedia);
+		SWITCH_BUTTON(_attachToggle, settings.showAttachButtonInMessageField() && !_replaceMedia);
 	}
 	if (_scheduled) {
 		_scheduled->setVisible(!isEditingMessage());
@@ -3502,7 +3541,7 @@ void ComposeControls::updateControlsVisibility() {
 	if (_starsReaction) {
 		_starsReaction->show();
 	}
-	SWITCH_BUTTON(_tabbedSelectorToggle, settings.showEmojiButtonInMessageField);
+	SWITCH_BUTTON(_tabbedSelectorToggle, settings.showEmojiButtonInMessageField());
 }
 
 bool ComposeControls::updateLikeShown() {
@@ -3985,6 +4024,7 @@ void ComposeControls::initWebpageProcess() {
 		if (flags & Data::PeerUpdate::Flag::Rights) {
 			_preview->checkNow(false);
 			updateFieldPlaceholder();
+			updateSendButtonType();
 		}
 		if (flags & Data::PeerUpdate::Flag::Notifications) {
 			updateSilentBroadcast();
@@ -3996,6 +4036,7 @@ void ComposeControls::initWebpageProcess() {
 			updateFieldPlaceholder();
 		}
 		if (flags & Data::PeerUpdate::Flag::FullInfo) {
+			updateSendButtonType();
 			if (updateBotCommandShown()) {
 				updateControlsVisibility();
 				updateControlsGeometry(_wrap->size());

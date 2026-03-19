@@ -296,7 +296,7 @@ object_ptr<Ui::RpWidget> InnerWidget::setupSharedMedia(
 	const auto addSimilarPeersButton = [&](
 			not_null<PeerData*> peer,
 			const style::icon &icon) {
-		if (settings.hideSimilarChannels) {
+		if (settings.hideSimilarChannels()) {
 			return;
 		}
 

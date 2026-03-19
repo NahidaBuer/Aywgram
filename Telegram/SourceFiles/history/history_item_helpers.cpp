@@ -42,6 +42,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "settings/settings_credits_graphics.h"
 #include "storage/storage_account.h"
 #include "ui/boxes/confirm_box.h"
+#include "ui/boxes/emoji_stake_box.h" // InsufficientTonBox
 #include "ui/text/format_values.h"
 #include "ui/text/text_utilities.h"
 #include "ui/toast/toast.h"
@@ -183,7 +184,7 @@ Data::SendError GetErrorForSending(
 Data::SendErrorWithThread GetErrorForSending(
 		const std::vector<not_null<Data::Thread*>> &threads,
 		SendingErrorRequest request) {
-	for (const auto thread : threads) {
+	for (const auto &thread : threads) {
 		const auto error = GetErrorForSending(thread, request);
 		if (error) {
 			return Data::SendErrorWithThread{ error, thread };
@@ -520,10 +521,12 @@ bool SendPaymentHelper::check(
 			done);
 		return false;
 	}
+	const auto session = &peer->session();
 	if (checkSuggestPriceTon
-		&& checkSuggestPriceTon > peer->session().credits().tonBalance()) {
+		&& checkSuggestPriceTon > session->credits().tonBalance()) {
 		using namespace HistoryView;
-		show->show(Box(InsufficientTonBox, peer, checkSuggestPriceTon));
+		show->show(
+			Box(Ui::InsufficientTonBox, session, checkSuggestPriceTon));
 		return false;
 	}
 	return true;
@@ -608,8 +611,8 @@ QString NewMessagePostAuthor(const Api::SendAction &action) {
 bool ShouldSendSilent(
 		not_null<PeerData*> peer,
 		const Api::SendOptions &options) {
-	const auto &settings = AyuSettings::getInstance();
-	if (settings.sendWithoutSound) {
+	const auto &ghost = AyuSettings::ghost(&peer->session());
+	if (ghost.sendWithoutSound()) {
 		return !options.silent;
 	}
 
@@ -747,9 +750,10 @@ ClickHandlerPtr JumpToMessageClickHandler(
 			: peer->session().tryResolveWindow(peer);
 		if (controller) {
 			auto params = Window::SectionShow{
-				Window::SectionShow::Way::Forward
+				Window::SectionShow::Way::Forward,
 			};
 			params.highlight = highlight;
+			params.allowDuplicateInStack = true;
 			params.origin = Window::SectionShow::OriginMessage{
 				returnToId
 			};
@@ -859,6 +863,9 @@ MessageFlags FlagsFromMTP(
 			? Flag::TonPaidSuggested
 			: (flags & MTP::f_paid_suggested_post_stars)
 			? Flag::StarsPaidSuggested
+			: Flag())
+		| ((flags & MTP::f_summary_from_language)
+			? Flag::CanBeSummarized
 			: Flag());
 }
 
@@ -1179,8 +1186,9 @@ void CheckReactionNotificationSchedule(
 	}
 	const auto peer = item->history()->peer;
 	const auto &settings = AyuSettings::getInstance();
-	if ((peer->isChannel() && !peer->isMegagroup() && !settings.showChannelReactions)
-		|| (peer->isMegagroup() && !settings.showGroupReactions)) {
+	if ((peer->isChannel() && !peer->isMegagroup() && !settings.showChannelReactions())
+		|| (peer->isMegagroup() && !settings.showGroupReactions())
+		|| (peer->isUser() && !settings.showPrivateChatReactions())) {
 		item->markEffectWatched();
 		return;
 	}

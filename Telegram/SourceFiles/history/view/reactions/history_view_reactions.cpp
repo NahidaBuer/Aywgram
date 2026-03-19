@@ -34,6 +34,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 // AyuGram includes
 #include "ayu/ayu_settings.h"
 #include "ayu/features/message_shot/message_shot.h"
+#include "ayu/ui/ayu_userpic.h"
+#include "ayu/features/filters/filters_controller.h"
 
 
 namespace HistoryView::Reactions {
@@ -680,7 +682,7 @@ void InlineList::paintSingleBg(
 		float64 opacity) const {
 	p.setOpacity(opacity);
 	if (!areTags()) {
-		const auto radius = fill.height() / 2.;
+		const auto radius = AyuUserpic::ComputeRadiusF(fill.height());
 		p.setBrush(color);
 		p.drawRoundedRect(fill, radius, radius);
 		return;
@@ -845,13 +847,17 @@ InlineListData InlineListDataFromMessage(not_null<Element*> view) {
 	using Flag = InlineListData::Flag;
 	const auto item = view->data();
 	const auto &settings = AyuSettings::getInstance();
-	if (!settings.showChannelReactions
+	if (!settings.showChannelReactions()
 		&& item->history()->peer->isChannel()
 		&& !item->history()->peer->isMegagroup()) {
 		return InlineListData();
 	}
-	if (!settings.showGroupReactions
+	if (!settings.showGroupReactions()
 		&& item->history()->peer->isMegagroup()) {
+		return InlineListData();
+	}
+	if (!settings.showPrivateChatReactions()
+		&& item->history()->peer->isUser()) {
 		return InlineListData();
 	}
 	auto result = InlineListData();
@@ -924,6 +930,13 @@ InlineListData InlineListDataFromMessage(not_null<Element*> view) {
 					out.push_back(r.peer);
 				}
 			}
+		}
+	}
+	if (AyuSettings::getInstance().filtersEnabled()) {
+		for (auto &[id, peers] : result.recent) {
+			peers.erase(ranges::remove_if(peers, [](not_null<PeerData*> peer) {
+				return FiltersController::isBlocked(peer);
+			}), end(peers));
 		}
 	}
 	result.flags = (view->hasOutLayout() ? Flag::OutLayout : Flag())

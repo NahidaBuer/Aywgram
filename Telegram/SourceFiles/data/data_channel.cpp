@@ -40,6 +40,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/unread_badge.h"
 #include "window/notifications_manager.h"
 
+// AyuGram includes
+#include "ayu/ayu_settings.h"
+#include "ayu/utils/telegram_helpers.h"
+
+
 namespace {
 
 using UpdateFlag = Data::PeerUpdate::Flag;
@@ -133,7 +138,12 @@ void ChannelData::setPhoto(const MTPChatPhoto &photo) {
 void ChannelData::setName(
 		const QString &newName,
 		const QString &newUsername) {
-	updateNameDelayed(newName.isEmpty() ? name() : newName, {}, newUsername);
+	auto filteredName = newName;
+	const auto &settings = AyuSettings::getInstance();
+	if (settings.filterZalgo()) {
+		filteredName = filterZalgo(filteredName);
+	}
+	updateNameDelayed(filteredName.isEmpty() ? name() : filteredName, {}, newUsername);
 }
 
 void ChannelData::setUsername(const QString &username) {
@@ -508,6 +518,17 @@ void ChannelData::applyEditAdmin(
 		updateFullForced();
 	}
 	session().changes().peerUpdated(this, UpdateFlag::Admins);
+}
+
+void ChannelData::applyEditMemberRank(
+		not_null<UserData*> user,
+		const QString &rank) {
+	if (!mgInfo) {
+		return;
+	}
+	const auto userId = peerToUser(user->id);
+	Data::ChannelMemberRankChanges changes(this);
+	changes.feed(userId, rank);
 }
 
 void ChannelData::applyEditBanned(

@@ -385,7 +385,7 @@ System::Timing System::countTiming(
 	}
 
 	const auto &settings = AyuSettings::getInstance();
-	if (settings.disableNotificationsDelay) {
+	if (settings.disableNotificationsDelay()) {
 		delay = minimalDelay;
 	}
 

@@ -27,6 +27,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "layout/layout_selection.h"
 #include "styles/style_chat.h"
 
+// AyuGram includes
+#include "ayu/ayu_settings.h"
+
+
 namespace HistoryView {
 namespace {
 
@@ -404,6 +408,23 @@ void GroupedMedia::draw(Painter &p, const PaintContext &context) const {
 	const auto tagged = lookupSpoilerTagMedia();
 	auto fullRect = QRect();
 	const auto subpartHighlight = IsSubGroupSelection(highlight);
+
+	auto anyDeleted = false;
+	const auto &settings = AyuSettings::getInstance();
+	const auto perItemOpacityEnabled = settings.semiTransparentDeletedMessages();
+	if (perItemOpacityEnabled) {
+		for (const auto &part : _parts) {
+			if (part.item->isDeleted()) {
+				anyDeleted = true;
+			}
+		}
+	}
+	const auto perItemDeletedOpacity = perItemOpacityEnabled
+		&& anyDeleted;
+	const auto elementDeletedOpacity = perItemDeletedOpacity
+		? _parent->deletedOpacity()
+		: 1.;
+
 	for (auto i = 0, count = int(_parts.size()); i != count; ++i) {
 		const auto &part = _parts[i];
 		auto partContext = context.withSelection(fullSelection
@@ -430,15 +451,44 @@ void GroupedMedia::draw(Painter &p, const PaintContext &context) const {
 		if (!part.cache.isNull()) {
 			wasCache = true;
 		}
-		part.content->drawGrouped(
-			p,
-			partContext,
-			part.geometry.translated(0, groupPadding.top()),
-			part.sides,
-			applyRoundingSides(rounding, part.sides),
-			highlightOpacity,
-			&part.cacheKey,
-			&part.cache);
+		if (perItemDeletedOpacity && part.item->isDeleted()) {
+			if (part.item->wasDeletedAnimated()
+				&& !part.deletedAnimation.animating()) {
+				part.deletedAnimation.start(
+					[parent = _parent] { parent->repaint(); },
+					1.,
+					0.7,
+					500,
+					anim::easeOutCubic);
+				part.item->markDeletedAnimated();
+			}
+			const auto itemOpacity = part.deletedAnimation.value(0.7);
+			const auto adjustedOpacity = (elementDeletedOpacity > 0.)
+				? (itemOpacity / elementDeletedOpacity)
+				: 0.;
+			const auto savedOp = p.opacity();
+			p.setOpacity(savedOp * adjustedOpacity);
+			part.content->drawGrouped(
+				p,
+				partContext,
+				part.geometry.translated(0, groupPadding.top()),
+				part.sides,
+				applyRoundingSides(rounding, part.sides),
+				highlightOpacity,
+				&part.cacheKey,
+				&part.cache);
+			p.setOpacity(savedOp);
+		} else {
+			part.content->drawGrouped(
+				p,
+				partContext,
+				part.geometry.translated(0, groupPadding.top()),
+				part.sides,
+				applyRoundingSides(rounding, part.sides),
+				highlightOpacity,
+				&part.cacheKey,
+				&part.cache);
+		}
 		if (!part.cache.isNull()) {
 			nowCache = true;
 		}

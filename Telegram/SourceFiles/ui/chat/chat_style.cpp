@@ -49,7 +49,7 @@ void EnsureBlockquoteCache(
 	cache->icon = colors.name;
 
 	const auto &settings = AyuSettings::getInstance();
-	if (settings.simpleQuotesAndReplies) {
+	if (settings.simpleQuotesAndReplies()) {
 		cache->bg = QColor(0, 0, 0, 0);
 	}
 }

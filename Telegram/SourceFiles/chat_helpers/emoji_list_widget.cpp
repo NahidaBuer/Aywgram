@@ -50,7 +50,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mainwidget.h"
 #include "core/core_settings.h"
 #include "core/application.h"
-#include "settings/settings_premium.h"
+#include "settings/sections/settings_premium.h"
 #include "window/window_session_controller.h"
 #include "window/window_controller.h"
 #include "styles/style_chat_helpers.h"
@@ -2313,7 +2313,7 @@ void EmojiListWidget::refreshCustom() {
 	const auto push = [&](uint64 setId, bool installed) {
 		const auto megagroup = _megagroupSet
 			&& (setId == Data::Stickers::MegagroupSetId);
-		if (settings.showOnlyAddedEmojisAndStickers && !installed && !megagroup) {
+		if (settings.showOnlyAddedEmojisAndStickers() && !installed && !megagroup) {
 			return;
 		}
 		const auto lookupId = megagroup

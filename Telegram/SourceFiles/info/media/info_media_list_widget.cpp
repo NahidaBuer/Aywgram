@@ -2714,5 +2714,14 @@ ListWidget::~ListWidget() {
 	}
 }
 
+void ListWidget::jumpToMessage(MsgId msgId) {
+	_provider->jumpToMessage(msgId, [=](FullMsgId fullId) {
+		if (const auto i = session().data().message(fullId)) {
+			_scrollTopState.position = _provider->scrollTopStatePosition(i);
+			_scrollTopState.item = i;
+		}
+	});
+}
+
 } // namespace Media
 } // namespace Info

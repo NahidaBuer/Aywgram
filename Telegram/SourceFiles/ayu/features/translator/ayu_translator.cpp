@@ -3,27 +3,42 @@
 // We do not and cannot prevent the use of our code,
 // but be respectful and credit the original author.
 //
-// Copyright @Radolyn, 2025
-#include "ayu_translator.h"
+// Copyright @Radolyn, 2026
+#include "ayu/features/translator/ayu_translator.h"
+
+#include "api/api_text_entities.h"
+#include "ayu/ayu_settings.h"
+#include "ayu/features/translator/implementations/google.h"
+#include "ayu/features/translator/implementations/telegram.h"
+#include "ayu/features/translator/implementations/yandex.h"
+#include "data/data_peer.h"
+#include "data/data_session.h"
+#include "history/history_item.h"
+#include "main/main_session.h"
 
 #include <optional>
 #include <QtCore/QCryptographicHash>
 #include <QtCore/QString>
 #include <QtNetwork/QNetworkReply>
 
-#include "api/api_text_entities.h"
-#include "ayu/ayu_settings.h"
-#include "data/data_peer.h"
-#include "data/data_session.h"
-#include "history/history_item.h"
-#include "implementations/google.h"
-#include "implementations/telegram.h"
-#include "implementations/yandex.h"
-#include "main/main_session.h"
-
 // todo: expose available languages from current translator and use in `ChooseTranslateToBox`
 
 namespace Ayu::Translator {
+namespace {
+
+BaseTranslator &translatorForProvider(TranslationProvider provider) {
+	switch (provider) {
+	case TranslationProvider::Telegram:
+		return TelegramTranslator::instance();
+	case TranslationProvider::Yandex:
+		return YandexTranslator::instance();
+	case TranslationProvider::Google:
+		return GoogleTranslator::instance();
+	}
+	return GoogleTranslator::instance();
+}
+
+} // namespace
 
 TranslateManager::Builder::Builder(
 	TranslateManager &manager,
@@ -228,13 +243,7 @@ mtpRequestId TranslateManager::performTranslation(Builder &req) {
 
 	if (const auto it = _pending.find(id); it != _pending.end()) {
 		const auto &settings = AyuSettings::getInstance();
-		if (settings.translationProvider == "telegram") {
-			it->second.cancel = TelegramTranslator::instance().startTranslation(args);
-		} else if (settings.translationProvider == "yandex") {
-			it->second.cancel = YandexTranslator::instance().startTranslation(args);
-		} else {
-			it->second.cancel = GoogleTranslator::instance().startTranslation(args);
-		}
+		it->second.cancel = translatorForProvider(settings.translationProvider()).startTranslation(args);
 	}
 
 	return id;

@@ -164,6 +164,8 @@ void SendExistingMedia(
 		Fn<MTPInputMedia()> inputMedia,
 		Data::FileOrigin origin,
 		std::optional<MsgId> localMessageId) {
+	applyGhostScheduling(&message.action.history->session(), message.action.options);
+
 	const auto history = message.action.history;
 	const auto peer = history->peer;
 	const auto session = &history->session();
@@ -252,6 +254,7 @@ void SendExistingMedia(
 		.postAuthor = NewMessagePostAuthor(action),
 		.effectId = action.options.effectId,
 		.suggest = HistoryMessageSuggestInfo(action.options),
+		.mediaSpoiler = action.options.mediaSpoiler,
 	}, media, caption);
 
 	const auto performRequest = [=](const auto &repeatRequest) -> void {
@@ -305,9 +308,30 @@ void SendExistingDocument(
 		MessageToSend &&message,
 		not_null<DocumentData*> document,
 		std::optional<MsgId> localMessageId) {
+	if (!document->sticker()
+		&& !document->isVideoMessage()
+		&& !document->isVoiceMessage()) {
+		const auto clearReplyTo = prependPseudoReply(message);
+		if (clearReplyTo) {
+			message.action.replyTo.messageId = FullMsgId(
+				message.action.replyTo.messageId.peer,
+				message.action.replyTo.topicRootId);
+		}
+	} else if (message.action.replyTo && message.action.history) {
+		if (const auto item = message.action.history->session().data().message(message.action.replyTo.messageId)) {
+			if (item->isDeleted()) {
+				message.action.replyTo.messageId = FullMsgId(
+					message.action.replyTo.messageId.peer,
+					message.action.replyTo.topicRootId);
+			}
+		}
+	}
+
 	const auto inputMedia = [=] {
 		return MTP_inputMediaDocument(
-			MTP_flags(0),
+			MTP_flags(message.action.options.mediaSpoiler
+				? MTPDinputMediaDocument::Flag::f_spoiler
+				: MTPDinputMediaDocument::Flags(0)),
 			document->mtpInput(),
 			MTPInputPhoto(), // video_cover
 			MTPint(), // ttl_seconds
@@ -330,6 +354,13 @@ void SendExistingPhoto(
 		MessageToSend &&message,
 		not_null<PhotoData*> photo,
 		std::optional<MsgId> localMessageId) {
+	const auto clearReplyTo = prependPseudoReply(message);
+	if (clearReplyTo) {
+		message.action.replyTo.messageId = FullMsgId(
+			message.action.replyTo.messageId.peer,
+			message.action.replyTo.topicRootId);
+	}
+
 	const auto inputMedia = [=] {
 		return MTP_inputMediaPhoto(
 			MTP_flags(0),
@@ -376,7 +407,6 @@ bool SendDice(MessageToSend &message) {
 	message.textWithTags = TextWithTags();
 	message.action.clearDraft = false;
 	message.action.generateLocal = true;
-
 
 	auto &action = message.action;
 	api->sendAction(action);
@@ -433,6 +463,11 @@ bool SendDice(MessageToSend &message) {
 
 	session->data().registerMessageRandomId(randomId, newId);
 
+	auto seed = QByteArray(32, Qt::Uninitialized);
+	base::RandomFill(bytes::make_detached_span(seed));
+	const auto stake = action.options.stakeSeedHash.isEmpty()
+		? 0
+		: action.options.stakeNanoTon;
 	history->addNewLocalMessage({
 		.id = newId.msg,
 		.flags = flags,
@@ -445,8 +480,15 @@ bool SendDice(MessageToSend &message) {
 		.effectId = action.options.effectId,
 		.suggest = HistoryMessageSuggestInfo(action.options),
 	}, TextWithEntities(), MTP_messageMediaDice(
+		MTP_flags(stake
+			? MTPDmessageMediaDice::Flag::f_game_outcome
+			: MTPDmessageMediaDice::Flag()),
 		MTP_int(0),
-		MTP_string(emoji)));
+		MTP_string(emoji),
+		MTP_messages_emojiGameOutcome(
+			MTP_bytes(seed),
+			MTP_long(stake),
+			MTP_long(0))));
 	histories.sendPreparedMessage(
 		history,
 		action.replyTo,
@@ -455,7 +497,12 @@ bool SendDice(MessageToSend &message) {
 			MTP_flags(sendFlags),
 			peer->input(),
 			Data::Histories::ReplyToPlaceholder(),
-			MTP_inputMediaDice(MTP_string(emoji)),
+			(stake
+				? MTP_inputMediaStakeDice(
+					MTP_bytes(action.options.stakeSeedHash),
+					MTP_long(stake),
+					MTP_bytes(seed))
+				: MTP_inputMediaDice(MTP_string(emoji))),
 			MTP_string(),
 			MTP_long(randomId),
 			MTPReplyMarkup(),
@@ -536,6 +583,26 @@ void SendConfirmedFile(
 		: nullptr;
 	const auto history = session->data().history(file->to.peer);
 	const auto peer = history->peer;
+
+	if (!isEditing
+		&& file->type != SendMediaType::Audio
+		&& file->type != SendMediaType::Round) {
+		const auto clearReplyTo = prependPseudoReply(
+			session, history, file->caption, file->to.replyTo);
+		if (clearReplyTo) {
+			file->to.replyTo.messageId = FullMsgId(
+				file->to.replyTo.messageId.peer,
+				file->to.replyTo.topicRootId);
+		}
+	} else if (!isEditing && file->to.replyTo) {
+		if (const auto item = session->data().message(file->to.replyTo.messageId)) {
+			if (item->isDeleted()) {
+				file->to.replyTo.messageId = FullMsgId(
+					file->to.replyTo.messageId.peer,
+					file->to.replyTo.topicRootId);
+			}
+		}
+	}
 
 	if (!isEditing) {
 		const auto histories = &session->data().histories();

@@ -27,6 +27,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_requests_bar.h"
 #include "history/view/history_view_top_bar_widget.h"
 #include "boxes/peers/edit_peer_requests_box.h"
+#include "boxes/choose_filter_box.h"
 #include "ui/text/text_utilities.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/chat_filters_tabs_strip.h"
@@ -101,6 +102,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 // AyuGram includes
 #include "ayu/ayu_settings.h"
 #include "ayu/utils/taptic_engine/taptic_engine.h"
+#include "ayu/utils/telegram_helpers.h"
 
 
 namespace Dialogs {
@@ -109,6 +111,62 @@ namespace {
 constexpr auto kSearchPerPage = 50;
 constexpr auto kStoriesExpandDuration = crl::time(200);
 constexpr auto kSearchRequestDelay = crl::time(900);
+
+enum class IdSearchType {
+	None,
+	UserOnly,
+	ChatOnly,
+	Both,
+};
+
+struct IdSearchQuery {
+	IdSearchType type = IdSearchType::None;
+	qint64 id = 0;
+};
+
+[[nodiscard]] bool IsNumericString(const QString &str) {
+	if (str.isEmpty()) {
+		return false;
+	}
+	for (const auto &ch : str) {
+		if (!ch.isDigit()) {
+			return false;
+		}
+	}
+	return true;
+}
+
+[[nodiscard]] IdSearchQuery ParseIdSearchQuery(const QString &query) {
+	if (query.startsWith(u"id:"_q, Qt::CaseInsensitive)
+		|| query.startsWith(u"id "_q, Qt::CaseInsensitive)) {
+		const auto idPart = query.mid(3).trimmed();
+		if (idPart.startsWith(u"-100"_q)) {
+			const auto chatId = idPart.mid(4);
+			if (chatId.length() >= 1 && IsNumericString(chatId)) {
+				return { IdSearchType::ChatOnly, chatId.toLongLong() };
+			}
+			return {};
+		}
+		if (idPart.length() >= 5 && IsNumericString(idPart)) {
+			return { IdSearchType::Both, idPart.toLongLong() };
+		}
+		return {};
+	}
+
+	if (query.startsWith(u"-100"_q)) {
+		const auto idPart = query.mid(4);
+		if (idPart.length() >= 1 && IsNumericString(idPart)) {
+			return { IdSearchType::ChatOnly, idPart.toLongLong() };
+		}
+		return {};
+	}
+
+	if (query.length() >= 5 && IsNumericString(query)) {
+		return { IdSearchType::UserOnly, query.toLongLong() };
+	}
+
+	return {};
+}
 
 base::options::toggle OptionForumHideChatsList({
 	.id = kOptionForumHideChatsList,
@@ -408,7 +466,6 @@ Widget::Widget(
 	_scrollToTop->raise();
 	_lockUnlock->toggle(false, anim::type::instant);
 
-
 	_inner->updated(
 	) | rpl::on_next([=] {
 		listScrollUpdated();
@@ -556,6 +613,20 @@ Widget::Widget(
 	_search->submits(
 	) | rpl::on_next([=] { submit(); }, _search->lifetime());
 
+	_search->setMimeDataHook([=](
+			not_null<const QMimeData*> data,
+			Ui::InputField::MimeAction action) {
+		if (data->hasFormat(u"application/x-telegram-dialog"_q)) {
+			if (const auto history = HistoryFromMimeData(data, &session())) {
+				if (action != Ui::InputField::MimeAction::Check) {
+					controller->searchInChat(history);
+				}
+				return true;
+			}
+		}
+		return false;
+	});
+
 	QObject::connect(
 		_search->rawTextEdit().get(),
 		&QTextEdit::cursorPositionChanged,
@@ -578,14 +649,20 @@ Widget::Widget(
 	_cancelSearch->setClickedCallback([=] {
 		cancelSearch({ .jumpBackToSearchedChat = true });
 	});
+	_cancelSearch->setAccessibleName(tr::lng_sr_cancel_search(tr::now));
 	_jumpToDate->entity()->setClickedCallback([=] { showCalendar(); });
+	_jumpToDate->entity()->setAccessibleName(
+		tr::lng_sr_search_date(tr::now));
 	_chooseFromUser->entity()->setClickedCallback([=] { showSearchFrom(); });
+	_chooseFromUser->entity()->setAccessibleName(
+		tr::lng_search_messages_from(tr::now));
 	rpl::single(rpl::empty) | rpl::then(
 		session().domain().local().localPasscodeChanged()
 	) | rpl::on_next([=] {
 		updateLockUnlockVisibility();
 	}, lifetime());
 	const auto lockUnlock = _lockUnlock->entity();
+	lockUnlock->setAccessibleName(tr::lng_shortcuts_lock(tr::now));
 	lockUnlock->setClickedCallback([=] {
 		lockUnlock->setIconOverride(
 			&st::dialogsUnlockIcon,
@@ -600,6 +677,7 @@ Widget::Widget(
 		setupStories();
 	}
 
+	_searchForNarrowLayout->setAccessibleName(tr::lng_dlg_filter(tr::now));
 	_searchForNarrowLayout->setClickedCallback([=] {
 		_search->setFocusFast();
 		if (_childList) {
@@ -918,7 +996,7 @@ void Widget::chosenRow(const ChosenRow &row) {
 		&& (row.message.fullId.msg == ShowAtUnreadMsgId)
 		&& history->peer->hasActiveStories()
 		&& !history->peer->isSelf()
-		&& !AyuSettings::getInstance().disableStories) {
+		&& !AyuSettings::getInstance().disableStories()) {
 		controller()->openPeerStories(history->peer->id);
 		return;
 	} else if (history
@@ -1039,6 +1117,7 @@ void Widget::scrollToDefaultChecked(bool verytop) {
 
 void Widget::setupScrollUpButton() {
 	_scrollToTop->setClickedCallback([=] { scrollToDefaultChecked(); });
+	_scrollToTop->setAccessibleName(tr::lng_sr_scroll_to_top(tr::now));
 	trackScroll(_scrollToTop);
 	trackScroll(this);
 	updateScrollUpVisibility();
@@ -1351,7 +1430,7 @@ void Widget::setupMainMenuToggle() {
 			: &st::dialogsMenuToggleUnreadMuted;
 
 		const auto &settings = AyuSettings::getInstance();
-		if (settings.hideNotificationCounters) {
+		if (settings.hideNotificationCounters()) {
 			icon = nullptr;
 		}
 
@@ -1362,7 +1441,7 @@ void Widget::setupMainMenuToggle() {
 void Widget::setupStories() {
 	// AyuGram disableStories
 	const auto &settings = AyuSettings::getInstance();
-	if (settings.disableStories) {
+	if (settings.disableStories()) {
 		return;
 	}
 
@@ -1599,7 +1678,9 @@ void Widget::updateControlsVisibility(bool fast) {
 			_forumReportBar->show();
 		}
 	} else {
-		updateLockUnlockVisibility();
+		updateLockUnlockVisibility(fast
+			? anim::type::instant
+			: anim::type::normal);
 		updateJumpToDateVisibility(fast);
 		updateSearchFromVisibility(fast);
 	}
@@ -2336,28 +2417,35 @@ void Widget::stopWidthAnimation() {
 }
 
 void Widget::updateStoriesVisibility() {
-	updateLockUnlockVisibility();
+	updateLockUnlockVisibility(anim::type::normal);
 	if (!_stories) {
 		return;
 	}
 
 	const auto &settings = AyuSettings::getInstance();
-	if (settings.disableStories) {
+	if (settings.disableStories()) {
 		_stories->setVisible(false);
 		return;
 	}
 
-	const auto hidden = (_showAnimation != nullptr)
+	const auto widthAnimation = !_widthAnimationCache.isNull();
+	const auto suggestionsAnimation = widthAnimation
+		&& (!_suggestions || !_hidingSuggestions.empty());
+	const auto hiddenInstant = _showAnimation
 		|| _openedForum
-		|| !_widthAnimationCache.isNull()
+		|| (widthAnimation && !suggestionsAnimation)
 		|| _childList
-		|| _searchHasFocus
+		|| _stories->empty()
+		|| (_scroll->position().overscroll < -st::dialogsFilterSkip);
+	const auto hiddenAnimated = _searchHasFocus
 		|| _searchSuggestionsLocked
 		|| !_searchState.query.isEmpty()
 		|| _searchState.inChat
-		|| _stories->empty();
-	if (_stories->isHidden() != hidden) {
-		_stories->setVisible(!hidden);
+		|| suggestionsAnimation;
+	const auto hidden = hiddenInstant || hiddenAnimated;
+	const auto changed = (_stories->toggledHidden() != hidden);
+	_stories->setToggledHidden(hiddenInstant, hiddenAnimated);
+	if (changed) {
 		using Type = Ui::ElasticScroll::OverscrollType;
 		if (hidden) {
 			_scroll->setOverscrollDefaults(0, 0);
@@ -2422,7 +2510,7 @@ void Widget::startSlideAnimation(
 		Window::SlideDirection direction) {
 	_scroll->hide();
 	if (_stories) {
-		_stories->hide();
+		_stories->setToggledHidden(true, false);
 	}
 	_searchControls->hide();
 	if (_subsectionTopBar) {
@@ -2744,6 +2832,56 @@ bool Widget::search(bool inCache, SearchRequestDelay delay) {
 		_topicSearchQuery = peerQuery;
 		_topicSearchFull = true;
 	}
+
+	const auto isGlobalSearch = !inPeer;
+	const auto idQuery = ParseIdSearchQuery(query);
+	const auto shouldIdSearch = isGlobalSearch && (idQuery.type != IdSearchType::None);
+
+	if (!isGlobalSearch || _idSearchQuery != query) {
+		if (!_idSearchResults.empty() || !_idSearchQuery.isEmpty()) {
+			_idSearchResults.clear();
+			_idSearchQuery.clear();
+			_inner->idSearchReceived({});
+		}
+	}
+
+	if (shouldIdSearch && !inCache && _idSearchQuery != query) {
+		const auto weak = base::make_weak(this);
+		const auto currentQuery = query;
+		const auto id = idQuery.id;
+		const auto searchType = idQuery.type;
+
+		_idSearchQuery = currentQuery;
+
+		if (searchType == IdSearchType::UserOnly || searchType == IdSearchType::Both) {
+			searchUserById(id, &session(), [=](const QString &, PeerData *peer) {
+				crl::on_main(weak, [=] {
+					if (_idSearchQuery != currentQuery) {
+						return;
+					}
+					if (peer && !ranges::contains(_idSearchResults, not_null{ peer })) {
+						_idSearchResults.push_back(peer);
+						_inner->idSearchReceived(_idSearchResults);
+					}
+				});
+			});
+		}
+
+		if (searchType == IdSearchType::ChatOnly || searchType == IdSearchType::Both) {
+			searchChatById(id, &session(), [=](const QString &, PeerData *peer) {
+				crl::on_main(weak, [=] {
+					if (_idSearchQuery != currentQuery) {
+						return;
+					}
+					if (peer && !ranges::contains(_idSearchResults, not_null{ peer })) {
+						_idSearchResults.push_back(peer);
+						_inner->idSearchReceived(_idSearchResults);
+					}
+				});
+			});
+		}
+	}
+
 	return result;
 }
 
@@ -2779,9 +2917,30 @@ void Widget::searchMessages(SearchState state) {
 		if (_openedForum && peer->forum() != _openedForum) {
 			controller()->closeForum();
 		}
+	} else if (state.query.isEmpty()) {
+		if (_childList) {
+			hideChildList();
+		}
+		if (_openedForum) {
+			controller()->closeForum();
+		}
+		if (_layout == Layout::Main) {
+			controller()->closeFolder();
+		}
 	}
 	applySearchState(std::move(state));
 	session().local().saveRecentSearchHashtags(_searchState.query);
+
+	if (_childList) {
+		_childList->setInnerFocus();
+	} else if (_subsectionTopBar) {
+		if (!_subsectionTopBar->searchSetFocus()
+			&& !_subsectionTopBar->searchHasFocus()) {
+			_subsectionTopBar->toggleSearch(true, anim::type::normal);
+		}
+	} else {
+		_search->setFocus();
+	}
 }
 
 void Widget::searchTopics() {
@@ -3054,7 +3213,7 @@ void Widget::searchReceived(
 			process->queries.erase(i);
 		}
 	}
-	const auto inject = (type.start && !type.posts)
+	const auto inject = (type.start && !type.posts && !type.migrated)
 		? *_singleMessageSearch.lookup(_searchQuery)
 		: nullptr;
 	if (cacheResults && process->requestId) {
@@ -3299,6 +3458,11 @@ void Widget::updateCancelSearch() {
 		|| (!_searchState.inChat
 			&& (_searchHasFocus || _searchSuggestionsLocked));
 	_cancelSearch->toggle(shown, anim::type::normal);
+	if (_searchState.inChat) {
+		_cancelSearch->setAccessibleName(shown
+			? tr::lng_sr_clear_search(tr::now)
+			: tr::lng_sr_cancel_search(tr::now));
+	}
 }
 
 QString Widget::validateSearchQuery() {
@@ -3502,6 +3666,15 @@ bool Widget::applySearchState(SearchState state) {
 		}
 		hideChildList();
 	}
+
+	if (state.inChat || _searchState.inChat != state.inChat) {
+		if (!_idSearchResults.empty() || !_idSearchQuery.isEmpty()) {
+			_idSearchResults.clear();
+			_idSearchQuery.clear();
+			_inner->idSearchReceived({});
+		}
+	}
+
 	if (state.inChat && _layout == Layout::Main) {
 		controller()->closeFolder();
 	}
@@ -3696,7 +3869,7 @@ void Widget::clearSearchCache(bool clearPosts) {
 
 void Widget::showCalendar() {
 	if (_searchState.inChat) {
-		controller()->showCalendar(_searchState.inChat, QDate());
+		controller()->showCalendar({ _searchState.inChat });
 	}
 }
 
@@ -3795,20 +3968,28 @@ void Widget::updateLockUnlockVisibility(anim::type animated) {
 	if (_showAnimation) {
 		return;
 	}
-	const auto hidden = !session().domain().local().hasLocalPasscode()
-		|| _showAnimation
+	const auto widthAnimation = !_widthAnimationCache.isNull();
+	const auto suggestionsAnimation = widthAnimation
+		&& (!_suggestions || !_hidingSuggestions.empty());
+	const auto hiddenInstant = _showAnimation
 		|| _openedForum
-		|| !_widthAnimationCache.isNull()
+		|| (widthAnimation && !suggestionsAnimation)
 		|| _childList
-		|| _searchHasFocus
+		|| !session().domain().local().hasLocalPasscode()
+		|| (_stories
+			&& !_stories->empty()
+			&& _scroll->position().overscroll < -st::dialogsFilterSkip);
+	const auto hiddenAnimated = _searchHasFocus
 		|| _searchSuggestionsLocked
+		|| !_searchState.query.isEmpty()
 		|| _searchState.inChat
-		|| !_searchState.query.isEmpty();
-	if (_lockUnlock->toggled() == hidden) {
-		const auto stories = _stories && !_stories->empty();
-		_lockUnlock->toggle(
-			!hidden,
-			stories ? anim::type::instant : animated);
+		|| suggestionsAnimation;
+	const auto hidden = hiddenInstant || hiddenAnimated;
+	const auto changed = (_lockUnlock->toggled() == hidden);
+	_lockUnlock->toggle(
+		!hidden,
+		hiddenInstant ? anim::type::instant : animated);
+	if (changed) {
 		if (!hidden) {
 			updateLockUnlockPosition();
 		}
@@ -4335,6 +4516,11 @@ bool Widget::cancelSearch(CancelSearchOptions options) {
 		}
 	}
 	cancelSearchRequest();
+
+	_idSearchQuery.clear();
+	_idSearchResults.clear();
+	_inner->idSearchReceived({});
+
 	auto updatedState = _searchState;
 	const auto clearingQuery = clearingSuggestionsQuery
 		|| !updatedState.query.isEmpty();

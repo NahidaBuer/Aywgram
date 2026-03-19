@@ -1104,7 +1104,8 @@ void Application::checkStartUrls() {
 				iv().showTonSite(url.toString(), {});
 				return false;
 			} else if (_lastActivePrimaryWindow) {
-				return !openLocalUrl(url.toString(), {});
+				const auto local = TryConvertUrlToLocal(url.toString());
+				return !openLocalUrl(local, {});
 			}
 			return true;
 		}) | ranges::to<QList<QUrl>>;
@@ -1117,6 +1118,21 @@ void Application::checkStartUrls() {
 }
 
 bool Application::openLocalUrl(const QString &url, QVariant context) {
+	const auto urlTrimmed = url.trimmed();
+	const auto protocol = u"tg://"_q;
+	if (urlTrimmed.startsWith(protocol, Qt::CaseInsensitive)
+		&& !passcodeLocked()) {
+		const auto command = urlTrimmed.mid(protocol.size());
+		const auto my = context.value<ClickHandlerContext>();
+		const auto controller = my.sessionWindow.get()
+			? my.sessionWindow.get()
+			: _lastActivePrimaryWindow
+			? _lastActivePrimaryWindow->sessionController()
+			: nullptr;
+		if (TryRouterForLocalUrl(controller, command)) {
+			return true;
+		}
+	}
 	return openCustomUrl("tg://", LocalUrlHandlers(), url, context);
 }
 

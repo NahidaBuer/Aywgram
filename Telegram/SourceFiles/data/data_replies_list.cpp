@@ -1007,8 +1007,8 @@ void RepliesList::sendReadTillRequest() {
 	const auto api = &_history->session().api();
 	api->request(base::take(_readRequestId)).cancel();
 
-	const auto &settings = AyuSettings::getInstance();
-	if (!settings.sendReadMessages) {
+	const auto &ghost = AyuSettings::ghost(&_history->session());
+	if (!ghost.sendReadMessages()) {
 		return;
 	}
 

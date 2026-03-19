@@ -166,8 +166,8 @@ PreviewWrap::PreviewWrap(
 
 	const auto session = &_item->history()->session();
 	session->data().viewRepaintRequest(
-	) | rpl::on_next([=](not_null<const HistoryView::Element*> view) {
-		if (view == _element.get()) {
+	) | rpl::on_next([=](Data::RequestViewRepaint data) {
+		if (data.view == _element.get()) {
 			update(_elementGeometry);
 		}
 	}, lifetime());
@@ -201,7 +201,7 @@ PreviewWrap::PreviewWrap(
 	{
 		const auto close = Ui::CreateChild<Ui::RoundButton>(
 			this,
-			item->out() || settings.saveDeletedMessages
+			item->out() || settings.saveDeletedMessages()
 				? tr::lng_close()
 				: tr::lng_ttl_voice_close_in(),
 			st::ttlMediaButton);
@@ -235,8 +235,8 @@ PreviewWrap::PreviewWrap(
 					) | rpl::map(tr::rich),
 					tr::rich)
 			: (isRound
-				? settings.saveDeletedMessages ? tr::ayu_ExpiringVideoMessageNote : tr::lng_ttl_round_tooltip_in
-				: settings.saveDeletedMessages ? tr::ayu_ExpiringVoiceMessageNote : tr::lng_ttl_voice_tooltip_in)(tr::rich);
+				? settings.saveDeletedMessages() ? tr::ayu_ExpiringVideoMessageNote : tr::lng_ttl_round_tooltip_in
+				: settings.saveDeletedMessages() ? tr::ayu_ExpiringVoiceMessageNote : tr::lng_ttl_voice_tooltip_in)(tr::rich);
 		const auto tooltip = Ui::CreateChild<Ui::ImportantTooltip>(
 			this,
 			object_ptr<Ui::PaddingWrap<Ui::FlatLabel>>(
@@ -328,6 +328,7 @@ void PreviewWrap::paintEvent(QPaintEvent *e) {
 	} else {
 		auto context = _theme->preparePaintContext(
 			_style.get(),
+			Rect(_element->currentSize()),
 			Rect(_element->currentSize()),
 			Rect(_element->currentSize()),
 			!window()->isActiveWindow());

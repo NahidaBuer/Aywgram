@@ -3,18 +3,17 @@
 // We do not and cannot prevent the use of our code,
 // but be respectful and credit the original author.
 //
-// Copyright @Radolyn, 2025
+// Copyright @Radolyn, 2026
 #pragma once
 
+#include "apiwrap.h"
+
+#include <functional>
 #include <QtCore/QObject>
 #include <QtCore/QPointer>
 #include <QtCore/QSet>
 #include <QtCore/QString>
 #include <QtNetwork/QNetworkReply>
-
-#include <functional>
-
-#include "apiwrap.h"
 
 namespace Main {
 class Session;

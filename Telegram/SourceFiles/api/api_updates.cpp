@@ -21,6 +21,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mtproto/mtp_instance.h"
 #include "mtproto/mtproto_config.h"
 #include "mtproto/mtproto_dc_options.h"
+#include "chat_helpers/stickers_dice_pack.h"
 #include "data/business/data_shortcut_messages.h"
 #include "data/components/credits.h"
 #include "data/components/gift_auctions.h"
@@ -909,10 +910,10 @@ void Updates::updateOnline(crl::time lastNonIdleTime, bool gotOtherOffline) {
 	});
 
 	// AyuGram sendOnlinePackets
-	const auto &settings = AyuSettings::getInstance();
+	const auto &ghost = AyuSettings::ghost(_session);
 	const auto& config = _session->serverConfig();
 	bool isOnlineOrig = Core::App().hasActiveWindow(&session());
-	bool isOnline = settings.sendOnlinePackets && isOnlineOrig;
+	bool isOnline = ghost.sendOnlinePackets() && isOnlineOrig;
 
 	int updateIn = config.onlineUpdatePeriod;
 	Assert(updateIn >= 0);
@@ -1127,6 +1128,7 @@ void Updates::applyUpdatesNoPtsCheck(const MTPUpdates &updates) {
 					? peerToMTP(_session->userPeerId())
 					: MTP_peerUser(d.vuser_id())),
 				MTPint(), // from_boosts_applied
+				MTPstring(), // from_rank
 				MTP_peerUser(d.vuser_id()),
 				MTPPeer(), // saved_peer_id
 				d.vfwd_from() ? *d.vfwd_from() : MTPMessageFwdHeader(),
@@ -1153,7 +1155,8 @@ void Updates::applyUpdatesNoPtsCheck(const MTPUpdates &updates) {
 				MTPint(), // report_delivery_until_date
 				MTPlong(), // paid_message_stars
 				MTPSuggestedPost(),
-				MTPint()), // schedule_repeat_period
+				MTPint(), // schedule_repeat_period
+				MTPstring()), // summary_from_language
 			MessageFlags(),
 			NewMessageType::Unread);
 	} break;
@@ -1168,6 +1171,7 @@ void Updates::applyUpdatesNoPtsCheck(const MTPUpdates &updates) {
 				d.vid(),
 				MTP_peerUser(d.vfrom_id()),
 				MTPint(), // from_boosts_applied
+				MTPstring(), // from_rank
 				MTP_peerChat(d.vchat_id()),
 				MTPPeer(), // saved_peer_id
 				d.vfwd_from() ? *d.vfwd_from() : MTPMessageFwdHeader(),
@@ -1194,7 +1198,8 @@ void Updates::applyUpdatesNoPtsCheck(const MTPUpdates &updates) {
 				MTPint(), // report_delivery_until_date
 				MTPlong(), // paid_message_stars
 				MTPSuggestedPost(),
-				MTPint()), // schedule_repeat_period
+				MTPint(), // schedule_repeat_period
+				MTPstring()), // summary_from_language
 			MessageFlags(),
 			NewMessageType::Unread);
 	} break;
@@ -1234,7 +1239,7 @@ void Updates::applyUpdateNoPtsCheck(const MTPUpdate &update) {
 		auto unknownReadIds = base::flat_set<MsgId>();
 		for (const auto &msgId : d.vmessages().v) {
 			if (const auto item = _session->data().nonChannelMessage(msgId.v)) {
-				if (item->isUnreadMedia() || item->isUnreadMention()) {
+				if (item->isUnreadMedia() || item->isUnreadMention() || (item->unsupportedTTL() && item->hasUnreadMediaFlag())) {
 					item->markMediaAndMentionRead();
 					_session->data().requestItemRepaint(item);
 
@@ -1620,7 +1625,7 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 		auto unknownReadIds = base::flat_set<MsgId>();
 		for (const auto &msgId : d.vmessages().v) {
 			if (auto item = session().data().message(channel->id, msgId.v)) {
-				if (item->isUnreadMedia() || item->isUnreadMention()) {
+				if (item->isUnreadMedia() || item->isUnreadMention() || (item->unsupportedTTL() && item->hasUnreadMediaFlag())) {
 					item->markMediaAndMentionRead();
 					session().data().requestItemRepaint(item);
 				}
@@ -1896,6 +1901,10 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 
 	case mtpc_updateChatParticipantAdmin: {
 		session().data().applyUpdate(update.c_updateChatParticipantAdmin());
+	} break;
+
+	case mtpc_updateChatParticipantRank: {
+		session().data().applyUpdate(update.c_updateChatParticipantRank());
 	} break;
 
 	case mtpc_updateChatDefaultBannedRights: {
@@ -2687,6 +2696,12 @@ void Updates::feedUpdate(const MTPUpdate &update) {
 		const auto &data = update.c_updateStarGiftAuctionUserState();
 		_session->giftAuctions().apply(data);
 	} break;
+
+	case mtpc_updateEmojiGameInfo: {
+		const auto &data = update.c_updateEmojiGameInfo();
+		_session->diceStickersPacks().apply(data);
+	} break;
+
 	}
 }
 

@@ -41,6 +41,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/ui_utility.h"
 #include "base/timer_rpl.h"
 #include "api/api_bot.h"
+#include "api/api_chat_participants.h"
 #include "api/api_editing.h"
 #include "api/api_sending.h"
 #include "apiwrap.h"
@@ -92,7 +93,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QMimeData>
 
 // AyuGram includes
+#include "ayu/ayu_settings.h"
+#include "ayu/utils/telegram_helpers.h"
 #include "ayu/features/message_shot/message_shot.h"
+#include "base/unixtime.h"
 
 
 namespace HistoryView {
@@ -303,6 +307,11 @@ ChatWidget::ChatWidget(
 	setupTranslateBar();
 
 	_peer->updateFull();
+	if (const auto channel = _peer->asMegagroup()) {
+		if (!channel->mgInfo->adminsLoaded) {
+			session().api().chatParticipants().requestAdmins(channel);
+		}
+	}
 
 	refreshTopBarActiveChat();
 
@@ -480,6 +489,9 @@ ChatWidget::~ChatWidget() {
 	}
 	if (_topic) {
 		if (_topic->creating()) {
+			if (controller()->activeChatCurrent().topic() == _topic) {
+				controller()->setActiveChatEntry(Dialogs::Key());
+			}
 			_emptyPainter = nullptr;
 			_topic->discard();
 			_topic = nullptr;
@@ -1182,6 +1194,9 @@ bool ChatWidget::confirmSendingFiles(
 	}));
 	box->setCancelledCallback(_composeControls->restoreTextCallback(
 		insertTextOnCancel));
+	box->takeTextWithTagsRequests() | rpl::on_next([=](TextWithTags &&text) {
+		_composeControls->setText(std::move(text));
+	}, box->lifetime());
 
 	//ActivateWindow(controller());
 	controller()->show(std::move(box));
@@ -1425,6 +1440,13 @@ void ChatWidget::sendVoice(const ComposeControls::VoiceToSend &data) {
 }
 
 void ChatWidget::send(Api::SendOptions options) {
+	const auto &ghost = AyuSettings::ghost(&controller()->session());
+
+	auto lastMessage = _history->lastMessage();
+	if (!ghost.sendReadMessages() && ghost.markReadAfterAction() && lastMessage) {
+		readHistory(lastMessage);
+	}
+
 	if (!options.scheduled && showSlowmodeError()) {
 		return;
 	}
@@ -3326,9 +3348,15 @@ base::unique_qptr<Ui::PopupMenu> ChatWidget::listFillSenderUserpicMenu(
 	auto menu = base::make_unique_q<Ui::PopupMenu>(
 		this,
 		st::popupMenuWithIcons);
+	const auto senderPeer = _history->owner().peer(userpicPeerId);
+	const auto groupPeer = (_history->peer->isChat()
+		|| _history->peer->isMegagroup())
+		? _history->peer.get()
+		: nullptr;
 	Window::FillSenderUserpicMenu(
 		controller(),
-		_history->owner().peer(userpicPeerId),
+		senderPeer,
+		groupPeer,
 		_composeControls->fieldForMention(),
 		searchInEntry,
 		Ui::Menu::CreateAddActionCallback(menu.get()));

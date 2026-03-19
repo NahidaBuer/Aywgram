@@ -47,10 +47,13 @@ bool UnreadThings::trackReactions(Data::Thread *thread) const {
 		return false;
 	}
 	const auto &settings = AyuSettings::getInstance();
-	if (peer->isChannel() && !peer->isMegagroup() && !settings.showChannelReactions) {
+	if (peer->isChannel() && !peer->isMegagroup() && !settings.showChannelReactions()) {
 		return false;
 	}
-	if (peer->isMegagroup() && !settings.showGroupReactions) {
+	if (peer->isMegagroup() && !settings.showGroupReactions()) {
+		return false;
+	}
+	if (peer->isUser() && !settings.showPrivateChatReactions()) {
 		return false;
 	}
 	return peer->isUser() || peer->isChat() || peer->isMegagroup();

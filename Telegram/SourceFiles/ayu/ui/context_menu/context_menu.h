@@ -3,7 +3,7 @@
 // We do not and cannot prevent the use of our code,
 // but be respectful and credit the original author.
 //
-// Copyright @Radolyn, 2025
+// Copyright @Radolyn, 2026
 #pragma once
 
 #include "data/data_document.h"
@@ -18,7 +18,7 @@ namespace HistoryView {
 
 namespace AyuUi {
 
-bool needToShowItem(int state);
+bool needToShowItem(ContextMenuVisibility state);
 
 void AddDeletedMessagesActions(PeerData *peerData,
 							   Data::Thread *thread,
@@ -44,7 +44,10 @@ void AddHistoryAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item);
 void AddHideMessageAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item);
 void AddUserMessagesAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item);
 void AddMessageDetailsAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item);
-void AddRepeatMessageAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item, HistoryView::Context context = HistoryView::Context::History);
+void AddRepeatMessageAction(
+	not_null<Ui::PopupMenu*> menu,
+	HistoryItem *item,
+	HistoryView::Context context = HistoryView::Context::History);
 void AddReadUntilAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item);
 void AddBurnAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item);
 void AddCreateFilterAction(not_null<Ui::PopupMenu*> menu,

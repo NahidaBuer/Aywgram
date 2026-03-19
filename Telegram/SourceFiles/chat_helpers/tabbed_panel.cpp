@@ -12,7 +12,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/ui_utility.h"
 #include "chat_helpers/tabbed_selector.h"
 #include "window/window_session_controller.h"
-#include "mainwindow.h"
+#include "main/main_session.h"
+#include "data/data_session.h"
+#include "data/stickers/data_stickers.h"
 #include "ayu/ayu_settings.h"
 #include "core/application.h"
 #include "base/options.h"
@@ -115,6 +117,13 @@ TabbedPanel::TabbedPanel(
 	) | rpl::on_next([=] {
 		hideAnimated();
 	}, lifetime());
+
+	if (_regularWindow) {
+		_regularWindow->session().data().stickers().gifWithCaptionSent(
+		) | rpl::on_next([=] {
+			hideAnimated();
+		}, lifetime());
+	}
 
 	_selector->slideFinished(
 	) | rpl::on_next([=] {
@@ -476,7 +485,7 @@ void TabbedPanel::showStarted() {
 bool TabbedPanel::eventFilter(QObject *obj, QEvent *e) {
 	const auto &settings = AyuSettings::getInstance();
 
-	if (TabbedPanelShowOnClick.value() || !settings.showEmojiPopup) {
+	if (TabbedPanelShowOnClick.value() || !settings.showEmojiPopup()) {
 		return false;
 	} else if (e->type() == QEvent::Enter) {
 		otherEnter();

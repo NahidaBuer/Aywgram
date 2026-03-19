@@ -129,6 +129,8 @@ public:
 		_cancelledCallback = std::move(callback);
 	}
 
+	[[nodiscard]] rpl::producer<TextWithTags> takeTextWithTagsRequests() const;
+
 	void showFinished() override;
 
 	~SendFilesBox();
@@ -177,6 +179,8 @@ private:
 		void applyChanges();
 
 		[[nodiscard]] QImage generatePriceTagBackground() const;
+		[[nodiscard]] bool setSingleFileDisplayName(
+			const QString &displayName);
 
 	private:
 		base::unique_qptr<Ui::RpWidget> _preview;
@@ -243,12 +247,17 @@ private:
 
 	void openDialogToAddFileToAlbum();
 	void refreshAllAfterChanges(int fromItem, Fn<void()> perform = nullptr);
+	[[nodiscard]] bool setDisplayNameInSingleFilePreview(
+		int fileIndex,
+		const QString &displayName);
 
 	void enqueueNextPrepare();
 	void addPreparedAsyncFile(Ui::PreparedFile &&file);
 
 	void checkCharsLimitation();
 	void refreshMessagesCount();
+
+	void requestToTakeTextWithTags() const;
 
 	[[nodiscard]] Fn<MenuDetails()> prepareSendMenuDetails(
 		const SendFilesBoxDescriptor &descriptor);
@@ -301,7 +310,7 @@ private:
 
 	object_ptr<Ui::ScrollArea> _scroll;
 	QPointer<Ui::VerticalLayout> _inner;
-	std::vector<Block> _blocks;
+	std::deque<Block> _blocks;
 	Fn<void()> _whenReadySend;
 	bool _preparing = false;
 
@@ -309,6 +318,8 @@ private:
 
 	QPointer<Ui::RoundButton> _send;
 	QPointer<Ui::RoundButton> _addFile;
+
+	rpl::event_stream<TextWithTags> _textWithTagsRequests;
 
 	// AyuGram files reordering
 

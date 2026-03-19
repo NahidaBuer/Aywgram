@@ -29,6 +29,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mainwidget.h"
 #include "styles/style_dialogs.h"
 
+// AyuGram includes
+#include "ayu/ui/ayu_userpic.h"
+
+
 namespace Data {
 namespace {
 
@@ -269,7 +273,7 @@ void Folder::paintUserpic(
 	p.setBrush(overrideBg ? *overrideBg : st::historyPeerArchiveUserpicBg);
 	{
 		PainterHighQualityEnabler hq(p);
-		p.drawEllipse(x, y, size, size);
+		AyuUserpic::PaintShape(p, x, y, size);
 	}
 	if (size == st::defaultDialogRow.photoSize) {
 		const auto rect = QRect{ x, y, size, size };

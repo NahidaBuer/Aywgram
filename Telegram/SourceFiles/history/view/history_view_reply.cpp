@@ -251,6 +251,7 @@ void FillBackgroundEmoji(
 		bool quote,
 		const Ui::BackgroundEmojiCache &cache,
 		const QImage &firstGiftFrame) {
+	const auto was = p.opacity(); // for semi-transparent deleted messages
 	p.setClipRect(rect);
 
 	const auto &frames = cache.frames;
@@ -264,7 +265,7 @@ void FillBackgroundEmoji(
 		if (y >= rect.height()) {
 			return;
 		}
-		p.setOpacity(opacity);
+		p.setOpacity(was * opacity);
 		p.drawImage(
 			right - style::ConvertScale(x + (quote ? 12 : 0)),
 			rect.y() + y,
@@ -296,7 +297,7 @@ void FillBackgroundEmoji(
 	}
 
 	p.setClipping(false);
-	p.setOpacity(1.);
+	p.setOpacity(was);
 }
 
 Reply::Reply()
@@ -428,6 +429,7 @@ void Reply::setLinkFrom(
 		not_null<HistoryMessageReply*> data) {
 	const auto weak = base::make_weak(view);
 	const auto &fields = data->fields();
+	const auto isAdminLogEntry = view->data()->isAdminLogEntry();
 	const auto externalChannelId = peerToChannel(fields.externalPeerId);
 	const auto messageId = fields.messageId;
 	const auto highlight = MessageHighlightId{
@@ -477,7 +479,9 @@ void Reply::setLinkFrom(
 	};
 	const auto message = data->resolvedMessage.get();
 	const auto story = data->resolvedStory.get();
-	_link = message
+	_link = isAdminLogEntry
+		? std::make_shared<LambdaClickHandler>(externalLink)
+		: message
 		? JumpToMessageClickHandler(message, returnToId, highlight)
 		: story
 		? JumpToStoryClickHandler(story)
@@ -802,7 +806,7 @@ void Reply::paint(
 	Ui::Text::ValidateQuotePaintCache(*cache, quoteSt);
 	Ui::Text::FillQuotePaint(p, rect, *cache, quoteSt);
 	const auto &settings = AyuSettings::getInstance();
-	if (!settings.simpleQuotesAndReplies && backgroundEmojiData) {
+	if (!settings.simpleQuotesAndReplies() && backgroundEmojiData) {
 		ValidateBackgroundEmoji(
 			backgroundEmojiId,
 			colorCollectible,
@@ -824,9 +828,11 @@ void Reply::paint(
 	}
 
 	if (_ripple.animation) {
+		_ripple.lastPaintedPoint = inBubble ? QPoint(x, y) : QPoint();
 		_ripple.animation->paint(p, x, y, w, &cache->bg2);
 		if (_ripple.animation->empty()) {
 			_ripple.animation.reset();
+			_ripple.lastPaintedPoint = {};
 		}
 	}
 
@@ -988,7 +994,11 @@ void Reply::createRippleAnimation(
 		Ui::RippleAnimation::RoundRectMask(
 			size,
 			st::messageQuoteStyle.radius),
-		[=] { view->repaint(); });
+		[=] {
+			view->repaint(_ripple.lastPaintedPoint.isNull()
+				? QRect()
+				: QRect(_ripple.lastPaintedPoint, size));
+		});
 }
 
 void Reply::saveRipplePoint(QPoint point) const {

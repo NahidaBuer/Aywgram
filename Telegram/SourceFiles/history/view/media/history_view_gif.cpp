@@ -272,8 +272,7 @@ QSize Gif::countOptimalSize() {
 		const auto &entry = _data->session().api().transcribes().entry(
 			_realParent);
 		_transcribe->setLoading(
-			entry.shown && (entry.requestId || entry.pending),
-			[=] { repaint(); });
+			entry.shown && (entry.requestId || entry.pending));
 	}
 
 	const auto minWidth = std::clamp(
@@ -641,7 +640,7 @@ void Gif::draw(Painter &p, const PaintContext &context) const {
 		&& (radial
 			|| (!streamingMode
 				&& ((!loaded && !_data->loading()) || !autoplay)));
-	if (paintInCenter) {
+	if (paintInCenter && !AyuFeatures::MessageShot::isTakingShot()) {
 		const auto radialRevealed = 1.;
 		const auto opacity = (item->isSending() || _data->uploading())
 			? 1.
@@ -1149,7 +1148,7 @@ void Gif::drawCornerStatus(
 	p.setFont(st::normalFont);
 	p.setPen(st->msgDateImgFg());
 	p.drawTextLeft(statusX + addLeft, statusTextTop, width(), text, statusW - 2 * padding.x());
-	if (cornerDownload) {
+	if (cornerDownload && !AyuFeatures::MessageShot::isTakingShot()) {
 		const auto downloadTextTop = statusY + st::normalFont->height + (2 * (statusH - 2 * st::normalFont->height) / 3) - padding.y();
 		p.drawTextLeft(statusX + addLeft, downloadTextTop, width(), _downloadSize, statusW - 2 * padding.x());
 		const auto inner = QRect(statusX + padding.y() - padding.x(), statusY, st::historyVideoDownloadSize, st::historyVideoDownloadSize);
@@ -1520,7 +1519,7 @@ void Gif::drawGrouped(
 		&& (radial
 			|| (!streamingMode
 				&& ((!loaded && !_data->loading()) || !autoplay)));
-	if (paintInCenter) {
+	if (paintInCenter && !AyuFeatures::MessageShot::isTakingShot()) {
 		const auto radialRevealed = 1.;
 		const auto opacity = (item->isSending() || _data->uploading())
 			? 1.

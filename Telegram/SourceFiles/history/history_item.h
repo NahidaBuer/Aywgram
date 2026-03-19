@@ -32,6 +32,10 @@ class ReplyKeyboard;
 struct LanguageId;
 enum class SuggestionActions : uchar;
 
+namespace Api {
+struct SummaryEntry;
+} // namespace Api
+
 namespace base {
 template <typename Enum>
 class enum_mask;
@@ -92,6 +96,7 @@ struct HistoryItemCommonFields {
 	HistoryMessageSuggestInfo suggest;
 	bool ignoreForwardFrom = false;
 	bool ignoreForwardCaptions = false;
+	bool mediaSpoiler = false;
 };
 
 enum class HistoryReactionSource : char {
@@ -214,6 +219,8 @@ public:
 	void setFactcheck(MessageFactcheck info);
 	[[nodiscard]] bool hasUnrequestedFactcheck() const;
 	[[nodiscard]] TextWithEntities factcheckText() const;
+	[[nodiscard]] const Api::SummaryEntry &summaryEntry() const;
+	void setHasSummaryEntry();
 
 	[[nodiscard]] not_null<Data::Thread*> notificationThread() const;
 	[[nodiscard]] Data::Thread *maybeNotificationThread() const;
@@ -332,6 +339,9 @@ public:
 	[[nodiscard]] bool showSimilarChannels() const {
 		return _flags & MessageFlag::ShowSimilarChannels;
 	}
+	[[nodiscard]] bool canBeSummarized() const {
+		return _flags & MessageFlag::CanBeSummarized;
+	}
 	[[nodiscard]] bool hasRealFromId() const;
 	[[nodiscard]] bool isPostHidingAuthor() const;
 	[[nodiscard]] bool isPostShowingAuthor() const;
@@ -426,7 +436,10 @@ public:
 		bool isForumPost);
 	void setPostAuthor(const QString &author);
 	void setDeleted();
-	bool isDeleted() const;
+	[[nodiscard]] bool isDeleted() const;
+	[[nodiscard]] bool isBurnt() const;
+	[[nodiscard]] bool wasDeletedAnimated() const;
+	void markDeletedAnimated();
 	void applyTTL(TimeId destroyAt);
 	void setAyuHint(const QString &hint);
 	void setRealId(MsgId newId);
@@ -599,10 +612,13 @@ public:
 	[[nodiscard]] int unsupportedTTL() const {
 		return _unsupportedTTL;
 	}
+	void removeTranslationBit();
 
 	[[nodiscard]] int boostsApplied() const {
 		return _boostsApplied;
 	}
+
+	[[nodiscard]] QString fromRank() const;
 
 	MsgId id;
 
@@ -681,7 +697,7 @@ private:
 	void setReactions(const MTPMessageReactions *reactions);
 	[[nodiscard]] bool changeReactions(const MTPMessageReactions *reactions);
 	void setServiceMessageByAction(const MTPmessageAction &action);
-	void applyAction(const MTPMessageAction &action);
+	void processAction(const MTPMessageAction &action);
 	void refreshMedia(const MTPMessageMedia *media);
 	void refreshSentMedia(const MTPMessageMedia *media);
 	void createServiceFromMtp(const MTPDmessage &message);
@@ -729,6 +745,7 @@ private:
 	crl::time _reactionsLastRefreshed = 0;
 
 	bool _deleted = false;
+	bool _deletedAnimated = false;
 	int _unsupportedTTL = 0;
 
 	TimeId _date = 0;

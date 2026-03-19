@@ -3,57 +3,54 @@
 // We do not and cannot prevent the use of our code,
 // but be respectful and credit the original author.
 //
-// Copyright @Radolyn, 2025
-#include "telegram_helpers.h"
-
-#include <functional>
-#include <latch>
-#include <QTimer>
-
-#include <QtCore/QJsonDocument>
-#include <QtCore/QJsonObject>
+// Copyright @Radolyn, 2026
+#include "ayu/utils/telegram_helpers.h"
 
 #include "apiwrap.h"
-
 #include "lang_auto.h"
-#include "rc_manager.h"
+#include "api/api_common.h"
+#include "ayu/ayu_settings.h"
+#include "ayu/ayu_state.h"
 #include "ayu/ayu_worker.h"
 #include "ayu/data/entities.h"
+#include "ayu/data/messages_storage.h"
+#include "ayu/features/filters/filters_controller.h"
+#include "ayu/utils/rc_manager.h"
+#include "base/unixtime.h"
 #include "core/mime_type.h"
 #include "data/data_channel.h"
+#include "data/data_chat.h"
+#include "data/data_document.h"
 #include "data/data_forum.h"
 #include "data/data_forum_topic.h"
 #include "data/data_histories.h"
 #include "data/data_peer_id.h"
 #include "data/data_photo.h"
-#include "data/data_user.h"
-
-#include "data/data_document.h"
+#include "data/data_poll.h"
+#include "data/data_saved_sublist.h"
 #include "data/data_session.h"
+#include "data/data_user.h"
+#include "data/stickers/data_custom_emoji.h"
+#include "data/stickers/data_stickers.h"
 #include "history/history.h"
 #include "history/history_item.h"
 #include "history/history_item_components.h"
 #include "history/history_unread_things.h"
-#include "main/main_account.h"
-#include "main/main_session.h"
-#include "ui/text/format_values.h"
-
-#include "ayu/ayu_settings.h"
-#include "ayu/ayu_state.h"
-#include "ayu/data/messages_storage.h"
-#include "ayu/features/filters/filters_controller.h"
-#include "base/unixtime.h"
-#include "data/data_chat.h"
-#include "data/data_poll.h"
-#include "data/data_saved_sublist.h"
-#include "data/stickers/data_custom_emoji.h"
-#include "data/stickers/data_stickers.h"
 #include "lang/lang_keys.h"
+#include "main/main_account.h"
 #include "main/main_domain.h"
+#include "main/main_session.h"
 #include "styles/style_ayu_styles.h"
-#include "ui/text/text_utilities.h"
+#include "ui/emoji_config.h"
+#include "ui/text/format_values.h"
 #include "ui/text/text_entity.h"
 #include "ui/toast/toast.h"
+
+#include <functional>
+#include <latch>
+#include <QTimer>
+#include <QtCore/QJsonDocument>
+#include <QtCore/QJsonObject>
 
 namespace {
 
@@ -67,9 +64,15 @@ const auto regDateBotUsername = QString("exteraAuthBot");
 constexpr auto regDateBotFallbackId = 6247153446L;
 const auto regDateBotFallbackUsername = QString("ayugrambot");
 
+const auto kZalgoPattern = QStringLiteral(
+	"\\p{Mn}{3,}|[\\x{202A}-\\x{202E}\\x{2066}-\\x{2069}\\x{200E}\\x{200F}\\x{061C}]");
+
 }
 
 Main::Session *getSession(ID userId) {
+	if (!userId) {
+		return nullptr;
+	}
 	for (const auto &[index, account] : Core::App().domain().accounts()) {
 		if (const auto session = account->maybeSession()) {
 			if (session->userId().bare == userId) {
@@ -355,12 +358,12 @@ void readHistory(not_null<HistoryItem*> message) {
 	}
 }
 
-QString formatTTL(int time) {
+QString formatTTL(int time, bool isDoc) {
 	if (time == 0x7FFFFFFF) {
-		return QString("👀 %1").arg(tr::ayu_OneViewTTL(tr::now));
+		return isDoc ? tr::ayu_OnePlayTTL(tr::now) : tr::ayu_OneViewTTL(tr::now);
 	}
 
-	return QString("🕓 %1s").arg(time);
+	return QString("%1s").arg(time);
 }
 
 QString getDCName(int dc) {
@@ -405,7 +408,7 @@ QString formatMessageTime(const QTime &time) {
 	const auto &settings = AyuSettings::getInstance();
 
 	const auto format =
-		settings.showMessageSeconds
+		settings.showMessageSeconds()
 			? (QLocale().timeFormat(QLocale::ShortFormat).contains("AP")
 				   ? "h:mm:ss AP"
 				   : "HH:mm:ss")
@@ -613,12 +616,12 @@ int getScheduleTime(int64 sumSize) {
 bool isMessageSavable(const not_null<HistoryItem*> item) {
 	const auto &settings = AyuSettings::getInstance();
 
-	if (!settings.saveDeletedMessages) {
+	if (!settings.saveDeletedMessages()) {
 		return false;
 	}
 
 	if (const auto possiblyBot = item->history()->peer->asUser()) {
-		return !possiblyBot->isBot() || (settings.saveForBots && possiblyBot->isBot());
+		return !possiblyBot->isBot() || (settings.saveForBots() && possiblyBot->isBot());
 	}
 
 	const auto from = item->from();
@@ -926,6 +929,120 @@ bool mediaDownloadable(const Data::Media *media) {
 	return true;
 }
 
+static bool prependPseudoReplyImpl(
+		not_null<Main::Session*> session,
+		not_null<History*> history,
+		TextWithTags &textWithTags,
+		FullReplyTo &replyTo) {
+	if (!replyTo) {
+		return false;
+	}
+	const auto replyItem = session->data().message(replyTo.messageId);
+	if (!replyItem || !replyItem->isDeleted()) {
+		return false;
+	}
+	const auto shortify = [&](const QString &text, int maxLength) {
+		if (text.isEmpty() || text.length() < maxLength) {
+			return text;
+		}
+		return text.left(maxLength - 1) + QChar(8230); // …
+	};
+	const auto shiftEntities = [&](QVector<TextWithTags::Tag> &tags, int offset) {
+		if (tags.isEmpty() || !offset) {
+			return;
+		}
+		for (auto &tag : tags) {
+			tag.offset += offset;
+		}
+	};
+
+	const auto from = replyItem->from();
+	auto name = QString();
+	if (!history->peer->isUser() || replyItem->history()->peer != history->peer) {
+		name = from->name();
+	}
+
+	auto msgText = !replyTo.quote.empty()
+		? replyTo.quote.text
+		: replyItem->originalText().text;
+	if (msgText.isEmpty()) {
+		msgText = replyItem->notificationText().text;
+	}
+	const auto shortifiedText = shortify(msgText, 100);
+
+	const auto prefix = name.isEmpty()
+		? shortifiedText
+		: (name + "\n" + shortifiedText);
+
+	if (textWithTags.empty()) {
+		textWithTags.text = prefix;
+	} else {
+		textWithTags.text.prepend(prefix + "\n");
+	}
+	const auto prefixLength = prefix.length() + (textWithTags.text.length() > prefix.length() ? 1 : 0);
+
+	shiftEntities(textWithTags.tags, prefixLength);
+
+	EntitiesInText newEntities;
+	const auto nameLength = int(name.length());
+
+	newEntities.push_back(EntityInText{
+		EntityType::Blockquote,
+		0,
+		int(prefix.length()),
+		{}
+	});
+
+	if (nameLength > 0) {
+		newEntities.push_back(EntityInText{
+			EntityType::Bold,
+			0,
+			nameLength,
+			QString()
+		});
+
+		if (const auto user = from->asUser()) {
+			if (const auto accessHash = user->accessHash()) {
+				const auto mentionData = QStringLiteral("%1.%2:%3")
+					.arg(user->id.value)
+					.arg(accessHash)
+					.arg(session->userId().bare);
+
+				newEntities.push_back(EntityInText{
+					EntityType::MentionName,
+					0,
+					nameLength,
+					mentionData
+				});
+			}
+		}
+	}
+
+	const auto newTags = TextUtilities::ConvertEntitiesToTextTags(newEntities);
+	textWithTags.tags.append(newTags);
+
+	return true;
+}
+
+bool prependPseudoReply(Api::MessageToSend &message) {
+	if (!message.action.history) {
+		return false;
+	}
+	return prependPseudoReplyImpl(
+		&message.action.history->session(),
+		message.action.history,
+		message.textWithTags,
+		message.action.replyTo);
+}
+
+bool prependPseudoReply(
+		not_null<Main::Session*> session,
+		not_null<History*> history,
+		TextWithTags &caption,
+		FullReplyTo &replyTo) {
+	return prependPseudoReplyImpl(session, history, caption, replyTo);
+}
+
 TextWithEntities reverseLocalPremiumEmoji(const TextWithEntities &text, not_null<History *> history, bool isForQuote) {
 	if (text.empty()) {
 		return text;
@@ -962,7 +1079,7 @@ TextWithEntities reverseLocalPremiumEmoji(const TextWithEntities &text, not_null
 	auto result = text;
 	for (auto &entity : result.entities) {
 		if (entity.type() == EntityType::CustomEmoji && entity.isLocal()) {
-			if (isForQuote || !history->peer->isSelf() && !(history->owner().session().user()->flags() & UserDataFlag::Premium) && !emojiAllowed(entity)) {
+			if (isForQuote || (!history->peer->isSelf() && !(history->owner().session().user()->flags() & UserDataFlag::Premium) && !emojiAllowed(entity))) {
 				entity = EntityInText(
 					EntityType::CustomUrl,
 					entity.offset(),
@@ -972,6 +1089,37 @@ TextWithEntities reverseLocalPremiumEmoji(const TextWithEntities &text, not_null
 		}
 	}
 	return result;
+}
+
+void applyLocalPremiumEmoji(TextWithEntities &text) {
+	static const auto kLocalPremiumEmojiRegex = QRegularExpression(
+		QStringLiteral("^tg://emoji\\?id=(\\d+)$"));
+
+	for (auto &entity : text.entities) {
+		if (entity.type() == EntityType::CustomUrl) {
+			const auto match = kLocalPremiumEmojiRegex.match(entity.data());
+			if (match.hasMatch()) {
+				const auto entityText = text.text.mid(
+					entity.offset(),
+					entity.length());
+				auto emojiLength = 0;
+				const auto emoji = Ui::Emoji::Find(entityText, &emojiLength);
+				if (emoji && emojiLength == entityText.size()) {
+					const auto emojiId = match.captured(1);
+					auto ok = false;
+					emojiId.toULongLong(&ok);
+					if (ok) {
+						entity = EntityInText(
+							EntityType::CustomEmoji,
+							entity.offset(),
+							entity.length(),
+							emojiId);
+						entity.setLocal();
+					}
+				}
+			}
+		}
+	}
 }
 
 void resolveAllChats(const std::map<long long, QString> &peers) {
@@ -1048,6 +1196,35 @@ PeerData *getPeerFromDialogId(ID id) {
 
 PeerData *getPeerFromDialogId(unsigned long long id) {
 	return getPeerFromDialogId<unsigned long long>(id);
+}
+
+QString filterZalgo(const QString &text) {
+	static const auto regex = QRegularExpression(
+		kZalgoPattern,
+		QRegularExpression::UseUnicodePropertiesOption);
+
+	auto match = regex.match(text);
+	if (!match.hasMatch()) {
+		return text;
+	}
+
+	QString output;
+	output.reserve(text.length());
+	int lastEnd = 0;
+
+	auto it = regex.globalMatch(text);
+	while (it.hasNext()) {
+		match = it.next();
+		output.append(text.mid(lastEnd, match.capturedStart() - lastEnd));
+		const int matchLength = match.capturedLength();
+		for (int i = 0; i < matchLength; i++) {
+			output.append(QChar(0x2060));
+		}
+		lastEnd = match.capturedEnd();
+	}
+	output.append(text.mid(lastEnd));
+
+	return output;
 }
 
 void getUserRegistrationDateInner(
@@ -1291,5 +1468,46 @@ void getRegistrationDate(not_null<PeerData*> peer, Fn<void(TextWithEntities)> ca
 		if (callback) {
 			callback(TextWithEntities{});
 		}
+	}
+}
+
+QString getBetterLinkPreview(const QString &url) {
+	const auto &settings = AyuSettings::getInstance();
+	if (!settings.improveLinkPreviews()) {
+		return url;
+	}
+
+	auto parsed = QUrl(url);
+	if (!parsed.isValid() || parsed.host().isEmpty()) {
+		return url;
+	}
+
+	auto host = parsed.host().toLower();
+
+	if (host == u"twitter.com"_q || host == u"x.com"_q) {
+		parsed.setHost(u"fixupx.com"_q);
+	} else if (host == u"tiktok.com"_q || host.endsWith(u".tiktok.com"_q)) {
+		host.replace(u"tiktok.com"_q, u"kktiktok.com"_q);
+		parsed.setHost(host);
+	} else if (host == u"reddit.com"_q || host == u"www.reddit.com"_q) {
+		parsed.setHost(u"vxreddit.com"_q);
+	} else if (host == u"instagram.com"_q || host == u"www.instagram.com"_q) {
+		parsed.setHost(u"kkinstagram.com"_q);
+	} else if (host == u"pixiv.net"_q || host == u"www.pixiv.net"_q) {
+		parsed.setHost(u"phixiv.net"_q);
+	} else {
+		return url;
+	}
+
+	return parsed.toString();
+}
+
+void applyGhostScheduling(
+		not_null<Main::Session*> session,
+		Api::SendOptions &options,
+		int delaySeconds) {
+	const auto &ghost = AyuSettings::ghost(session);
+	if (ghost.isUseScheduledMessages() && !options.scheduled) {
+		options.scheduled = base::unixtime::now() + delaySeconds;
 	}
 }

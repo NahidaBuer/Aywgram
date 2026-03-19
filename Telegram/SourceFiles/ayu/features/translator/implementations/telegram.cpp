@@ -3,13 +3,13 @@
 // We do not and cannot prevent the use of our code,
 // but be respectful and credit the original author.
 //
-// Copyright @Radolyn, 2025
-#include "telegram.h"
-
-#include <QtNetwork/QNetworkReply>
+// Copyright @Radolyn, 2026
+#include "ayu/features/translator/implementations/telegram.h"
 
 #include "api/api_text_entities.h"
 #include "main/main_session.h"
+
+#include <QtNetwork/QNetworkReply>
 
 namespace Ayu::Translator {
 

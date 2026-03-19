@@ -50,7 +50,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_session.h"
 #include "main/main_session.h"
 #include "apiwrap.h"
-#include "settings/settings_premium.h"
+#include "settings/sections/settings_premium.h"
 #include "window/themes/window_theme.h"
 #include "window/section_widget.h"
 #include "styles/style_chat.h"
@@ -458,6 +458,7 @@ void EffectPreview::repaintBackground() {
 			_chatStyle.get(),
 			rect,
 			rect,
+			rect,
 			false);
 		context.outbg = _item->hasOutLayout();
 		_item->draw(p, context);
@@ -742,11 +743,14 @@ FillMenuResult FillSendMenu(
 		: st::defaultComposeIcons;
 
 	if (sending && type != Type::Reminder) {
-		const auto &settings = AyuSettings::getInstance();
+		const auto &ghost = maybeShow
+			? AyuSettings::ghost(&maybeShow->session())
+			: AyuSettings::ghost();
+		const auto sendWithoutSound = ghost.sendWithoutSound();
 		menu->addAction(
-			settings.sendWithoutSound ? tr::ayu_SendWithSound(tr::now) : tr::lng_send_silent_message(tr::now),
+			sendWithoutSound ? tr::ayu_SendWithSound(tr::now) : tr::lng_send_silent_message(tr::now),
 			[=] { action({ Api::SendOptions{ .silent = true } }, details); },
-			settings.sendWithoutSound ? &icons.menuUnmute : &icons.menuMute);
+			sendWithoutSound ? &icons.menuUnmute : &icons.menuMute);
 	}
 	if (sending && type != Type::SilentOnly) {
 		menu->addAction(

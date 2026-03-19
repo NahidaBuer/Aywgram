@@ -915,8 +915,17 @@ void Selector::mousePressEvent(QMouseEvent *e) {
 }
 
 void Selector::mouseReleaseEvent(QMouseEvent *e) {
-	if (!_strip || _pressed != lookupSelectedIndex(e->pos())) {
+	if (!_strip) {
 		return;
+	}
+	if (_pressed != lookupSelectedIndex(e->pos())) {
+#ifdef Q_OS_UNIX
+		if (!_over || e->button() != Qt::RightButton) {
+			return;
+		}
+#else
+		return;
+#endif // !Q_OS_UNIX
 	}
 	_pressed = -1;
 	const auto selected = _strip->selected();
@@ -1379,13 +1388,14 @@ AttachSelectorResult AttachSelectorToMenu(
 		TextWithEntities about,
 		IconFactory iconFactory) {
 	const auto &settings = AyuSettings::getInstance();
-	if (!AyuUi::needToShowItem(settings.showReactionsPanelInContextMenu)) {
+	if (!AyuUi::needToShowItem(settings.showReactionsPanelInContextMenu())) {
 		return AttachSelectorResult::Skipped;
 	}
 
 	const auto peer = item->history()->peer;
-	if ((peer->isChannel() && !peer->isMegagroup() && !settings.showChannelReactions)
-		|| (peer->isMegagroup() && !settings.showGroupReactions)) {
+	if ((peer->isChannel() && !peer->isMegagroup() && !settings.showChannelReactions())
+		|| (peer->isMegagroup() && !settings.showGroupReactions())
+		|| (peer->isUser() && !settings.showPrivateChatReactions())) {
 		return AttachSelectorResult::Skipped;
 	}
 
@@ -1437,7 +1447,7 @@ auto AttachSelectorToMenu(
 	Fn<bool()> paused)
 -> base::expected<not_null<Selector*>, AttachSelectorResult> {
 	const auto &settings = AyuSettings::getInstance();
-	if (!AyuUi::needToShowItem(settings.showReactionsPanelInContextMenu)) {
+	if (!AyuUi::needToShowItem(settings.showReactionsPanelInContextMenu())) {
 		return base::make_unexpected(AttachSelectorResult::Skipped);
 	}
 

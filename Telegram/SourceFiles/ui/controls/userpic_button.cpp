@@ -38,7 +38,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "media/streaming/media_streaming_instance.h"
 #include "media/streaming/media_streaming_player.h"
 #include "media/streaming/media_streaming_document.h"
-#include "settings/settings_calls.h" // Calls::AddCameraSubsection.
+#include "settings/sections/settings_calls.h" // AddCameraSubsection.
 #include "settings/settings_privacy_controllers.h"
 #include "webrtc/webrtc_environment.h"
 #include "webrtc/webrtc_video_track.h"
@@ -57,6 +57,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtGui/QClipboard>
 #include <QtGui/QGuiApplication>
 
+// AyuGram includes
+#include "ayu/ui/ayu_userpic.h"
+
+
 namespace Ui {
 namespace {
 
@@ -74,7 +78,7 @@ void CameraBox(
 		Fn<void(QImage &&image)> &&doneCallback) {
 	using namespace Webrtc;
 
-	const auto track = Settings::Calls::AddCameraSubsection(
+	const auto track = Settings::AddCameraSubsection(
 		box->uiShow(),
 		box->verticalLayout(),
 		false);
@@ -96,7 +100,7 @@ void CameraBox(
 			done(std::move(image));
 		};
 		const auto useForumShape = forceForumShape
-			|| (peer && peer->isForum());
+			|| (peer && peer->isForum() && !peer->isBot());
 		PrepareProfilePhoto(
 			box,
 			controller,
@@ -144,13 +148,22 @@ void SetupSubButtonBackground(
 		auto hq = PainterHighQualityEnabler(p);
 		p.setBrush(st::boxBg);
 		p.setPen(Qt::NoPen);
-		p.drawEllipse(background->rect());
+		AyuUserpic::PaintShape(p, QRectF(background->rect()));
 	}, background->lifetime());
 
 	upload->positionValue(
 	) | rpl::on_next([=](QPoint position) {
 		background->move(position - QPoint(border, border));
 	}, background->lifetime());
+}
+
+[[nodiscard]] QBrush CreateDefaultGradientBrush(int size) {
+	auto gradient = QLinearGradient(0, 0, 0, size);
+	gradient.setStops({
+		{ 0.0, st::historyPeer4UserpicBg->c },
+		{ 1.0, st::historyPeer4UserpicBg2->c },
+	});
+	return QBrush(std::move(gradient));
 }
 
 } // namespace
@@ -351,7 +364,7 @@ void UserpicButton::choosePhotoLocally() {
 				? Api::PeerPhoto::EmojiListType::Profile
 				: Api::PeerPhoto::EmojiListType::Group),
 			done,
-			_peer ? _peer->isForum() : false);
+			_peer ? (_peer->isForum() && !_peer->isBot()) : false);
 	};
 	const auto addFromClipboard = [=](ChosenType type, tr::phrase<> text) {
 		if (const auto data = QGuiApplication::clipboard()->mimeData()) {
@@ -440,13 +453,16 @@ void UserpicButton::choosePhotoLocally() {
 			}, &st::menuIconProfile);
 		}
 	}
-	_menu->popup(QCursor::pos());
+	const auto position = rect().contains(mapFromGlobal(QCursor::pos()))
+		? QCursor::pos()
+		: mapToGlobal(rect().center());
+	_menu->popup(position);
 }
 
 auto UserpicButton::makeResetToOriginalAction()
 -> base::unique_qptr<Menu::ItemBase> {
 	auto item = base::make_unique_q<Menu::Action>(
-		_menu.get(),
+		_menu->menu(),
 		_menu->st().menu,
 		Menu::CreateAction(
 			_menu.get(),
@@ -470,6 +486,11 @@ auto UserpicButton::makeResetToOriginalAction()
 			(st::menuIconRemove.width() - icon->width()) / 2,
 			(st::menuIconRemove.height() - icon->height()) / 2));
 	return item;
+}
+
+PopupMenu *UserpicButton::showChangePhotoMenu() {
+	choosePhotoLocally();
+	return _menu.get();
 }
 
 void UserpicButton::openPeerPhoto() {
@@ -583,9 +604,9 @@ void UserpicButton::paintEvent(QPaintEvent *e) {
 		paintUserpicFrame(p, photoPosition);
 	}
 
-	const auto fillTranslatedShape = [&](const style::color &color) {
+	const auto fillTranslatedShape = [&](QBrush brush) {
 		p.translate(photoLeft, photoTop);
-		fillShape(p, color);
+		fillShape(p, std::move(brush));
 		p.translate(-photoLeft, -photoTop);
 	};
 
@@ -593,16 +614,10 @@ void UserpicButton::paintEvent(QPaintEvent *e) {
 		auto over = isOver() || isDown();
 		if (over) {
 			fillTranslatedShape(_userpicHasImage
-				? st::msgDateImgBg
-				: _st.changeButton.textBgOver);
+				? st::msgDateImgBg->b
+				: st::shadowFg->b);
 		}
-		paintRipple(
-			p,
-			photoLeft,
-			photoTop,
-			(_userpicHasImage
-				? &st::shadowFg->c
-				: &_st.changeButton.ripple.color->c));
+		paintRipple(p, photoLeft, photoTop, &st::shadowFg->c);
 		if (over || !_userpicHasImage) {
 			auto iconLeft = (_st.changeIconPosition.x() < 0)
 				? (_st.photoSize - _st.changeIcon.width()) / 2
@@ -663,7 +678,14 @@ void UserpicButton::paintUserpicFrame(Painter &p, QPoint photoPosition) {
 		auto size = QSize{ _st.photoSize, _st.photoSize };
 		const auto ratio = style::DevicePixelRatio();
 		request.outer = request.resize = size * ratio;
-		if (_shape == PeerUserpicShape::Monoforum) {
+		const auto ayuOverride = AyuUserpic::ShouldOverrideShape(_shape);
+		if (ayuOverride) {
+			AyuUserpic::ApplyFrameRounding(
+				request,
+				_roundingCorners,
+				_ellipseMask,
+				size);
+		} else if (_shape == PeerUserpicShape::Monoforum) {
 		} else if (useForumShape()) {
 			const auto radius = int(_st.photoSize
 				* Ui::ForumUserpicRadiusMultiplier());
@@ -926,7 +948,10 @@ void UserpicButton::processNewPeerPhoto() {
 
 bool UserpicButton::useForumShape() const {
 	return (_shape == PeerUserpicShape::Forum)
-		|| (_peer && _peer->isForum() && _shape == PeerUserpicShape::Auto);
+		|| (_peer
+			&& _peer->isForum()
+			&& _shape == PeerUserpicShape::Auto
+			&& !_peer->isBot());
 }
 
 void UserpicButton::grabOldUserpic() {
@@ -1053,7 +1078,11 @@ void UserpicButton::showCustom(QImage &&image) {
 			size * style::DevicePixelRatio(),
 			Qt::IgnoreAspectRatio,
 			Qt::SmoothTransformation);
-		_userpic = Ui::PixmapFromImage(useForumShape()
+		const auto ayuOverride = AyuUserpic::ShouldOverrideShape(_shape);
+		_userpic = Ui::PixmapFromImage(
+			ayuOverride
+			? Images::Round(std::move(small), ImageRoundRadius::AyuUserpic)
+			: useForumShape()
 			? Images::Round(
 				std::move(small),
 				Images::CornersMask(_st.photoSize
@@ -1061,7 +1090,7 @@ void UserpicButton::showCustom(QImage &&image) {
 			: Images::Circle(std::move(small)));
 	} else {
 		_userpic = CreateSquarePixmap(_st.photoSize, [&](Painter &p) {
-			fillShape(p, _st.changeButton.textBg);
+			fillShape(p, CreateDefaultGradientBrush(_st.photoSize));
 		});
 	}
 	_userpic.setDevicePixelRatio(style::DevicePixelRatio());
@@ -1102,12 +1131,15 @@ rpl::producer<> UserpicButton::resetPersonalRequests() const {
 	return _resetPersonalRequests.events();
 }
 
-void UserpicButton::fillShape(QPainter &p, const style::color &color) const {
+void UserpicButton::fillShape(QPainter &p, QBrush brush) const {
 	PainterHighQualityEnabler hq(p);
 	p.setPen(Qt::NoPen);
-	p.setBrush(color);
+	p.setBrush(brush);
 	const auto size = _st.photoSize;
-	if (useForumShape()) {
+	const auto ayuOverride = AyuUserpic::ShouldOverrideShape(_shape);
+	if (ayuOverride) {
+		AyuUserpic::PaintShape(p, 0, 0, size);
+	} else if (useForumShape()) {
 		const auto radius = size * Ui::ForumUserpicRadiusMultiplier();
 		p.drawRoundedRect(0, 0, size, size, radius, radius);
 	} else {
@@ -1143,12 +1175,19 @@ void UserpicButton::prepareUserpicPixmap() {
 						QSize(size, size) * ratio,
 						Qt::IgnoreAspectRatio,
 						Qt::SmoothTransformation);
-					image = useForumShape()
-						? Images::Round(
+					const auto ayuNP = AyuUserpic::ShouldOverrideShape(_shape);
+					if (ayuNP) {
+						image = Images::Round(
+							std::move(image),
+							ImageRoundRadius::AyuUserpic);
+					} else if (useForumShape()) {
+						image = Images::Round(
 							std::move(image),
 							Images::CornersMask(size
-								* Ui::ForumUserpicRadiusMultiplier()))
-						: Images::Circle(std::move(image));
+								* Ui::ForumUserpicRadiusMultiplier()));
+					} else {
+						image = Images::Circle(std::move(image));
+					}
 					image.setDevicePixelRatio(style::DevicePixelRatio());
 					p.drawImage(0, 0, image);
 				}
@@ -1172,7 +1211,7 @@ void UserpicButton::prepareUserpicPixmap() {
 				}
 			}
 		} else {
-			fillShape(p, _st.changeButton.textBg);
+			fillShape(p, CreateDefaultGradientBrush(_st.photoSize));
 		}
 	});
 	_userpicUniqueKey = _userpicHasImage

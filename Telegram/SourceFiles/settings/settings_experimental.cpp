@@ -18,14 +18,17 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/gl/gl_detection.h"
 #include "ui/chat/chat_style_radius.h"
 #include "base/options.h"
+#include "boxes/moderate_messages_box.h"
 #include "core/application.h"
 #include "core/launcher.h"
+#include "core/sandbox.h"
 #include "chat_helpers/tabbed_panel.h"
 #include "dialogs/dialogs_widget.h"
 #include "history/history_item_components.h"
 #include "info/profile/info_profile_actions.h"
 #include "lang/lang_keys.h"
 #include "mainwindow.h"
+#include "mainwidget.h"
 #include "media/player/media_player_instance.h"
 #include "mtproto/session_private.h"
 #include "webview/webview_embed.h"
@@ -37,6 +40,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/localimageloader.h"
 #include "data/data_document_resolver.h"
 #include "info/info_flexible_scroll.h"
+#include "chat_helpers/stickers_list_widget.h"
 #include "styles/style_settings.h"
 #include "styles/style_layers.h"
 
@@ -148,6 +152,7 @@ void SetupExperimental(
 	// addToggle(ChatHelpers::kOptionTabbedPanelShowOnClick);
 	addToggle(Dialogs::kOptionForumHideChatsList);
 	addToggle(Core::kOptionFractionalScalingEnabled);
+	addToggle(Core::kOptionHighDpiDownscale);
 	addToggle(Window::kOptionViewProfileInChatsListContextMenu);
 	// addToggle(Info::Profile::kOptionShowPeerIdBelowAbout);
 	addToggle(Info::Profile::kOptionShowChannelJoinedBelowAbout);
@@ -162,6 +167,7 @@ void SetupExperimental(
 	addToggle(Window::Notifications::kOptionGNotification);
 	addToggle(Core::kOptionFreeType);
 	addToggle(Core::kOptionSkipUrlSchemeRegister);
+	addToggle(Core::kOptionDeadlockDetector);
 	addToggle(Data::kOptionExternalVideoPlayer);
 	addToggle(Window::kOptionNewWindowsSizeAsFirst);
 	addToggle(MTP::details::kOptionPreferIPv6);
@@ -170,10 +176,9 @@ void SetupExperimental(
 	}
 	addToggle(Window::kOptionDisableTouchbar);
 	addToggle(Info::kAlternativeScrollProcessing);
-
-#ifdef Q_OS_MAC
-	addToggle("text-recognition-mac");
-#endif // Q_OS_MAC
+	addToggle(kModerateCommonGroups);
+	addToggle(kForceComposeSearchOneColumn);
+	addToggle(ChatHelpers::kOptionUnlimitedRecentStickers);
 }
 
 } // namespace
@@ -181,19 +186,18 @@ void SetupExperimental(
 Experimental::Experimental(
 	QWidget *parent,
 	not_null<Window::SessionController*> controller)
-: Section(parent) {
-	setupContent(controller);
+: Section(parent, controller) {
+	setupContent();
 }
 
 rpl::producer<QString> Experimental::title() {
 	return tr::lng_settings_experimental();
 }
 
-void Experimental::setupContent(
-		not_null<Window::SessionController*> controller) {
+void Experimental::setupContent() {
 	const auto content = Ui::CreateChild<Ui::VerticalLayout>(this);
 
-	SetupExperimental(&controller->window(), content);
+	SetupExperimental(&controller()->window(), content);
 
 	Ui::ResizeFitChild(this, content);
 }

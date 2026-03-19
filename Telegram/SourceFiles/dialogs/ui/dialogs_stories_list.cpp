@@ -29,6 +29,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "base/debug_log.h"
 
+// AyuGram includes
+#include "ayu/ui/ayu_userpic.h"
+
+
 namespace Dialogs::Stories {
 namespace {
 
@@ -199,6 +203,38 @@ rpl::producer<not_null<QWheelEvent*>> List::verticalScrollEvents() const {
 	return _verticalScrollEvents.events();
 }
 
+bool List::toggledHidden() const {
+	return _hiddenInstant || _hiddenAnimated;
+}
+
+void List::setToggledHidden(bool hiddenInstant, bool hiddenAnimated) {
+	const auto hidden = (hiddenInstant || hiddenAnimated);
+	const auto hiddenChanged = (hidden != toggledHidden());
+	const auto hiddenInstantChanged = (_hiddenInstant != hiddenInstant);
+	const auto hiddenAnimatedChanged = (_hiddenAnimated != hiddenAnimated);
+	_hiddenInstant = hiddenInstant;
+	_hiddenAnimated = hiddenAnimated;
+	if (hiddenChanged) {
+		if (_hiddenInstant || !hiddenAnimatedChanged) {
+			_hiddenAnimation.stop();
+			setVisible(!toggledHidden());
+		} else {
+			const auto from = hidden ? 0. : 1.;
+			const auto till = hidden ? 1. : 0.;
+			_hiddenAnimation.start([=] {
+				if (!_hiddenAnimation.animating()) {
+					setVisible(!toggledHidden());
+				}
+				update();
+			}, from, till, st::fadeWrapDuration, anim::linear);
+			show();
+		}
+	} else if (hiddenInstantChanged && _hiddenInstant) {
+		_hiddenAnimation.stop();
+		setVisible(!toggledHidden());
+	}
+}
+
 void List::requestExpanded(bool expanded) {
 	if (_expanded != expanded) {
 		_expanded = expanded;
@@ -341,6 +377,10 @@ List::Layout List::computeLayout(float64 expanded) const {
 }
 
 void List::paintEvent(QPaintEvent *e) {
+	const auto hidden = _hiddenAnimation.value(toggledHidden() ? 1. : 0.);
+	if (hidden >= 1.) {
+		return;
+	}
 	const auto &st = _st.small;
 	const auto &full = _st.full;
 	const auto layout = computeLayout();
@@ -354,13 +394,18 @@ void List::paintEvent(QPaintEvent *e) {
 	};
 	const auto line = elerp(st.lineTwice, full.lineTwice) / 2.;
 	const auto photo = lerp(st.photo, full.photo);
-	const auto layered = layout.single < (photo + 4 * line);
+	const auto layered = (layout.single < (photo + 4 * line))
+		|| (hidden > 0.);
 	auto p = QPainter(this);
 	if (layered) {
 		ensureLayer();
 		auto q = QPainter(&_layer);
 		paint(q, layout, photo, line, true);
 		q.end();
+
+		if (hidden > 0.) {
+			p.setOpacity(1. - hidden);
+		}
 		p.drawImage(0, 0, _layer);
 	} else {
 		paint(p, layout, photo, line, false);
@@ -549,7 +594,7 @@ void List::paint(
 					p.setPen(QPen(gradient, line));
 				}
 				p.setBrush(Qt::NoBrush);
-				p.drawEllipse(outer);
+				AyuUserpic::PaintShape(p, outer);
 			} else {
 				validateSegments(itemFull, gradient, line, true);
 				Ui::PaintOutlineSegments(
@@ -594,7 +639,7 @@ void List::paint(
 			p.setCompositionMode(QPainter::CompositionMode_Source);
 			p.setPen(Qt::NoPen);
 			p.setBrush(st::transparent);
-			p.drawEllipse(rect);
+			AyuUserpic::PaintShape(p, rect);
 			p.setCompositionMode(QPainter::CompositionMode_SourceOver);
 		}
 		if (hasReadLine) {

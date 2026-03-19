@@ -306,11 +306,11 @@ namespace Platform {
 
 void SetApplicationIcon(const QIcon &icon) {
 	const auto &settings = AyuSettings::getInstance();
-    if (settings.appIcon.isEmpty()) {
+    if (settings.appIcon().isEmpty()) {
         return;
     }
 
-	const auto name = QString("AppIcon-") + settings.appIcon[0].toUpper() + settings.appIcon.mid(1);
+	const auto name = QString("AppIcon-") + settings.appIcon()[0].toUpper() + settings.appIcon().mid(1);
     @autoreleasepool {
         if (name == QString("AppIcon-Default")) {
             NSApplication.sharedApplication.applicationIconImage = nil;

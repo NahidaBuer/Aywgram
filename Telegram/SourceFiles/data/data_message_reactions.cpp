@@ -1521,8 +1521,8 @@ void Reactions::send(not_null<HistoryItem*> item, bool addToRecent) {
 		_sentRequests.remove(id);
 		_owner->session().api().applyUpdates(result);
 
-		const auto &settings = AyuSettings::getInstance();
-		if (!settings.sendReadMessages && settings.markReadAfterAction && item) {
+		const auto &ghost = AyuSettings::ghost(&_owner->session());
+		if (!ghost.sendReadMessages() && ghost.markReadAfterAction() && item) {
 			readHistory(item);
 		}
 	}).fail([=](const MTP::Error &error) {

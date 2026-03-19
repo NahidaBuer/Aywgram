@@ -11,7 +11,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/lang_keys.h"
 #include "lottie/lottie_icon.h"
 #include "storage/localstorage.h"
-#include "lottie/lottie_icon.h"
 #include "main/main_session.h"
 #include "media/player/media_player_float.h" // Media::Player::RoundPainter.
 #include "media/audio/media_audio.h"
@@ -44,6 +43,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 // AyuGram includes
 #include "ayu/ayu_settings.h"
+#include "ayu/features/message_shot/message_shot.h"
 
 
 namespace HistoryView {
@@ -328,7 +328,7 @@ Document::Document(
 			_parent->data()->removeFromSharedMediaIndex();
 			setDocumentLinks(_data, realParent, [=] {
 				const auto &settings = AyuSettings::getInstance();
-				if (!settings.saveDeletedMessages) {
+				if (!settings.saveDeletedMessages()) {
 					_openl = nullptr;
 				}
 
@@ -427,7 +427,7 @@ QSize Document::countOptimalSize() {
 		const auto history = _realParent->history();
 		const auto session = &history->session();
 		const auto transcribes = &session->api().transcribes();
-		if (_parent->data()->media()->ttlSeconds()
+		if ((_parent->data()->media() && _parent->data()->media()->ttlSeconds())
 			|| _realParent->isScheduled()
 			|| _realParent->isAdminLogEntry()
 			|| (!session->premium()
@@ -447,13 +447,12 @@ QSize Document::countOptimalSize() {
 			const auto &entry = transcribes->entry(_realParent);
 			const auto update = [=] { repaint(); };
 			voice->transcribe->setLoading(
-				entry.shown && (entry.requestId || entry.pending),
-				update);
+				entry.shown && (entry.requestId || entry.pending));
 			const auto pending = entry.pending;
 			auto descriptor = pending
 				? Lottie::IconDescriptor{
 					.name = u"transcribe_loading"_q,
-					.color = &st::historyTextInFg,
+					.color = &st::attentionButtonFg, // Any contrast.
 					.sizeOverride = Size(st::historyTranscribeLoadingSize),
 					.colorizeUsingAlpha = true,
 				}
@@ -687,7 +686,7 @@ void Document::draw(
 			FillThumbnailOverlay(p, rthumb, rounding, context);
 		}
 
-		if (radial || (!loaded && !_data->loading()) || _data->waitingForAlbum()) {
+		if ((radial || (!loaded && !_data->loading()) || _data->waitingForAlbum()) && !AyuFeatures::MessageShot::isTakingShot()) {
 			const auto backOpacity = (loaded && !_data->uploading()) ? radialOpacity : 1.;
 			p.setPen(Qt::NoPen);
 			p.setBrush(sti->msgDateImgBg);
@@ -1083,7 +1082,8 @@ void Document::drawCornerDownload(
 		LayoutMode mode) const {
 	if (dataLoaded()
 		|| _data->loadedInMediaCache()
-		|| !downloadInCorner()) {
+		|| !downloadInCorner()
+		|| AyuFeatures::MessageShot::isTakingShot()) {
 		return;
 	}
 	auto topMinus = isBubbleTop() ? 0 : st::msgFileTopMinus;

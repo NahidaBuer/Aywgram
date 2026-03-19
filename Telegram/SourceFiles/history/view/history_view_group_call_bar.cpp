@@ -22,6 +22,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_chat.h"
 #include "styles/style_chat_helpers.h"
 
+// AyuGram includes
+#include "ayu/ui/ayu_userpic.h"
+
+
 namespace HistoryView {
 
 void GenerateUserpicsInRow(
@@ -60,7 +64,7 @@ void GenerateUserpicsInRow(
 		q.setCompositionMode(QPainter::CompositionMode_Source);
 		q.setBrush(Qt::NoBrush);
 		q.setPen(pen);
-		q.drawEllipse(x, 0, single, single);
+		AyuUserpic::PaintShape(q, QRectF(x, 0, single, single));
 		x -= single - shift;
 	}
 }
