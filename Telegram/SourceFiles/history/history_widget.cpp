@@ -1087,6 +1087,10 @@ HistoryWidget::HistoryWidget(
 	) | rpl::on_next([=] {
 		forwardSelected();
 	}, _topBar->lifetime());
+	_topBar->noQuoteSelectionRequest(
+	) | rpl::on_next([=] {
+		forwardNoQuoteSelected();
+	}, _topBar->lifetime());
 	_topBar->deleteSelectionRequest(
 	) | rpl::on_next([=] {
 		confirmDeleteSelected();

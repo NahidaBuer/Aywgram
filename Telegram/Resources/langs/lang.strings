@@ -8140,6 +8140,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 "lng_context_forward_selected_no_quote" = "无引用转发所选";
 "lng_selected_forward_no_quote" = "无引用转发";
+"lng_selected_no_quote" = "复制";
 "lng_context_forward_msg_no_quote" = "无引用转发";
 "lng_forward_to_saved_message" = "转发到收藏夹";
 

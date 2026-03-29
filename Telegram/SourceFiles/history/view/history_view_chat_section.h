@@ -286,6 +286,7 @@ private:
 
 	void confirmDeleteSelected();
 	void confirmForwardSelected();
+	void confirmForwardNoQuoteSelected();
 	void clearSelected();
 	void setPinnedVisibility(bool shown);
 

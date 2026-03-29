@@ -127,6 +127,7 @@ TopBarWidget::TopBarWidget(
 , _primaryWindow(controller->isPrimary())
 , _clear(this, tr::lng_selected_clear(), st::topBarClearButton)
 , _forward(this, tr::lng_selected_forward(), st::defaultActiveButton)
+, _noQuote(this, tr::lng_selected_no_quote(), st::defaultActiveButton)
 , _sendNow(this, tr::lng_selected_send_now(), st::defaultActiveButton)
 , _delete(this, tr::lng_selected_delete(), st::defaultActiveButton)
 , _messageShot(this, tr::ayu_MessageShotTopBarText(), st::defaultActiveButton)
@@ -150,6 +151,8 @@ TopBarWidget::TopBarWidget(
 
 	_forward->setClickedCallback([=] { _forwardSelection.fire({}); });
 	_forward->setWidthChangedCallback([=] { updateControlsGeometry(); });
+	_noQuote->setClickedCallback([=] { _noQuoteSelection.fire({}); });
+	_noQuote->setWidthChangedCallback([=] { updateControlsGeometry(); });
 	_sendNow->setClickedCallback([=] { _sendNowSelection.fire({}); });
 	_sendNow->setWidthChangedCallback([=] { updateControlsGeometry(); });
 	_delete->setClickedCallback([=] { _deleteSelection.fire({}); });
@@ -1093,15 +1096,17 @@ void TopBarWidget::updateControlsGeometry() {
 	auto buttonsLeft = st::topBarActionSkip
 		+ (_controller->adaptive().isOneColumn() ? 0 : st::lineWidth);
 	auto buttonsWidth = (_forward->isHidden() ? 0 : _forward->contentWidth())
+		+ (_noQuote->isHidden() ? 0 : _noQuote->contentWidth())
 		+ (_sendNow->isHidden() ? 0 : _sendNow->contentWidth())
 		+ (_delete->isHidden() ? 0 : _delete->contentWidth())
 		+ (_messageShot->isHidden() ? 0 : _messageShot->contentWidth())
 		+ _clear->width();
-	buttonsWidth += buttonsLeft + st::topBarActionSkip * 3;
+	buttonsWidth += buttonsLeft + st::topBarActionSkip * 4;
 
 	auto widthLeft = qMin(width() - buttonsWidth, -2 * st::defaultActiveButton.width);
 	auto buttonFullWidth = qMin(-(widthLeft / 2), 0);
 	_forward->setFullWidth(buttonFullWidth);
+	_noQuote->setFullWidth(buttonFullWidth);
 	_sendNow->setFullWidth(buttonFullWidth);
 	_delete->setFullWidth(buttonFullWidth);
 	_messageShot->setFullWidth(buttonFullWidth);
@@ -1111,6 +1116,11 @@ void TopBarWidget::updateControlsGeometry() {
 	_forward->moveToLeft(buttonsLeft, selectedButtonsTop);
 	if (!_forward->isHidden()) {
 		buttonsLeft += _forward->width() + st::topBarActionSkip;
+	}
+
+	_noQuote->moveToLeft(buttonsLeft, selectedButtonsTop);
+	if (!_noQuote->isHidden()) {
+		buttonsLeft += _noQuote->width() + st::topBarActionSkip;
 	}
 
 	_sendNow->moveToLeft(buttonsLeft, selectedButtonsTop);
@@ -1249,6 +1259,7 @@ void TopBarWidget::updateControlsVisibility() {
 	_delete->setVisible(_canDelete);
 	_messageShot->setVisible(settings.showMessageShot());
 	_forward->setVisible(_canForward);
+	_noQuote->setVisible(_canForward && !_canSendNow);
 	_sendNow->setVisible(_canSendNow);
 
 	const auto isOneColumn = _controller->adaptive().isOneColumn();
@@ -1481,11 +1492,13 @@ void TopBarWidget::showSelected(SelectedState state) {
 	const auto nowSelectedState = showSelectedState();
 	if (nowSelectedState) {
 		_forward->setNumbersText(_selectedCount);
+		_noQuote->setNumbersText(_selectedCount);
 		_sendNow->setNumbersText(_selectedCount);
 		_delete->setNumbersText(_selectedCount);
 		_messageShot->setNumbersText(_selectedCount);
 		if (!wasSelectedState) {
 			_forward->finishNumbersAnimation();
+			_noQuote->finishNumbersAnimation();
 			_sendNow->finishNumbersAnimation();
 			_delete->finishNumbersAnimation();
 			_messageShot->finishNumbersAnimation();
