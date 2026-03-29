@@ -3549,7 +3549,14 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 	if (attached == AttachSelectorResult::Failed) {
 		_menu = nullptr;
 		return;
-	} else if (attached == AttachSelectorResult::Attached) {
+	}
+	_menu->animatePhaseValue(
+	) | rpl::filter([](Ui::PopupMenu::AnimatePhase phase) {
+		return (phase == Ui::PopupMenu::AnimatePhase::Shown);
+	}) | rpl::take(1) | rpl::on_next([menu = _menu.get()] {
+		menu->menu()->clearSelection();
+	}, _menu->lifetime());
+	if (attached == AttachSelectorResult::Attached) {
 		_menu->popupPrepared();
 	} else {
 		_menu->popup(desiredPosition);
