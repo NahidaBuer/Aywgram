@@ -184,7 +184,7 @@ Fn<void()> DeleteMyMessagesHandler(not_null<Window::SessionController*> controll
 
 }
 
-bool needToShowItem(ContextMenuVisibility state) {
+bool ShouldShowContextMenuItem(ContextMenuVisibility state) {
 	return state == ContextMenuVisibility::Visible
 		|| (state == ContextMenuVisibility::VisibleWithModifier && base::IsExtendedContextMenuModifierPressed());
 }
@@ -410,7 +410,7 @@ void AddHistoryAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item) {
 
 void AddHideMessageAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item) {
 	const auto &settings = AyuSettings::getInstance();
-	if (!needToShowItem(settings.showHideMessageInContextMenu())) {
+	if (!ShouldShowContextMenuItem(settings.showHideMessageInContextMenu())) {
 		return;
 	}
 
@@ -438,7 +438,7 @@ void AddHideMessageAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item) {
 
 void AddUserMessagesAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item) {
 	const auto &settings = AyuSettings::getInstance();
-	if (!needToShowItem(settings.showUserMessagesInContextMenu())) {
+	if (!ShouldShowContextMenuItem(settings.showUserMessagesInContextMenu())) {
 		return;
 	}
 
@@ -463,7 +463,7 @@ void AddUserMessagesAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item) {
 
 void AddMessageDetailsAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item) {
 	const auto &settings = AyuSettings::getInstance();
-	if (!needToShowItem(settings.showMessageDetailsInContextMenu())) {
+	if (!ShouldShowContextMenuItem(settings.showMessageDetailsInContextMenu())) {
 		return;
 	}
 
@@ -678,7 +678,7 @@ void AddRepeatMessageAction(
 	HistoryView::Context context
 ) {
 	const auto &settings = AyuSettings::getInstance();
-	if (!needToShowItem(settings.showRepeatMessageInContextMenu())) {
+	if (!ShouldShowContextMenuItem(settings.showRepeatMessageInContextMenu())) {
 		return;
 	}
 	if (!item || item->isService() || item->isLocal() || item->id <= 0) {
@@ -851,7 +851,7 @@ void AddCreateFilterAction(not_null<Ui::PopupMenu*> menu,
 						   HistoryItem *item,
 						   const QString &selectedText) {
 	const auto &settings = AyuSettings::getInstance();
-	if (!needToShowItem(settings.showAddFilterInContextMenu()) || !settings.filtersEnabled()) {
+	if (!ShouldShowContextMenuItem(settings.showAddFilterInContextMenu()) || !settings.filtersEnabled()) {
 		return;
 	}
 

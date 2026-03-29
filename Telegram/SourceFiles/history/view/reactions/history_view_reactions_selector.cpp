@@ -1388,7 +1388,7 @@ AttachSelectorResult AttachSelectorToMenu(
 		TextWithEntities about,
 		IconFactory iconFactory) {
 	const auto &settings = AyuSettings::getInstance();
-	if (!AyuUi::needToShowItem(settings.showReactionsPanelInContextMenu())) {
+	if (!AyuUi::ShouldShowContextMenuItem(settings.showReactionsPanelInContextMenu())) {
 		return AttachSelectorResult::Skipped;
 	}
 
@@ -1447,7 +1447,7 @@ auto AttachSelectorToMenu(
 	Fn<bool()> paused)
 -> base::expected<not_null<Selector*>, AttachSelectorResult> {
 	const auto &settings = AyuSettings::getInstance();
-	if (!AyuUi::needToShowItem(settings.showReactionsPanelInContextMenu())) {
+	if (!AyuUi::ShouldShowContextMenuItem(settings.showReactionsPanelInContextMenu())) {
 		return base::make_unexpected(AttachSelectorResult::Skipped);
 	}
 

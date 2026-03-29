@@ -6,6 +6,7 @@
 // Copyright @Radolyn, 2026
 #pragma once
 
+#include "ayu/ayu_settings.h"
 #include "data/data_document.h"
 #include "history/view/history_view_element.h"
 #include "ui/widgets/popup_menu.h"
@@ -18,7 +19,7 @@ namespace HistoryView {
 
 namespace AyuUi {
 
-bool needToShowItem(ContextMenuVisibility state);
+bool ShouldShowContextMenuItem(ContextMenuVisibility state);
 
 void AddDeletedMessagesActions(PeerData *peerData,
 							   Data::Thread *thread,
