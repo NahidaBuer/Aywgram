@@ -122,6 +122,11 @@ void addDeletedMessage(not_null<HistoryItem*> item) {
 	AyuDatabase::addDeletedMessage(message);
 }
 
+std::vector<ID> getDeletedMessageIds(not_null<PeerData*> peer, ID topicId) {
+	const ID userId = peer->session().userId().bare & PeerId::kChatTypeMask;
+	return AyuDatabase::getDeletedMessageIds(userId, getDialogIdFromPeer(peer), topicId);
+}
+
 std::vector<AyuMessageBase>
 getDeletedMessages(not_null<PeerData*> peer, ID topicId, ID minId, ID maxId, int totalLimit, const QString &searchQuery) {
 	const ID userId = peer->session().userId().bare & PeerId::kChatTypeMask;
@@ -132,6 +137,11 @@ getDeletedMessages(not_null<PeerData*> peer, ID topicId, ID minId, ID maxId, int
 bool hasDeletedMessages(not_null<PeerData*> peer, ID topicId) {
 	const ID userId = peer->session().userId().bare & PeerId::kChatTypeMask;
 	return AyuDatabase::hasDeletedMessages(userId, getDialogIdFromPeer(peer), topicId);
+}
+
+void clearDeletedMessages(not_null<PeerData*> peer, ID topicId) {
+	const ID userId = peer->session().userId().bare & PeerId::kChatTypeMask;
+	AyuDatabase::clearDeletedMessages(userId, getDialogIdFromPeer(peer), topicId);
 }
 
 }

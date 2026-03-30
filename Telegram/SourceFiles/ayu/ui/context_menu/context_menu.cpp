@@ -48,6 +48,29 @@ namespace AyuUi {
 
 namespace {
 
+Fn<void()> ClearDeletedMessagesHandler(not_null<Window::SessionController*> controller, not_null<PeerData*> peer, ID topicId) {
+	return [=] {
+		controller->show(Ui::MakeConfirmBox({
+			.text = tr::ayu_ClearDeletedMessagesText(tr::now),
+			.confirmed = [=](Fn<void()> &&close) {
+				const auto ids = AyuMessages::getDeletedMessageIds(peer, topicId);
+				AyuMessages::clearDeletedMessages(peer, topicId);
+				for (const auto id : ids) {
+					if (const auto item = peer->owner().message(peer, MsgId(id))) {
+						if (item->isDeleted() && (!topicId || (item->topicRootId().bare == topicId))) {
+							item->destroy();
+						}
+					}
+				}
+				close();
+			},
+			.confirmText = tr::ayu_ClearDeletedMessagesActionText(tr::now),
+			.cancelText = tr::lng_cancel(),
+			.confirmStyle = &st::attentionBoxButton,
+		}));
+	};
+}
+
 void DeleteMyMessagesAfterConfirm(not_null<PeerData*> peer) {
 	const auto session = &peer->session();
 
@@ -213,6 +236,10 @@ void AddDeletedMessagesActions(PeerData *peerData,
 				->showSection(std::make_shared<MessageHistory::SectionMemento>(peerData, nullptr, topicId));
 		},
 		&st::menuIconArchive);
+	addCallback(
+		tr::ayu_ClearDeletedMenuText(tr::now),
+		ClearDeletedMessagesHandler(sessionController, peerData, topicId),
+		&st::menuIconDelete);
 	// todo view filters
 }
 

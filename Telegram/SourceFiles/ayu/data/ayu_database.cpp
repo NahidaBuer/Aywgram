@@ -293,6 +293,27 @@ void addDeletedMessage(const DeletedMessage &message) {
 	}
 }
 
+std::vector<ID> getDeletedMessageIds(ID userId, ID dialogId, ID topicId) {
+	try {
+		const auto ids = storage.select(
+			column<DeletedMessage>(&DeletedMessage::messageId),
+			where(
+				column<DeletedMessage>(&DeletedMessage::userId) == userId and
+				column<DeletedMessage>(&DeletedMessage::dialogId) == dialogId and
+				(column<DeletedMessage>(&DeletedMessage::topicId) == topicId or topicId == 0)
+			)
+		);
+		auto result = std::vector<ID>();
+		result.reserve(ids.size());
+		for (const auto id : ids) {
+			result.push_back(id);
+		}
+		return result;
+	} catch (std::exception &ex) {
+		return {};
+	}
+}
+
 std::vector<DeletedMessage> getDeletedMessages(ID userId, ID dialogId, ID topicId, ID minId, ID maxId, int totalLimit, const std::string &searchQuery) {
 	if (searchQuery.empty()) {
 		return storage.get_all<DeletedMessage>(
@@ -345,6 +366,19 @@ bool hasDeletedMessages(ID userId, ID dialogId, ID topicId) {
 	} catch (std::exception &ex) {
 		LOG(("Failed to check if dialog has deleted message: %1").arg(ex.what()));
 		return false;
+	}
+}
+
+void clearDeletedMessages(ID userId, ID dialogId, ID topicId) {
+	try {
+		storage.remove_all<DeletedMessage>(
+			where(
+				column<DeletedMessage>(&DeletedMessage::userId) == userId and
+				column<DeletedMessage>(&DeletedMessage::dialogId) == dialogId and
+				(column<DeletedMessage>(&DeletedMessage::topicId) == topicId or topicId == 0)
+			)
+		);
+	} catch (std::exception &ex) {
 	}
 }
 

@@ -624,6 +624,17 @@ bool InnerWidget::elementHideTopicButton(not_null<const Element*> view) {
 }
 
 void InnerWidget::saveState(not_null<SectionMemento*> memento) {
+	if (!_item) {
+		memento->setItems({}, {}, false, true);
+		memento->setSearchQuery(base::take(_searchQuery));
+		_items.clear();
+		_messageIds.clear();
+		_itemsByData.clear();
+		_upLoaded = false;
+		_downLoaded = true;
+		return;
+	}
+
 	for (auto &item : _items) {
 		item.clearView();
 	}
@@ -638,6 +649,21 @@ void InnerWidget::saveState(not_null<SectionMemento*> memento) {
 }
 
 void InnerWidget::restoreState(not_null<SectionMemento*> memento) {
+	if (!_item) {
+		_items.clear();
+		_messageIds.clear();
+		_itemsByData.clear();
+		_itemDates.clear();
+		_upLoaded = false;
+		_downLoaded = true;
+		_searchQuery = memento->takeSearchQuery();
+		updateMinMaxIds();
+		updateEmptyText();
+		updateSize();
+		preloadMore(Direction::Up);
+		return;
+	}
+
 	_items = memento->takeItems();
 	for (auto &item : _items) {
 		item.refreshView(this);
