@@ -2566,8 +2566,6 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 		return item;
 	};
 	const auto leaderOrSelf = groupLeaderOrSelf(_dragStateItem);
-	const auto hasWhoReactedItem = leaderOrSelf
-		&& Api::WhoReactedExists(leaderOrSelf, Api::WhoReactedList::All);
 	using namespace HistoryView::Reactions;
 	const auto clickedReaction = ReactionIdOfLink(link);
 	const auto linkPhoneNumber = link
@@ -2617,8 +2615,8 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 				_dragStateItem ? _dragStateItem->fullId() : FullMsgId()));
 		return;
 	}
-	_menu = base::make_unique_q<Ui::PopupMenu>(this, st::popupMenuWithIcons);
 	if (linkUserpicPeerId) {
+		_menu = base::make_unique_q<Ui::PopupMenu>(this, st::popupMenuWithIcons);
 		_widget->fillSenderUserpicMenu(
 			_menu.get(),
 			session->data().peer(PeerId(linkUserpicPeerId)));
@@ -2653,19 +2651,34 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 		return;
 	}
 	const auto controller = _controller;
-
-	if (hasWhoReactedItem) {
-		HistoryView::AddWhoReactedAction(
-			_menu,
-			this,
-			leaderOrSelf,
-			_controller);
-	} else if (leaderOrSelf) {
-		HistoryView::MaybeAddWhenEditedForwardedAction(
-			_menu,
-			leaderOrSelf,
-			_controller);
-	}
+	const auto createMenu = [&](HistoryView::ContextMenuAnchorInfoPlacement
+			anchorInfoPlacement) {
+		_menu = base::make_unique_q<Ui::PopupMenu>(this, st::popupMenuWithIcons);
+		const auto anchorInfoActions = (leaderOrSelf
+			&& anchorInfoPlacement
+				== HistoryView::ContextMenuAnchorInfoPlacement::Top)
+			? [&] {
+				const auto before = int(_menu->actions().size());
+				if (Api::WhoReactedExists(leaderOrSelf, Api::WhoReactedList::All)) {
+					HistoryView::AddWhoReactedAction(
+						_menu,
+						this,
+						leaderOrSelf,
+						_controller,
+						false);
+				} else {
+					HistoryView::MaybeAddWhenEditedForwardedAction(
+						_menu,
+						leaderOrSelf,
+						_controller,
+						false);
+				}
+				return int(_menu->actions().size()) - before;
+			}()
+			: 0;
+		if (anchorInfoActions > 0) {
+			_menu->addSeparator(&st::expandedMenuSeparator);
+		}
 
 	const auto addItemActions = [&](
 			HistoryItem *item,
@@ -3520,13 +3533,40 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 			textItem ? textItem : _dragStateItem,
 			!added);
 	}
+	if (leaderOrSelf
+		&& anchorInfoPlacement == HistoryView::ContextMenuAnchorInfoPlacement::Bottom) {
+		if (!_menu->empty()) {
+			_menu->addSeparator(&st::expandedMenuSeparator);
+		}
+		if (Api::WhoReactedExists(leaderOrSelf, Api::WhoReactedList::All)) {
+			[[maybe_unused]] const auto added = HistoryView::AddContextMenuAnchorInfo(
+				_menu,
+				this,
+				leaderOrSelf,
+				_controller);
+		} else {
+			HistoryView::MaybeAddWhenEditedForwardedAction(
+				_menu,
+				leaderOrSelf,
+				_controller,
+				false);
+		}
+	}
+	_menu->menu()->clearLastSeparator();
 
 	if (!_menu->empty() && rateTranscriptionItem) {
-		_menu->insertAction(0, base::make_unique_q<Menu::RateTranscribe>(
+		_menu->insertAction(
+			(anchorInfoPlacement == HistoryView::ContextMenuAnchorInfoPlacement::Top)
+				? anchorInfoActions
+				: 0,
+			base::make_unique_q<Menu::RateTranscribe>(
 			_menu,
 			_menu->st().menu,
 			Menu::RateTranscribeCallbackFactory(rateTranscriptionItem)));
 	}
+	};
+
+	createMenu(HistoryView::ContextMenuAnchorInfoPlacement::Bottom);
 
 	if (_menu->empty()) {
 		_menu = nullptr;
@@ -3537,18 +3577,38 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 	const auto reactItem = Element::Hovered()
 		? Element::Hovered()->data().get()
 		: nullptr;
-	const auto attached = reactItem
-		? AttachSelectorToMenu(
-			_menu.get(),
-			controller,
-			desiredPosition,
-			reactItem,
-			[=](ChosenReaction reaction) { reactionChosen(reaction); },
-			ItemReactionsAbout(reactItem))
-		: AttachSelectorResult::Skipped;
+	const auto prepareMenu = [&](not_null<Ui::PopupMenu*> menu) {
+		if (reactItem) {
+			return AttachSelectorToMenu(
+				menu,
+				controller,
+				desiredPosition,
+				reactItem,
+				[=](ChosenReaction reaction) { reactionChosen(reaction); },
+				ItemReactionsAbout(reactItem));
+		} else if (!menu->prepareGeometryFor(desiredPosition)) {
+			return AttachSelectorResult::Failed;
+		}
+		return AttachSelectorResult::Skipped;
+	};
+	auto attached = prepareMenu(_menu.get());
 	if (attached == AttachSelectorResult::Failed) {
 		_menu = nullptr;
 		return;
+	}
+	if (leaderOrSelf
+		&& HistoryView::ResolveContextMenuAnchorInfoPlacement(_menu.get())
+			== HistoryView::ContextMenuAnchorInfoPlacement::Top) {
+		createMenu(HistoryView::ContextMenuAnchorInfoPlacement::Top);
+		if (_menu->empty()) {
+			_menu = nullptr;
+			return;
+		}
+		attached = prepareMenu(_menu.get());
+		if (attached == AttachSelectorResult::Failed) {
+			_menu = nullptr;
+			return;
+		}
 	}
 	_menu->animatePhaseValue(
 	) | rpl::filter([](Ui::PopupMenu::AnimatePhase phase) {
@@ -3556,11 +3616,7 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 	}) | rpl::take(1) | rpl::on_next([menu = _menu.get()] {
 		menu->menu()->clearSelection();
 	}, _menu->lifetime());
-	if (attached == AttachSelectorResult::Attached) {
-		_menu->popupPrepared();
-	} else {
-		_menu->popup(desiredPosition);
-	}
+	_menu->popupPrepared();
 	e->accept();
 }
 

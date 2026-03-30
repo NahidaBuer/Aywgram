@@ -1411,7 +1411,8 @@ ContextMenuRequest::ContextMenuRequest(
 
 base::unique_qptr<Ui::PopupMenu> FillContextMenu(
 		not_null<ListWidget*> list,
-		const ContextMenuRequest &request) {
+		const ContextMenuRequest &request,
+		ContextMenuAnchorInfoPlacement anchorInfoPlacement) {
 	const auto link = request.link;
 	const auto view = request.view;
 	const auto item = request.item;
@@ -1429,21 +1430,35 @@ base::unique_qptr<Ui::PopupMenu> FillContextMenu(
 		: nullptr;
 	const auto hasSelection = !request.selectedItems.empty()
 		|| !request.selectedText.empty();
-	const auto hasWhoReactedItem = item
-		&& Api::WhoReactedExists(item, Api::WhoReactedList::All);
-
 	auto result = base::make_unique_q<Ui::PopupMenu>(
 		list,
 		st::popupMenuWithIcons);
 
+	if (item
+		&& anchorInfoPlacement == ContextMenuAnchorInfoPlacement::Top) {
+		const auto before = int(result->actions().size());
+		if (Api::WhoReactedExists(item, Api::WhoReactedList::All)) {
+			AddWhoReactedAction(
+				result,
+				list,
+				item,
+				list->controller(),
+				false);
+		} else {
+			MaybeAddWhenEditedForwardedAction(
+				result,
+				item,
+				list->controller(),
+				false);
+		}
+		const auto added = int(result->actions().size()) - before;
+		if (added > 0) {
+			result->addSeparator(&st::expandedMenuSeparator);
+		}
+	}
+
 	AddReplyToMessageAction(result, request, list);
 	AddTodoListAction(result, request, list);
-
-	if (hasWhoReactedItem) {
-		AddWhoReactedAction(result, list, item, list->controller());
-	} else if (item) {
-		MaybeAddWhenEditedForwardedAction(result, item, list->controller());
-	}
 
 	if (request.overSelection
 		&& !list->hasCopyRestrictionForSelected()
@@ -1544,6 +1559,26 @@ base::unique_qptr<Ui::PopupMenu> FillContextMenu(
 		const auto added = (result->actions().size() > wasAmount);
 		AddSelectRestrictionAction(result, item, !added);
 	}
+	if (item
+		&& anchorInfoPlacement == ContextMenuAnchorInfoPlacement::Bottom) {
+		if (!result->empty()) {
+			result->addSeparator(&st::expandedMenuSeparator);
+		}
+		if (Api::WhoReactedExists(item, Api::WhoReactedList::All)) {
+			[[maybe_unused]] const auto added = AddContextMenuAnchorInfo(
+				result,
+				list,
+				item,
+				list->controller());
+		} else {
+			MaybeAddWhenEditedForwardedAction(
+				result,
+				item,
+				list->controller(),
+				false);
+		}
+	}
+	result->menu()->clearLastSeparator();
 
 	return result;
 }
@@ -1752,7 +1787,8 @@ void AddWhoReactedAction(
 		not_null<Ui::PopupMenu*> menu,
 		not_null<QWidget*> context,
 		not_null<HistoryItem*> item,
-		not_null<Window::SessionController*> controller) {
+		not_null<Window::SessionController*> controller,
+		bool separateInfoDetails) {
 	const auto &settings = AyuSettings::getInstance();
 	if (!AyuUi::ShouldShowContextMenuItem(settings.showViewsPanelInContextMenu())) {
 		return;
@@ -1821,15 +1857,48 @@ void AddWhoReactedAction(
 			menu,
 			item,
 			controller,
-			true);
+			separateInfoDetails);
 	}
+}
+
+int AddContextMenuAnchorInfo(
+		not_null<Ui::PopupMenu*> menu,
+		not_null<QWidget*> context,
+		not_null<HistoryItem*> item,
+		not_null<Window::SessionController*> controller) {
+	const auto before = int(menu->actions().size());
+	if (Api::WhoReactedExists(item, Api::WhoReactedList::All)) {
+		AddWhoReactedAction(menu, context, item, controller);
+	} else {
+		MaybeAddWhenEditedForwardedAction(menu, item, controller);
+	}
+	return int(menu->actions().size()) - before;
 }
 
 void MaybeAddWhenEditedForwardedAction(
 		not_null<Ui::PopupMenu*> menu,
 		not_null<HistoryItem*> item,
-		not_null<Window::SessionController*> controller) {
-	AddWhenEditedForwardedAuthorActionHelper(menu, item, controller, true);
+		not_null<Window::SessionController*> controller,
+		bool separateFromPrevious) {
+	AddWhenEditedForwardedAuthorActionHelper(
+		menu,
+		item,
+		controller,
+		separateFromPrevious);
+}
+
+ContextMenuAnchorInfoPlacement ResolveContextMenuAnchorInfoPlacement(
+		not_null<Ui::PopupMenu*> menu) {
+	using Origin = Ui::PanelAnimation::Origin;
+	switch (menu->preparedOrigin()) {
+	case Origin::TopLeft:
+	case Origin::TopRight:
+		return ContextMenuAnchorInfoPlacement::Top;
+	case Origin::BottomLeft:
+	case Origin::BottomRight:
+		return ContextMenuAnchorInfoPlacement::Bottom;
+	}
+	Unexpected("Origin in ResolveContextMenuAnchorInfoPlacement.");
 }
 
 void AddEditTagAction(

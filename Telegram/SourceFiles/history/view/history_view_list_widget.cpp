@@ -2993,18 +2993,41 @@ void ListWidget::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 		&& _overState.pointState != PointState::Outside)
 		? _overElement->data().get()
 		: nullptr;
-	const auto attached = reactItem
-		? AttachSelectorToMenu(
-			_menu.get(),
-			controller(),
-			desiredPosition,
-			reactItem,
-			[=](ChosenReaction reaction) { reactionChosen(reaction); },
-			ItemReactionsAbout(reactItem))
-		: AttachSelectorResult::Skipped;
+	const auto prepareMenu = [&](not_null<Ui::PopupMenu*> menu) {
+		if (reactItem) {
+			return AttachSelectorToMenu(
+				menu,
+				controller(),
+				desiredPosition,
+				reactItem,
+				[=](ChosenReaction reaction) { reactionChosen(reaction); },
+				ItemReactionsAbout(reactItem));
+		} else if (!menu->prepareGeometryFor(desiredPosition)) {
+			return AttachSelectorResult::Failed;
+		}
+		return AttachSelectorResult::Skipped;
+	};
+	auto attached = prepareMenu(_menu.get());
 	if (attached == AttachSelectorResult::Failed) {
 		_menu = nullptr;
 		return;
+	}
+	if (request.item
+		&& ResolveContextMenuAnchorInfoPlacement(_menu.get())
+			== ContextMenuAnchorInfoPlacement::Top) {
+		_menu = FillContextMenu(
+			this,
+			request,
+			ContextMenuAnchorInfoPlacement::Top);
+		if (_menu->empty()) {
+			_menu = nullptr;
+			return;
+		}
+		attached = prepareMenu(_menu.get());
+		if (attached == AttachSelectorResult::Failed) {
+			_menu = nullptr;
+			return;
+		}
 	}
 	_menu->animatePhaseValue(
 	) | rpl::filter([](Ui::PopupMenu::AnimatePhase phase) {
@@ -3012,11 +3035,7 @@ void ListWidget::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 	}) | rpl::take(1) | rpl::on_next([menu = _menu.get()] {
 		menu->menu()->clearSelection();
 	}, _menu->lifetime());
-	if (attached == AttachSelectorResult::Attached) {
-		_menu->popupPrepared();
-	} else {
-		_menu->popup(desiredPosition);
-	}
+	_menu->popupPrepared();
 	e->accept();
 }
 

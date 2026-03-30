@@ -53,9 +53,16 @@ struct ContextMenuRequest {
 	PointState pointState = PointState();
 };
 
+enum class ContextMenuAnchorInfoPlacement {
+	Top,
+	Bottom,
+};
+
 base::unique_qptr<Ui::PopupMenu> FillContextMenu(
 	not_null<ListWidget*> list,
-	const ContextMenuRequest &request);
+	const ContextMenuRequest &request,
+	ContextMenuAnchorInfoPlacement anchorInfoPlacement
+		= ContextMenuAnchorInfoPlacement::Bottom);
 
 void CopyPostLink(
 	not_null<Window::SessionController*> controller,
@@ -85,11 +92,20 @@ void AddWhoReactedAction(
 	not_null<Ui::PopupMenu*> menu,
 	not_null<QWidget*> context,
 	not_null<HistoryItem*> item,
+	not_null<Window::SessionController*> controller,
+	bool separateInfoDetails = true);
+[[nodiscard]] int AddContextMenuAnchorInfo(
+	not_null<Ui::PopupMenu*> menu,
+	not_null<QWidget*> context,
+	not_null<HistoryItem*> item,
 	not_null<Window::SessionController*> controller);
 void MaybeAddWhenEditedForwardedAction(
 	not_null<Ui::PopupMenu*> menu,
 	not_null<HistoryItem*> item,
-	not_null<Window::SessionController*> controller);
+	not_null<Window::SessionController*> controller,
+	bool separateFromPrevious = true);
+[[nodiscard]] ContextMenuAnchorInfoPlacement
+ResolveContextMenuAnchorInfoPlacement(not_null<Ui::PopupMenu*> menu);
 void ShowWhoReactedMenu(
 	not_null<base::unique_qptr<Ui::PopupMenu>*> menu,
 	QPoint position,
