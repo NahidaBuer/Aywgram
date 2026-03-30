@@ -3939,7 +3939,7 @@ void ListWidget::mouseActionUpdate() {
 					if (const auto date = view->Get<HistoryView::DateBadge>()) {
 						dateWidth = date->width;
 					} else {
-						dateWidth = st::msgServiceFont->width(langDayOfMonthFull(view->dateTime().date()));
+						dateWidth = st::msgServiceFont->width(langDateForChat(view->dateTime().date()));
 					}
 					dateWidth += st::msgServicePadding.left() + st::msgServicePadding.right();
 					auto dateLeft = st::msgServiceMargin.left();

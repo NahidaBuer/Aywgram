@@ -110,6 +110,16 @@ QString langDayOfMonthFull(const QDate &date) {
 	});
 }
 
+QString langDateForChat(const QDate &date) {
+	const auto current = QDate::currentDate();
+	if (date == current) {
+		return tr::ayu_ChatDateToday(tr::now);
+	} else if (date == current.addDays(-1)) {
+		return tr::ayu_ChatDateYesterday(tr::now);
+	}
+	return langDayOfMonthFull(date);
+}
+
 QString langDayOfMonthShort(const QDate &date) {
 	auto day = date.day();
 	return langDateMaybeWithYear(date, [&](int month, int year) {

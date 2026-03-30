@@ -7812,6 +7812,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_HideReactionsInChannels" = "在频道中";
 "ayu_HideReactionsInGroups" = "在群组中";
 "ayu_HideReactionsInPrivateChats" = "在私聊中";
+"ayu_ChatDateToday" = "今天";
+"ayu_ChatDateYesterday" = "昨天";
 "ayu_QuickAdminShortcuts" = "快捷管理方式";
 "ayu_TranslationProvider" = "翻译服务提供商";
 "ayu_LinksHeader" = "链接";

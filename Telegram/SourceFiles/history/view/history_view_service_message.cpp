@@ -225,7 +225,7 @@ void ServiceMessagePainter::PaintDate(
 	PaintDate(
 		p,
 		st,
-		langDayOfMonthFull(date.date()),
+		langDateForChat(date.date()),
 		y,
 		w,
 		chatWide);
