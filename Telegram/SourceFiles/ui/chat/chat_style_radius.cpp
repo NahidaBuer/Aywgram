@@ -14,8 +14,35 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/ui_utility.h"
 #include "styles/style_chat.h"
 
+#include "ayu/ayu_settings.h"
+
 namespace Ui {
 namespace {
+
+constexpr auto kBubbleRadiusSliderMax = 16;
+auto BubbleRadiusOverride = -1;
+
+[[nodiscard]] int MapBubbleRadius(int sliderValue, int maximum) {
+	const auto result = (sliderValue * maximum + (kBubbleRadiusSliderMax / 2))
+		/ kBubbleRadiusSliderMax;
+	return (result < 0) ? 0 : (result > maximum) ? maximum : result;
+}
+
+[[nodiscard]] int EffectiveBubbleRadiusValue() {
+	return (BubbleRadiusOverride >= 0)
+		? BubbleRadiusOverride
+		: AyuSettings::getInstance().appliedMessageBubbleRadius();
+}
+
+[[nodiscard]] int BubbleRadiusFor(int maximum) {
+	const auto value = EffectiveBubbleRadiusValue();
+	if (value <= 0) {
+		return 0;
+	} else if (value >= kBubbleRadiusSliderMax) {
+		return maximum;
+	}
+	return MapBubbleRadius(value, maximum);
+}
 
 base::options::toggle UseSmallMsgBubbleRadius({
 	.id = kOptionUseSmallMsgBubbleRadius,
@@ -28,19 +55,22 @@ base::options::toggle UseSmallMsgBubbleRadius({
 
 const char kOptionUseSmallMsgBubbleRadius[] = "use-small-msg-bubble-radius";
 
+void SetBubbleRadiusOverride(int value) {
+	BubbleRadiusOverride = value;
+}
+
+void ClearBubbleRadiusOverride() {
+	BubbleRadiusOverride = -1;
+}
+
 int BubbleRadiusSmall() {
-	return st::bubbleRadiusSmall;
+	return BubbleRadiusFor(st::bubbleRadiusSmall);
 }
 
 int BubbleRadiusLarge() {
-	static const auto result = [] {
-		if (UseSmallMsgBubbleRadius.value()) {
-			return st::bubbleRadiusSmall;
-		} else {
-			return st::bubbleRadiusLarge;
-		}
-	}();
-	return result;
+	return UseSmallMsgBubbleRadius.value()
+		? BubbleRadiusSmall()
+		: BubbleRadiusFor(st::bubbleRadiusLarge);
 }
 
 int MsgFileThumbRadiusSmall() {
@@ -48,14 +78,9 @@ int MsgFileThumbRadiusSmall() {
 }
 
 int MsgFileThumbRadiusLarge() {
-	static const auto result = [] {
-		if (UseSmallMsgBubbleRadius.value()) {
-			return st::msgFileThumbRadiusSmall;
-		} else {
-			return st::msgFileThumbRadiusLarge;
-		}
-	}();
-	return result;
+	return UseSmallMsgBubbleRadius.value()
+		? st::msgFileThumbRadiusSmall
+		: st::msgFileThumbRadiusLarge;
 }
 
 }

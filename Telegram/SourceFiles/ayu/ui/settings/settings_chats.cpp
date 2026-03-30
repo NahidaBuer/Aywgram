@@ -30,6 +30,17 @@ using namespace AyBuilder;
 
 namespace {
 
+void ShowRestartPrompt(not_null<Window::SessionController*> controller) {
+	crl::on_main([=] {
+		controller->show(Ui::MakeConfirmBox({
+			.text = tr::lng_settings_need_restart(),
+			.confirmed = [] { Core::Restart(); },
+			.confirmText = tr::lng_settings_restart_now(),
+			.cancelText = tr::lng_settings_restart_later(),
+		}));
+	});
+}
+
 void BuildStickersAndEmoji(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 	builder.addSubsectionTitle(tr::lng_settings_stickers_emoji());
 
@@ -236,6 +247,25 @@ void BuildWideMessagesMultiplier(SectionBuilder &builder, AyuSectionBuilder &ayu
 
 	const auto controller = builder.controller();
 	ayu.addSlider({
+		.id = u"ayu/messageBubbleRadius"_q,
+		.title = tr::ayu_MessageBubbleRadius(),
+		.steps = 17,
+		.current = settings->messageBubbleRadius(),
+		.indexToValue = [](int index) { return index; },
+		.onChanged = [](int index) {
+			AyuSettings::getInstance().setPreviewMessageBubbleRadius(index);
+		},
+		.onFinalChanged = [=](int index) {
+			AyuSettings::getInstance().setMessageBubbleRadius(index);
+			AyuSettings::getInstance().clearPreviewMessageBubbleRadius();
+			ShowRestartPrompt(controller);
+		},
+		.formatLabel = [](int index) {
+			return QString::number(index);
+		},
+	});
+
+	ayu.addSlider({
 		.id = u"ayu/wideMultiplier"_q,
 		.title = tr::ayu_SettingsWideMultiplier(),
 		.steps = kSizeAmount,
@@ -245,14 +275,7 @@ void BuildWideMessagesMultiplier(SectionBuilder &builder, AyuSectionBuilder &ayu
 		.onFinalChanged = [=](int index) {
 			AyuSettings::getInstance().setWideMultiplier(
 				kMinSize + index * kStep);
-			crl::on_main([=] {
-				controller->show(Ui::MakeConfirmBox({
-					.text = tr::lng_settings_need_restart(),
-					.confirmed = [] { Core::Restart(); },
-					.confirmText = tr::lng_settings_restart_now(),
-					.cancelText = tr::lng_settings_restart_later(),
-				}));
-			});
+			ShowRestartPrompt(controller);
 		},
 		.formatLabel = [=](int index) {
 			return QString::number(kMinSize + index * kStep, 'f', 2);

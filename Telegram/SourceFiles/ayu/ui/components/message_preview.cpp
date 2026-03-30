@@ -20,6 +20,7 @@
 #include "styles/style_chat.h"
 #include "styles/style_settings.h"
 #include "ui/painter.h"
+#include "ui/chat/chat_style_radius.h"
 #include "ui/chat/chat_style.h"
 #include "ui/chat/chat_theme.h"
 #include "ui/effects/animations.h"
@@ -122,6 +123,10 @@ MessagePreview::MessagePreview(
 			| rpl::to_empty,
 		AyuSettings::getInstance().editedMarkChanges()
 			| rpl::to_empty,
+		AyuSettings::getInstance().messageBubbleRadiusPreviewChanges()
+			| rpl::to_empty,
+		AyuSettings::getInstance().messageBubbleRadiusChanges()
+			| rpl::to_empty,
 		AyuSettings::getInstance().removeMessageTailChanges()
 			| rpl::to_empty,
 		AyuSettings::getInstance().hideFastShareChanges()
@@ -162,7 +167,10 @@ void MessagePreview::paintEvent(QPaintEvent *e) {
 
 	const auto padding = st::settingsForwardPrivacyPadding;
 	p.translate(padding / 2, padding + view->marginBottom());
+	Ui::SetBubbleRadiusOverride(
+		AyuSettings::getInstance().previewMessageBubbleRadius());
 	view->draw(p, context);
+	Ui::ClearBubbleRadiusOverride();
 
 	if (!AyuSettings::getInstance().hideFastShare()) {
 		const auto size = st::historyFastShareSize;

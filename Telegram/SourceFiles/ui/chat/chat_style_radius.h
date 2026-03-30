@@ -12,6 +12,9 @@ namespace Ui {
 [[nodiscard]] int BubbleRadiusSmall();
 [[nodiscard]] int BubbleRadiusLarge();
 
+void SetBubbleRadiusOverride(int value);
+void ClearBubbleRadiusOverride();
+
 [[nodiscard]] int MsgFileThumbRadiusSmall();
 [[nodiscard]] int MsgFileThumbRadiusLarge();
 

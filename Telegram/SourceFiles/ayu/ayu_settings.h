@@ -254,6 +254,12 @@ public:
 	[[nodiscard]] bool showOnlyAddedEmojisAndStickers() const { return _showOnlyAddedEmojisAndStickers.current(); }
 	[[nodiscard]] bool collapseSimilarChannels() const { return _collapseSimilarChannels.current(); }
 	[[nodiscard]] bool hideSimilarChannels() const { return _hideSimilarChannels.current(); }
+	[[nodiscard]] int messageBubbleRadius() const { return _messageBubbleRadius.current(); }
+	[[nodiscard]] int appliedMessageBubbleRadius() const { return _appliedMessageBubbleRadius; }
+	[[nodiscard]] int previewMessageBubbleRadius() const {
+		const auto preview = _messageBubbleRadiusPreview.current();
+		return (preview >= 0) ? preview : _messageBubbleRadius.current();
+	}
 	[[nodiscard]] double wideMultiplier() const { return _wideMultiplier.current(); }
 	[[nodiscard]] bool spoofWebviewAsAndroid() const { return _spoofWebviewAsAndroid.current(); }
 	[[nodiscard]] bool increaseWebviewHeight() const { return _increaseWebviewHeight.current(); }
@@ -333,6 +339,9 @@ public:
 	void setShowOnlyAddedEmojisAndStickers(bool val);
 	void setCollapseSimilarChannels(bool val);
 	void setHideSimilarChannels(bool val);
+	void setMessageBubbleRadius(int val);
+	void setPreviewMessageBubbleRadius(int val);
+	void clearPreviewMessageBubbleRadius();
 	void setWideMultiplier(double val);
 	void setSpoofWebviewAsAndroid(bool val);
 	void setIncreaseWebviewHeight(bool val);
@@ -427,6 +436,10 @@ public:
 	[[nodiscard]] rpl::producer<bool> collapseSimilarChannelsChanges() const { return _collapseSimilarChannels.changes(); }
 	[[nodiscard]] rpl::producer<bool> hideSimilarChannelsValue() const { return _hideSimilarChannels.value(); }
 	[[nodiscard]] rpl::producer<bool> hideSimilarChannelsChanges() const { return _hideSimilarChannels.changes(); }
+	[[nodiscard]] rpl::producer<int> messageBubbleRadiusValue() const { return _messageBubbleRadius.value(); }
+	[[nodiscard]] rpl::producer<int> messageBubbleRadiusChanges() const { return _messageBubbleRadius.changes(); }
+	[[nodiscard]] rpl::producer<int> messageBubbleRadiusPreviewValue() const { return _messageBubbleRadiusPreview.value(); }
+	[[nodiscard]] rpl::producer<int> messageBubbleRadiusPreviewChanges() const { return _messageBubbleRadiusPreview.changes(); }
 	[[nodiscard]] rpl::producer<double> wideMultiplierValue() const { return _wideMultiplier.value(); }
 	[[nodiscard]] rpl::producer<double> wideMultiplierChanges() const { return _wideMultiplier.changes(); }
 	[[nodiscard]] rpl::producer<bool> spoofWebviewAsAndroidValue() const { return _spoofWebviewAsAndroid.value(); }
@@ -580,6 +593,9 @@ private:
 	rpl::variable<bool> _showOnlyAddedEmojisAndStickers = false;
 	rpl::variable<bool> _collapseSimilarChannels = true;
 	rpl::variable<bool> _hideSimilarChannels = false;
+	rpl::variable<int> _messageBubbleRadius = 16;
+	rpl::variable<int> _messageBubbleRadiusPreview = -1;
+	int _appliedMessageBubbleRadius = 16;
 	rpl::variable<double> _wideMultiplier = 1.0;
 	rpl::variable<bool> _spoofWebviewAsAndroid = false;
 	rpl::variable<bool> _increaseWebviewHeight = false;
