@@ -2337,16 +2337,7 @@ auto ParticipantsBoxController::computeType(
 
 	switch (_role) {
 	case Role::Profile: {
-		if (user
-			&& (chat
-				? chat->canBanMembers()
-				: (channel && channel->canBanMembers()))
-			&& !_additional.isCreator(user)
-			&& (!_additional.adminRights(user)
-				|| _additional.canEditAdmin(user))) {
-			result.canRemove = true;
-			result.removeText = tr::lng_profile_kick(tr::now);
-		} else if (_additional.canRemoveParticipant(participant)
+		if (_additional.canRemoveParticipant(participant)
 			&& user
 			&& user->isInaccessible()) {
 			result.canRemove = true;
@@ -2361,9 +2352,11 @@ auto ParticipantsBoxController::computeType(
 				: channel->canBanMembers())
 			&& !_additional.isCreator(user)
 			&& (!_additional.adminRights(user)
-				|| _additional.canEditAdmin(user))) {
+				|| _additional.canEditAdmin(user))
+			&& user->isInaccessible()) {
 			result.canRemove = true;
-			result.removeText = tr::lng_profile_kick(tr::now);
+			result.rank = QString();
+			result.removeText = tr::lng_profile_delete_removed(tr::now);
 		}
 	} break;
 	case Role::Admins: {
