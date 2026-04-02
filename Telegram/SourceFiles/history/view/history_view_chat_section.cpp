@@ -23,6 +23,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_translate_bar.h"
 #include "history/view/history_view_translate_tracker.h"
 #include "history/view/history_view_self_forwards_tagger.h"
+#include "ayu/features/forward/ayu_forward.h"
 #include "history/history.h"
 #include "history/history_drag_area.h"
 #include "history/history_item_components.h"
@@ -3081,6 +3082,8 @@ bool ChatWidget::listIsLessInOrder(
 void ChatWidget::listSelectionChanged(SelectedItems &&items) {
 	HistoryView::TopBarWidget::SelectedState state;
 	state.count = items.size();
+	auto forwardItems = HistoryItemsList();
+	forwardItems.reserve(items.size());
 	for (const auto &item : items) {
 		if (item.canDelete) {
 			++state.canDeleteCount;
@@ -3088,7 +3091,13 @@ void ChatWidget::listSelectionChanged(SelectedItems &&items) {
 		if (item.canForward) {
 			++state.canForwardCount;
 		}
+		if (const auto message = session().data().message(item.msgId)) {
+			forwardItems.push_back(message);
+		}
 	}
+	state.hideNoQuote = !forwardItems.empty()
+		&& (AyuForward::isFullAyuForwardNeeded(forwardItems.front())
+			|| AyuForward::isAyuForwardNeeded(forwardItems));
 	_topBar->showSelected(state);
 	if ((state.count > 0) && _composeSearch) {
 		_composeSearch->hideAnimated();

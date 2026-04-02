@@ -54,6 +54,7 @@ public:
 		int canDeleteCount = 0;
 		int canForwardCount = 0;
 		int canSendNowCount = 0;
+		bool hideNoQuote = false;
 	};
 	using ActiveChat = Dialogs::EntryState;
 	using Section = ActiveChat::Section;
@@ -215,6 +216,7 @@ private:
 	bool _canDelete = false;
 	bool _canForward = false;
 	bool _canSendNow = false;
+	bool _hideNoQuote = false;
 	bool _searchMode = false;
 
 	Ui::Animations::Simple _selectedShown;

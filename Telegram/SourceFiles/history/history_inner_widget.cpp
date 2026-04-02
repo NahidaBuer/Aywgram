@@ -4509,9 +4509,12 @@ void HistoryInner::elementStartEffect(
 auto HistoryInner::getSelectionState() const
 -> HistoryView::TopBarWidget::SelectedState {
 	auto result = HistoryView::TopBarWidget::SelectedState {};
+	auto forwardItems = HistoryItemsList();
+	forwardItems.reserve(_selected.size());
 	for (auto &selected : _selected) {
 		if (selected.second == FullSelection) {
 			++result.count;
+			forwardItems.push_back(selected.first);
 			if (selected.first->canDelete()) {
 				++result.canDeleteCount;
 			}
@@ -4522,6 +4525,9 @@ auto HistoryInner::getSelectionState() const
 			result.textSelected = true;
 		}
 	}
+	result.hideNoQuote = !forwardItems.empty()
+		&& (AyuForward::isFullAyuForwardNeeded(forwardItems.front())
+			|| AyuForward::isAyuForwardNeeded(forwardItems));
 	return result;
 }
 

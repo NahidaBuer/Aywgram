@@ -1259,7 +1259,7 @@ void TopBarWidget::updateControlsVisibility() {
 	_delete->setVisible(_canDelete);
 	_messageShot->setVisible(settings.showMessageShot());
 	_forward->setVisible(_canForward);
-	_noQuote->setVisible(_canForward && !_canSendNow);
+	_noQuote->setVisible(_canForward && !_canSendNow && !_hideNoQuote);
 	_sendNow->setVisible(_canSendNow);
 
 	const auto isOneColumn = _controller->adaptive().isOneColumn();
@@ -1467,11 +1467,13 @@ void TopBarWidget::showSelected(SelectedState state) {
 	auto canDelete = (state.count > 0 && state.count == state.canDeleteCount);
 	auto canForward = (state.count > 0 && state.count == state.canForwardCount);
 	auto canSendNow = (state.count > 0 && state.count == state.canSendNowCount);
+	const auto hideNoQuote = state.hideNoQuote;
 	auto count = (!canDelete && !canForward && !canSendNow && !settings.showMessageShot()) ? 0 : state.count;
 	if (_selectedCount == count
 		&& _canDelete == canDelete
 		&& _canForward == canForward
-		&& _canSendNow == canSendNow) {
+		&& _canSendNow == canSendNow
+		&& _hideNoQuote == hideNoQuote) {
 		return;
 	}
 	if (count == 0) {
@@ -1484,11 +1486,13 @@ void TopBarWidget::showSelected(SelectedState state) {
 	const auto wasSelectedState = showSelectedState();
 	const auto visibilityChanged = (_canDelete != canDelete)
 		|| (_canForward != canForward)
-		|| (_canSendNow != canSendNow);
+		|| (_canSendNow != canSendNow)
+		|| (_hideNoQuote != hideNoQuote);
 	_selectedCount = count;
 	_canDelete = canDelete;
 	_canForward = canForward;
 	_canSendNow = canSendNow;
+	_hideNoQuote = hideNoQuote;
 	const auto nowSelectedState = showSelectedState();
 	if (nowSelectedState) {
 		_forward->setNumbersText(_selectedCount);
