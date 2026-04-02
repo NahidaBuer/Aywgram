@@ -34,6 +34,7 @@ ShotConfig getShotConfig();
 
 bool ignoreRender(RenderPart part);
 bool isTakingShot();
+bool showHeaderDecorations();
 
 bool isChoosingTheme();
 bool setChoosingTheme(bool val);

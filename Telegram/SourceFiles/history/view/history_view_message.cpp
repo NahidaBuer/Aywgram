@@ -262,6 +262,12 @@ void Message::refreshRightBadge() {
 		}
 		return;
 	}
+	if (!AyuFeatures::MessageShot::showHeaderDecorations()) {
+		if (Has<RightBadge>()) {
+			RemoveComponents(RightBadge::Bit());
+		}
+		return;
+	}
 	const auto item = data();
 	const auto [text, role, special] = [&]() -> std::tuple<QString, BadgeRole, bool> {
 		if (item->isDiscussionPost()) {

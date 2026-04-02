@@ -8080,6 +8080,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_MessageShotShowBackground" = "显示背景";
 "ayu_MessageShotShowDate" = "显示日期";
 "ayu_MessageShotShowReactions" = "显示表情回应菜单";
+"ayu_MessageShotShowHeaderDecorations" = "显示右上角标识";
 "ayu_MessageShotShowColorfulReplies" = "显示彩色回复";
 "ayu_SendAsSticker" = "发送为贴纸";
 "ayu_SendWithSound" = "有声发送";

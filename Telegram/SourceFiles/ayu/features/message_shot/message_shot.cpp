@@ -70,6 +70,11 @@ bool isTakingShot() {
 	return takingShot;
 }
 
+bool showHeaderDecorations() {
+	return !isTakingShot()
+		|| AyuSettings::getInstance().messageShotSettings().showHeaderDecorations();
+}
+
 bool setChoosingTheme(bool val) {
 	choosingTheme = val;
 	return choosingTheme;

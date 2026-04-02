@@ -215,6 +215,20 @@ void MessageShotBox::setupContent() {
 		},
 		content->lifetime());
 
+	AddButtonWithIcon(
+		content,
+		tr::ayu_MessageShotShowHeaderDecorations(),
+		st::settingsButtonNoIcon
+	)->toggleOn(rpl::single(shotSettings.showHeaderDecorations())
+	)->toggledValue(
+	) | rpl::skip(1) | on_next(
+		[=](bool enabled)
+		{
+			AyuSettings::getInstance().messageShotSettings().setShowHeaderDecorations(enabled);
+			updatePreview();
+		},
+		content->lifetime());
+
 	const auto latestToggle = AddButtonWithIcon(
 		content,
 		tr::ayu_MessageShotShowColorfulReplies(),

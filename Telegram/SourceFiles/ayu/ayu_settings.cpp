@@ -214,6 +214,12 @@ void MessageShotSettings::setShowReactions(bool val) {
 	AyuSettings::save();
 }
 
+void MessageShotSettings::setShowHeaderDecorations(bool val) {
+	if (_showHeaderDecorations.current() == val) return;
+	_showHeaderDecorations = val;
+	AyuSettings::save();
+}
+
 void MessageShotSettings::setShowColorfulReplies(bool val) {
 	if (_showColorfulReplies.current() == val) return;
 	_showColorfulReplies = val;
@@ -284,6 +290,7 @@ void to_json(nlohmann::json &j, const MessageShotSettings &s) {
 		{"showBackground", s._showBackground.current()},
 		{"showDate", s._showDate.current()},
 		{"showReactions", s._showReactions.current()},
+		{"showHeaderDecorations", s._showHeaderDecorations.current()},
 		{"showColorfulReplies", s._showColorfulReplies.current()},
 		{"embeddedThemeType", s._embeddedThemeType.current()},
 		{"embeddedThemeAccentColor", s._embeddedThemeAccentColor.current()},
@@ -299,6 +306,7 @@ void from_json(const nlohmann::json &j, MessageShotSettings &s) {
 	s._showBackground = j.value("showBackground", true);
 	s._showDate = j.value("showDate", false);
 	s._showReactions = j.value("showReactions", false);
+	s._showHeaderDecorations = j.value("showHeaderDecorations", true);
 	s._showColorfulReplies = j.value("showColorfulReplies", false);
 	s._embeddedThemeType = j.value("embeddedThemeType", j.value("themeType", -1));
 	s._embeddedThemeAccentColor = j.value("embeddedThemeAccentColor", j.value("themeAccentColor", uint32(0)));
