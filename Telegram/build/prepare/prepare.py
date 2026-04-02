@@ -99,6 +99,7 @@ environment = {
     'THIRDPARTY_DIR': thirdPartyDir,
     'PATH_PREFIX': pathPrefix,
     'CMAKE_GENERATOR': 'Ninja Multi-Config',
+    'CMAKE_CONFIGURATION_TYPES': 'Debug;Release;MinSizeRel;RelWithDebInfo',
 }
 if (win32):
     environment.update({
@@ -514,7 +515,7 @@ stage('lzma', """
 win:
     git clone https://github.com/desktop-app/lzma.git
     cd lzma\\C\\Util\\LzmaLib
-    msbuild -m LzmaLib.sln /property:Configuration=Debug /property:Platform="$X8664"
+    msbuild -m LzmaLib.sln /property:Configuration=Release /property:Platform="$X8664"
 release:
     msbuild -m LzmaLib.sln /property:Configuration=Release /property:Platform="$X8664"
 """)
@@ -540,7 +541,7 @@ win:
         -DCMAKE_POLICY_DEFAULT_CMP0091=NEW ^
         -DCMAKE_C_FLAGS="/DZLIB_WINAPI" ^
         -DZLIB_BUILD_EXAMPLES=OFF
-    cmake --build . --config Debug
+    cmake --build . --config MinSizeRel --parallel
 release:
     cmake --build . --config Release
 mac:
@@ -560,7 +561,7 @@ win:
         -DCMAKE_POLICY_VERSION_MINIMUM=3.5 ^
         -DWITH_JPEG8=ON ^
         -DPNG_SUPPORTED=OFF
-    cmake --build . --config Debug
+    cmake --build . --config MinSizeRel --parallel
 release:
     cmake --build . --config Release
 mac:
@@ -643,8 +644,8 @@ win:
     cmake -B out . ^
         -DCMAKE_INSTALL_PREFIX=%LIBS_DIR%/local ^
         -DOPUS_STATIC_RUNTIME=ON
-    cmake --build out --config Debug
-    cmake --build out --config Release
+    cmake --build out --config MinSizeRel --parallel
+    cmake --build out --config Release --parallel
     cmake --install out --config Release
 mac:
     CFLAGS="$UNGUARDED" CPPFLAGS="$UNGUARDED" cmake -B build . \\
@@ -662,14 +663,14 @@ stage('rnnoise', """
     cd out
 win:
     cmake .. -DCMAKE_MSVC_RUNTIME_LIBRARY="MultiThreaded$<$<CONFIG:Debug>:Debug>"
-    cmake --build . --config Debug
+    cmake --build . --config MinSizeRel --parallel
 release:
     cmake --build . --config Release
 !win:
     mkdir Debug
     cd Debug
     cmake ../.. \\
-        -D CMAKE_BUILD_TYPE=Debug \\
+        -D CMAKE_BUILD_TYPE=MinSizeRel \\
         -D CMAKE_OSX_ARCHITECTURES="x86_64;arm64"
     cmake --build .
 release:
@@ -744,7 +745,7 @@ win:
 
 depends:python/Scripts/activate.bat
     %THIRDPARTY_DIR%\\python\\Scripts\\activate.bat
-    meson setup --cross-file %FILE% --prefix %LIBS_DIR%/local --default-library=static --buildtype=debug -Denable_tools=false -Denable_tests=false %DAV1D_ASM_DISABLE% -Db_vscrt=mtd builddir-debug
+    meson setup --cross-file %FILE% --prefix %LIBS_DIR%/local --default-library=static --buildtype=minsize -Denable_tools=false -Denable_tests=false %DAV1D_ASM_DISABLE% -Db_vscrt=mt builddir-debug
     meson compile -C builddir-debug
     meson install -C builddir-debug
 release:
@@ -804,7 +805,7 @@ win:
 
 depends:python/Scripts/activate.bat
     %THIRDPARTY_DIR%\\python\\Scripts\\activate.bat
-    meson setup --cross-file %FILE% --prefix %LIBS_DIR%/local --default-library=static --buildtype=debug -Db_vscrt=mtd builddir-debug
+    meson setup --cross-file %FILE% --prefix %LIBS_DIR%/local --default-library=static --buildtype=minsize -Db_vscrt=mt builddir-debug
     meson compile -C builddir-debug
     meson install -C builddir-debug
 release:
@@ -849,8 +850,8 @@ win:
         -DAVIF_ENABLE_WERROR=OFF ^
         -DAVIF_CODEC_DAV1D=SYSTEM ^
         -DAVIF_LIBYUV=OFF
-    cmake --build . --config Debug
-    cmake --install . --config Debug
+    cmake --build . --config MinSizeRel --parallel
+    cmake --install . --config MinSizeRel
 release:
     cmake --build . --config Release
     cmake --install . --config Release
@@ -880,8 +881,8 @@ win:
         -DBUILD_SHARED_LIBS=OFF ^
         -DENABLE_DECODER=OFF ^
         -DENABLE_ENCODER=OFF
-    cmake --build . --config Debug
-    cmake --install . --config Debug
+    cmake --build . --config MinSizeRel --parallel
+    cmake --install . --config MinSizeRel
 release:
     cmake --build . --config Release
     cmake --install . --config Release
@@ -902,7 +903,7 @@ stage('libwebp', """
     git clone -b v1.5.0 https://github.com/webmproject/libwebp.git
     cd libwebp
 win:
-    nmake /f Makefile.vc CFG=debug-static OBJDIR=out RTLIBCFG=static all
+    nmake /f Makefile.vc CFG=release-static OBJDIR=out RTLIBCFG=static all
     nmake /f Makefile.vc CFG=release-static OBJDIR=out RTLIBCFG=static all
     copy out\\release-static\\$X8664\\lib\\libwebp.lib out\\release-static\\$X8664\\lib\\webp.lib
     copy out\\release-static\\$X8664\\lib\\libwebpdemux.lib out\\release-static\\$X8664\\lib\\webpdemux.lib
@@ -962,9 +963,10 @@ win:
         -DCMAKE_DISABLE_FIND_PACKAGE_TIFF=TRUE ^
         -DCMAKE_DISABLE_FIND_PACKAGE_JPEG=TRUE ^
         -DCMAKE_DISABLE_FIND_PACKAGE_PNG=TRUE ^
+        -DCMAKE_DISABLE_FIND_PACKAGE_Doxygen=TRUE ^
         -DWITH_EXAMPLES=OFF
-    cmake --build . --config Debug
-    cmake --install . --config Debug
+    cmake --build . --config MinSizeRel --parallel
+    cmake --install . --config MinSizeRel
 release:
     cmake --build . --config Release
     cmake --install . --config Release
@@ -1025,8 +1027,8 @@ win:
         -DCMAKE_C_FLAGS="/DJXL_STATIC_DEFINE /DJXL_THREADS_STATIC_DEFINE /DJXL_CMS_STATIC_DEFINE" ^
         -DCMAKE_CXX_FLAGS="/DJXL_STATIC_DEFINE /DJXL_THREADS_STATIC_DEFINE /DJXL_CMS_STATIC_DEFINE" ^
         %cmake_defines%
-    cmake --build . --config Debug
-    cmake --install . --config Debug
+    cmake --build . --config MinSizeRel --parallel
+    cmake --install . --config MinSizeRel
 release:
     cmake --build . --config Release
     cmake --install . --config Release
@@ -1107,7 +1109,7 @@ stage('liblcms2', """
 win:
 depends:python/Scripts/activate.bat
     %THIRDPARTY_DIR%\\python\\Scripts\\activate.bat
-    meson setup --default-library=static --buildtype=debug -Db_vscrt=mtd out/Debug
+    meson setup --default-library=static --buildtype=minsize -Db_vscrt=mt out/Debug
     meson compile -C out/Debug
 release:
     meson setup --default-library=static --buildtype=release -Db_vscrt=mt out/Release
@@ -1337,7 +1339,7 @@ win:
         -D ALSOFT_UTILS=OFF ^
         -D ALSOFT_EXAMPLES=OFF ^
         -D ALSOFT_TESTS=OFF
-    cmake --build build --config Debug
+    cmake --build build --config MinSizeRel --parallel
 release:
     cmake --build build --config RelWithDebInfo
 mac:
@@ -1392,7 +1394,7 @@ depends:python/Scripts/activate.bat
     cd src\\client\\windows
     gyp --no-circular-check breakpad_client.gyp --format=ninja
     cd ..\\..
-    ninja -C out/Debug%FolderPostfix% common crash_generation_client exception_handler
+    ninja -C out/Release%FolderPostfix% common crash_generation_client exception_handler
 release:
     ninja -C out/Release%FolderPostfix% common crash_generation_client exception_handler
     cd tools\\windows\\dump_syms
@@ -1427,7 +1429,7 @@ mac:
     mkdir Debug.x86_64
     cd Debug.x86_64
     cmake \
-        -DCMAKE_BUILD_TYPE=Debug \
+        -DCMAKE_BUILD_TYPE=MinSizeRel \
         -DCMAKE_OSX_ARCHITECTURES=x86_64 \
         -DCRASHPAD_SPECIAL_TARGET=$SPECIAL_TARGET \
         -DCRASHPAD_ZLIB_INCLUDE_PATH=$ZLIB_PATH \
@@ -1437,7 +1439,7 @@ mac:
     mkdir Debug.arm64
     cd Debug.arm64
     cmake \
-        -DCMAKE_BUILD_TYPE=Debug \
+        -DCMAKE_BUILD_TYPE=MinSizeRel \
         -DCMAKE_OSX_ARCHITECTURES=arm64 \
         -DCRASHPAD_SPECIAL_TARGET=$SPECIAL_TARGET \
         -DCRASHPAD_ZLIB_INCLUDE_PATH=$ZLIB_PATH \
@@ -1483,7 +1485,7 @@ win:
     cmake -B out ^
         -DTG_ANGLE_SPECIAL_TARGET=%SPECIAL_TARGET% ^
         -DTG_ANGLE_ZLIB_INCLUDE_PATH=%LIBS_DIR%/zlib
-    cmake --build out --config Debug
+    cmake --build out --config MinSizeRel
 release:
     cmake --build out --config Release
 """)
@@ -1520,7 +1522,6 @@ win:
     SET WEBP_DIR=%LIBS_DIR%\\libwebp
     configure -prefix "%LIBS_DIR%\\Qt-%QT%" ^
         %CONFIGURATIONS% ^
-        -force-debug-info ^
         -opensource ^
         -confirm-license ^
         -static ^
@@ -1529,18 +1530,18 @@ win:
         -I "%ANGLE_DIR%\\include" ^
         -D "KHRONOS_STATIC=" ^
         -D "DESKTOP_APP_QT_STATIC_ANGLE=" ^
-        QMAKE_LIBS_OPENGL_ES2_DEBUG="%ANGLE_LIBS_DIR%\\Debug\\tg_angle.lib %ZLIB_LIBS_DIR%\\Debug\\zlibstaticd.lib d3d9.lib dxgi.lib dxguid.lib" ^
-        QMAKE_LIBS_OPENGL_ES2_RELEASE="%ANGLE_LIBS_DIR%\\Release\\tg_angle.lib %ZLIB_LIBS_DIR%\\Release\\zlibstatic.lib d3d9.lib dxgi.lib dxguid.lib" ^
+        QMAKE_LIBS_OPENGL_ES2_DEBUG="%ANGLE_LIBS_DIR%\\MinSizeRel\\tg_angle.lib %ZLIB_LIBS_DIR%\\MinSizeRel\\zlibstatic.lib d3d9.lib dxgi.lib dxguid.lib" ^
+        QMAKE_LIBS_OPENGL_ES2_RELEASE="%ANGLE_LIBS_DIR%\\MinSizeRel\\tg_angle.lib %ZLIB_LIBS_DIR%\\MinSizeRel\\zlibstatic.lib d3d9.lib dxgi.lib dxguid.lib" ^
         -egl ^
-        QMAKE_LIBS_EGL_DEBUG="%ANGLE_LIBS_DIR%\\Debug\\tg_angle.lib %ZLIB_LIBS_DIR%\\Debug\\zlibstaticd.lib d3d9.lib dxgi.lib dxguid.lib Gdi32.lib User32.lib" ^
-        QMAKE_LIBS_EGL_RELEASE="%ANGLE_LIBS_DIR%\\Release\\tg_angle.lib %ZLIB_LIBS_DIR%\\Release\\zlibstatic.lib d3d9.lib dxgi.lib dxguid.lib Gdi32.lib User32.lib" ^
+        QMAKE_LIBS_EGL_DEBUG="%ANGLE_LIBS_DIR%\\MinSizeRel\\tg_angle.lib %ZLIB_LIBS_DIR%\\MinSizeRel\\zlibstatic.lib d3d9.lib dxgi.lib dxguid.lib Gdi32.lib User32.lib" ^
+        QMAKE_LIBS_EGL_RELEASE="%ANGLE_LIBS_DIR%\\MinSizeRel\\tg_angle.lib %ZLIB_LIBS_DIR%\\MinSizeRel\\zlibstatic.lib d3d9.lib dxgi.lib dxguid.lib Gdi32.lib User32.lib" ^
         -openssl-linked ^
         -I "%OPENSSL_DIR%\\include" ^
-        OPENSSL_LIBS_DEBUG="%OPENSSL_LIBS_DIR%.dbg\\libssl.lib %OPENSSL_LIBS_DIR%.dbg\\libcrypto.lib Ws2_32.lib Gdi32.lib Advapi32.lib Crypt32.lib User32.lib" ^
+        OPENSSL_LIBS_DEBUG="%OPENSSL_LIBS_DIR%\\libssl.lib %OPENSSL_LIBS_DIR%\\libcrypto.lib Ws2_32.lib Gdi32.lib Advapi32.lib Crypt32.lib User32.lib" ^
         OPENSSL_LIBS_RELEASE="%OPENSSL_LIBS_DIR%\\libssl.lib %OPENSSL_LIBS_DIR%\\libcrypto.lib Ws2_32.lib Gdi32.lib Advapi32.lib Crypt32.lib User32.lib" ^
         -I "%MOZJPEG_DIR%" ^
-        LIBJPEG_LIBS_DEBUG="%MOZJPEG_DIR%\\Debug\\jpeg-static.lib" ^
-        LIBJPEG_LIBS_RELEASE="%MOZJPEG_DIR%\\Release\\jpeg-static.lib" ^
+        LIBJPEG_LIBS_DEBUG="%MOZJPEG_DIR%\\MinSizeRel\\jpeg-static.lib" ^
+        LIBJPEG_LIBS_RELEASE="%MOZJPEG_DIR%\\MinSizeRel\\jpeg-static.lib" ^
         -system-webp ^
         -I "%WEBP_DIR%\\src" ^
         -L "%WEBP_DIR%\\out\\release-static\\$X8664\\lib" ^
@@ -1562,7 +1563,6 @@ release:
 mac:
     ./configure -prefix "$USED_PREFIX/Qt-$QT" \
         $CONFIGURATIONS \
-        -force-debug-info \
         -opensource \
         -confirm-license \
         -static \
@@ -1598,7 +1598,6 @@ release:
 mac:
     ./configure -prefix "$USED_PREFIX/Qt-$QT" \
         $CONFIGURATIONS \
-        -force-debug-info \
         -opensource \
         -confirm-license \
         -static \
@@ -1632,7 +1631,6 @@ win:
     SET LCMS2_DIR=%LIBS_DIR%\\liblcms2
     configure -prefix "%LIBS_DIR%\\Qt-%QT%" ^
         %CONFIGURATIONS% ^
-        -force-debug-info ^
         -opensource ^
         -confirm-license ^
         -static ^
@@ -1647,18 +1645,18 @@ win:
         -- ^
         -D OPENSSL_FOUND=1 ^
         -D OPENSSL_INCLUDE_DIR="%OPENSSL_DIR%\\include" ^
-        -D LIB_EAY_DEBUG="%OPENSSL_LIBS_DIR%.dbg\\libcrypto.lib" ^
-        -D SSL_EAY_DEBUG="%OPENSSL_LIBS_DIR%.dbg\\libssl.lib" ^
+        -D LIB_EAY_DEBUG="%OPENSSL_LIBS_DIR%\\libcrypto.lib" ^
+        -D SSL_EAY_DEBUG="%OPENSSL_LIBS_DIR%\\libssl.lib" ^
         -D LIB_EAY_RELEASE="%OPENSSL_LIBS_DIR%\\libcrypto.lib" ^
         -D SSL_EAY_RELEASE="%OPENSSL_LIBS_DIR%\\libssl.lib" ^
         -D JPEG_FOUND=1 ^
         -D JPEG_INCLUDE_DIR="%MOZJPEG_DIR%" ^
-        -D JPEG_LIBRARY_DEBUG="%MOZJPEG_DIR%\\Debug\\jpeg-static.lib" ^
-        -D JPEG_LIBRARY_RELEASE="%MOZJPEG_DIR%\\Release\\jpeg-static.lib" ^
+        -D JPEG_LIBRARY_DEBUG="%MOZJPEG_DIR%\\MinSizeRel\\jpeg-static.lib" ^
+        -D JPEG_LIBRARY_RELEASE="%MOZJPEG_DIR%\\MinSizeRel\\jpeg-static.lib" ^
         -D ZLIB_FOUND=1 ^
         -D ZLIB_INCLUDE_DIR="%ZLIB_LIBS_DIR%" ^
-        -D ZLIB_LIBRARY_DEBUG="%ZLIB_LIBS_DIR%\\Debug\\zlibstaticd.lib" ^
-        -D ZLIB_LIBRARY_RELEASE="%ZLIB_LIBS_DIR%\\Release\\zlibstatic.lib" ^
+        -D ZLIB_LIBRARY_DEBUG="%ZLIB_LIBS_DIR%\\MinSizeRel\\zlibstatic.lib" ^
+        -D ZLIB_LIBRARY_RELEASE="%ZLIB_LIBS_DIR%\\MinSizeRel\\zlibstatic.lib" ^
         -D WebP_INCLUDE_DIR="%WEBP_DIR%\\src" ^
         -D WebP_demux_INCLUDE_DIR="%WEBP_DIR%\\src" ^
         -D WebP_mux_INCLUDE_DIR="%WEBP_DIR%\\src" ^
@@ -1669,9 +1667,9 @@ win:
         -D LCMS2_INCLUDE_DIR="%LCMS2_DIR%\\include" ^
         -D LCMS2_LIBRARIES="%LCMS2_DIR%\\out\\Release\\src\\liblcms2.a"
 
-    cmake --build . --config Debug
-    cmake --install . --config Debug
-    cmake --build .
+    cmake --build . --config MinSizeRel --parallel
+    cmake --install . --config MinSizeRel
+    cmake --build . --parallel
     cmake --install .
 """)
 
@@ -1697,7 +1695,7 @@ win:
         -DTG_OWT_LIBVPX_INCLUDE_PATH=$LIBVPX_PATH \
         -DTG_OWT_OPENH264_INCLUDE_PATH=$OPENH264_PATH \
         -DTG_OWT_FFMPEG_INCLUDE_PATH=$FFMPEG_PATH
-    cmake --build out --config Debug
+    cmake --build out --config MinSizeRel
 release:
     cmake --build out --config Release
 mac:
@@ -1711,7 +1709,7 @@ mac:
     mkdir Debug.x86_64
     cd Debug.x86_64
     cmake \
-        -DCMAKE_BUILD_TYPE=Debug \
+        -DCMAKE_BUILD_TYPE=MinSizeRel \
         -DCMAKE_OSX_ARCHITECTURES=x86_64 \
         -DTG_OWT_BUILD_AUDIO_BACKENDS=OFF \
         -DTG_OWT_SPECIAL_TARGET=$SPECIAL_TARGET \
@@ -1726,7 +1724,7 @@ mac:
     mkdir Debug.arm64
     cd Debug.arm64
     cmake \
-        -DCMAKE_BUILD_TYPE=Debug \
+        -DCMAKE_BUILD_TYPE=MinSizeRel \
         -DCMAKE_OSX_ARCHITECTURES=arm64 \
         -DTG_OWT_BUILD_AUDIO_BACKENDS=OFF \
         -DTG_OWT_SPECIAL_TARGET=$SPECIAL_TARGET \
@@ -1782,8 +1780,8 @@ win:
         -D ADA_TOOLS=OFF ^
         -D ADA_INCLUDE_URL_PATTERN=OFF ^
         -D CMAKE_MSVC_RUNTIME_LIBRARY="MultiThreaded$<$<CONFIG:Debug>:Debug>"
-    cmake --build out --config Debug
-    cmake --build out --config Release
+    cmake --build out --config MinSizeRel --parallel
+    cmake --build out --config Release --parallel
 mac:
     CFLAGS="$UNGUARDED" CPPFLAGS="$UNGUARDED" cmake -B build . \\
         -D ADA_TESTING=OFF \\
@@ -1810,8 +1808,8 @@ win:
         -Dprotobuf_BUILD_LIBPROTOC=ON ^
         -Dprotobuf_WITH_ZLIB_DEFAULT=OFF ^
         -Dprotobuf_DEBUG_POSTFIX=""
-    cmake --build . --config Release
-    cmake --build . --config Debug
+    cmake --build . --config Release --parallel
+    cmake --build . --config MinSizeRel --parallel
 """)
 # mac:
 #     git clone --recursive -b v21.9 https://github.com/protocolbuffers/protobuf
@@ -1845,21 +1843,21 @@ win:
     cmake ^
         -DOPENSSL_FOUND=1 ^
         -DOPENSSL_INCLUDE_DIR=%OPENSSL_DIR%\\include ^
-        -DOPENSSL_CRYPTO_LIBRARY="%OPENSSL_LIBS_DIR%.dbg\\libcrypto.lib" ^
+        -DOPENSSL_CRYPTO_LIBRARY="%OPENSSL_LIBS_DIR%\\libcrypto.lib" ^
         -DZLIB_FOUND=1 ^
         -DZLIB_INCLUDE_DIR=%ZLIB_LIBS_DIR% ^
-        -DZLIB_LIBRARIES="%ZLIB_LIBS_DIR%\\Debug\\zlibstaticd.lib" ^
-        -DCMAKE_CONFIGURATION_TYPES=Debug ^
+        -DZLIB_LIBRARIES="%ZLIB_LIBS_DIR%\\MinSizeRel\\zlibstatic.lib" ^
+        -DCMAKE_CONFIGURATION_TYPES=MinSizeRel ^
         -DCMAKE_MSVC_RUNTIME_LIBRARY="MultiThreaded$<$<CONFIG:Debug>:Debug>" ^
         -DCMAKE_POLICY_DEFAULT_CMP0091=NEW ^
         -DCMAKE_C_FLAGS="/DZLIB_WINAPI" ^
         -DCMAKE_CXX_FLAGS="/DZLIB_WINAPI" ^
-        -DCMAKE_EXE_LINKER_FLAGS="/SAFESEH:NO Ws2_32.lib Gdi32.lib Advapi32.lib Crypt32.lib User32.lib %OPENSSL_LIBS_DIR%.dbg\\libssl.lib" ^
-        -DCMAKE_SHARED_LINKER_FLAGS="/SAFESEH:NO Ws2_32.lib Gdi32.lib Advapi32.lib Crypt32.lib User32.lib %OPENSSL_LIBS_DIR%.dbg\\libssl.lib" ^
+        -DCMAKE_EXE_LINKER_FLAGS="/SAFESEH:NO Ws2_32.lib Gdi32.lib Advapi32.lib Crypt32.lib User32.lib %OPENSSL_LIBS_DIR%\\libssl.lib" ^
+        -DCMAKE_SHARED_LINKER_FLAGS="/SAFESEH:NO Ws2_32.lib Gdi32.lib Advapi32.lib Crypt32.lib User32.lib %OPENSSL_LIBS_DIR%\\libssl.lib" ^
         -DTD_ENABLE_MULTI_PROCESSOR_COMPILATION=ON ^
         -DTD_E2E_ONLY=ON ^
         ../..
-    cmake --build . --config Debug
+    cmake --build . --config MinSizeRel
 release:
     cd ..
     mkdir Release
@@ -1902,7 +1900,7 @@ mac:
         cd ../..
     }
 
-    buildTd Debug
+    buildTd MinSizeRel
 release:
     buildTd Release
 """)
