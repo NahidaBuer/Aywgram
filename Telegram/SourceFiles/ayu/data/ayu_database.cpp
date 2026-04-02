@@ -309,7 +309,7 @@ std::vector<ID> getDeletedMessageIds(ID userId, ID dialogId, ID topicId) {
 			result.push_back(id);
 		}
 		return result;
-	} catch (std::exception &ex) {
+	} catch (const std::exception &) {
 		return {};
 	}
 }
@@ -378,7 +378,7 @@ void clearDeletedMessages(ID userId, ID dialogId, ID topicId) {
 				(column<DeletedMessage>(&DeletedMessage::topicId) == topicId or topicId == 0)
 			)
 		);
-	} catch (std::exception &ex) {
+	} catch (const std::exception &) {
 	}
 }
 
