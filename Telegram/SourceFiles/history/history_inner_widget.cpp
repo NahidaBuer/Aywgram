@@ -3579,14 +3579,18 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 		: nullptr;
 	const auto prepareMenu = [&](not_null<Ui::PopupMenu*> menu) {
 		if (reactItem) {
-			return AttachSelectorToMenu(
+			const auto attached = AttachSelectorToMenu(
 				menu,
 				controller,
 				desiredPosition,
 				reactItem,
 				[=](ChosenReaction reaction) { reactionChosen(reaction); },
 				ItemReactionsAbout(reactItem));
-		} else if (!menu->prepareGeometryFor(desiredPosition)) {
+			if (attached != AttachSelectorResult::Skipped) {
+				return attached;
+			}
+		}
+		if (!menu->prepareGeometryFor(desiredPosition)) {
 			return AttachSelectorResult::Failed;
 		}
 		return AttachSelectorResult::Skipped;
