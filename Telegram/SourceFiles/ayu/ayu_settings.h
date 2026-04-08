@@ -42,6 +42,7 @@ enum class TranslationProvider {
 	Telegram = 0,
 	Google = 1,
 	Yandex = 2,
+	Native = 3,
 };
 
 NLOHMANN_JSON_SERIALIZE_ENUM(PeerIdDisplay, {
@@ -66,6 +67,7 @@ NLOHMANN_JSON_SERIALIZE_ENUM(TranslationProvider, {
 	{TranslationProvider::Telegram, "telegram"},
 	{TranslationProvider::Google, "google"},
 	{TranslationProvider::Yandex, "yandex"},
+	{TranslationProvider::Native, "native"},
 })
 
 class GhostModeAccountSettings {
@@ -168,6 +170,7 @@ public:
 	[[nodiscard]] bool showReactions() const { return _showReactions.current(); }
 	[[nodiscard]] bool showHeaderDecorations() const { return _showHeaderDecorations.current(); }
 	[[nodiscard]] bool showColorfulReplies() const { return _showColorfulReplies.current(); }
+	[[nodiscard]] bool revealSpoilers() const { return _revealSpoilers.current(); }
 	[[nodiscard]] int embeddedThemeType() const { return _embeddedThemeType.current(); }
 	[[nodiscard]] uint32 embeddedThemeAccentColor() const { return _embeddedThemeAccentColor.current(); }
 	[[nodiscard]] uint64 cloudThemeId() const { return _cloudThemeId.current(); }
@@ -181,6 +184,7 @@ public:
 	void setShowReactions(bool val);
 	void setShowHeaderDecorations(bool val);
 	void setShowColorfulReplies(bool val);
+	void setRevealSpoilers(bool val);
 
 	void setEmbeddedTheme(int type, uint32 accentColor = 0);
 	void setCloudTheme(uint64 accountId, uint64 id, uint64 accessHash, uint64 documentId, const QString &title);
@@ -198,7 +202,8 @@ private:
 	rpl::variable<bool> _showDate = false;
 	rpl::variable<bool> _showReactions = false;
 	rpl::variable<bool> _showHeaderDecorations = true;
-	rpl::variable<bool> _showColorfulReplies = false;
+	rpl::variable<bool> _showColorfulReplies = true;
+	rpl::variable<bool> _revealSpoilers = true;
 
 	rpl::variable<int> _embeddedThemeType = -1;
 	rpl::variable<uint32> _embeddedThemeAccentColor = 0;
@@ -254,15 +259,12 @@ public:
 	[[nodiscard]] bool disableAds() const { return _disableAds.current(); }
 	[[nodiscard]] bool disableStories() const { return _disableStories.current(); }
 	[[nodiscard]] bool disableCustomBackgrounds() const { return _disableCustomBackgrounds.current(); }
+	[[nodiscard]] bool hidePremiumStatuses() const { return _hidePremiumStatuses.current(); }
 	[[nodiscard]] bool showOnlyAddedEmojisAndStickers() const { return _showOnlyAddedEmojisAndStickers.current(); }
 	[[nodiscard]] bool collapseSimilarChannels() const { return _collapseSimilarChannels.current(); }
 	[[nodiscard]] bool hideSimilarChannels() const { return _hideSimilarChannels.current(); }
 	[[nodiscard]] int messageBubbleRadius() const { return _messageBubbleRadius.current(); }
-	[[nodiscard]] int appliedMessageBubbleRadius() const { return _appliedMessageBubbleRadius; }
-	[[nodiscard]] int previewMessageBubbleRadius() const {
-		const auto preview = _messageBubbleRadiusPreview.current();
-		return (preview >= 0) ? preview : _messageBubbleRadius.current();
-	}
+	[[nodiscard]] bool disableOpenLinkWarning() const { return _disableOpenLinkWarning.current(); }
 	[[nodiscard]] double wideMultiplier() const { return _wideMultiplier.current(); }
 	[[nodiscard]] bool spoofWebviewAsAndroid() const { return _spoofWebviewAsAndroid.current(); }
 	[[nodiscard]] bool increaseWebviewHeight() const { return _increaseWebviewHeight.current(); }
@@ -293,6 +295,8 @@ public:
 	[[nodiscard]] bool showEmojiButtonInMessageField() const { return _showEmojiButtonInMessageField.current(); }
 	[[nodiscard]] bool showMicrophoneButtonInMessageField() const { return _showMicrophoneButtonInMessageField.current(); }
 	[[nodiscard]] bool showAutoDeleteButtonInMessageField() const { return _showAutoDeleteButtonInMessageField.current(); }
+	[[nodiscard]] bool showGiftButtonInMessageField() const { return _showGiftButtonInMessageField.current(); }
+	[[nodiscard]] bool showAiEditorButtonInMessageField() const { return _showAiEditorButtonInMessageField.current(); }
 	[[nodiscard]] bool showAttachPopup() const { return _showAttachPopup.current(); }
 	[[nodiscard]] bool showEmojiPopup() const { return _showEmojiPopup.current(); }
 	[[nodiscard]] bool showMyProfileInDrawer() const { return _showMyProfileInDrawer.current(); }
@@ -339,12 +343,12 @@ public:
 	void setDisableAds(bool val);
 	void setDisableStories(bool val);
 	void setDisableCustomBackgrounds(bool val);
+	void setHidePremiumStatuses(bool val);
 	void setShowOnlyAddedEmojisAndStickers(bool val);
 	void setCollapseSimilarChannels(bool val);
 	void setHideSimilarChannels(bool val);
 	void setMessageBubbleRadius(int val);
-	void setPreviewMessageBubbleRadius(int val);
-	void clearPreviewMessageBubbleRadius();
+	void setDisableOpenLinkWarning(bool val);
 	void setWideMultiplier(double val);
 	void setSpoofWebviewAsAndroid(bool val);
 	void setIncreaseWebviewHeight(bool val);
@@ -375,6 +379,8 @@ public:
 	void setShowEmojiButtonInMessageField(bool val);
 	void setShowMicrophoneButtonInMessageField(bool val);
 	void setShowAutoDeleteButtonInMessageField(bool val);
+	void setShowGiftButtonInMessageField(bool val);
+	void setShowAiEditorButtonInMessageField(bool val);
 	void setShowAttachPopup(bool val);
 	void setShowEmojiPopup(bool val);
 	void setShowMyProfileInDrawer(bool val);
@@ -433,6 +439,8 @@ public:
 	[[nodiscard]] rpl::producer<bool> disableStoriesChanges() const { return _disableStories.changes(); }
 	[[nodiscard]] rpl::producer<bool> disableCustomBackgroundsValue() const { return _disableCustomBackgrounds.value(); }
 	[[nodiscard]] rpl::producer<bool> disableCustomBackgroundsChanges() const { return _disableCustomBackgrounds.changes(); }
+	[[nodiscard]] rpl::producer<bool> hidePremiumStatusesValue() const { return _hidePremiumStatuses.value(); }
+	[[nodiscard]] rpl::producer<bool> hidePremiumStatusesChanges() const { return _hidePremiumStatuses.changes(); }
 	[[nodiscard]] rpl::producer<bool> showOnlyAddedEmojisAndStickersValue() const { return _showOnlyAddedEmojisAndStickers.value(); }
 	[[nodiscard]] rpl::producer<bool> showOnlyAddedEmojisAndStickersChanges() const { return _showOnlyAddedEmojisAndStickers.changes(); }
 	[[nodiscard]] rpl::producer<bool> collapseSimilarChannelsValue() const { return _collapseSimilarChannels.value(); }
@@ -441,8 +449,8 @@ public:
 	[[nodiscard]] rpl::producer<bool> hideSimilarChannelsChanges() const { return _hideSimilarChannels.changes(); }
 	[[nodiscard]] rpl::producer<int> messageBubbleRadiusValue() const { return _messageBubbleRadius.value(); }
 	[[nodiscard]] rpl::producer<int> messageBubbleRadiusChanges() const { return _messageBubbleRadius.changes(); }
-	[[nodiscard]] rpl::producer<int> messageBubbleRadiusPreviewValue() const { return _messageBubbleRadiusPreview.value(); }
-	[[nodiscard]] rpl::producer<int> messageBubbleRadiusPreviewChanges() const { return _messageBubbleRadiusPreview.changes(); }
+	[[nodiscard]] rpl::producer<bool> disableOpenLinkWarningValue() const { return _disableOpenLinkWarning.value(); }
+	[[nodiscard]] rpl::producer<bool> disableOpenLinkWarningChanges() const { return _disableOpenLinkWarning.changes(); }
 	[[nodiscard]] rpl::producer<double> wideMultiplierValue() const { return _wideMultiplier.value(); }
 	[[nodiscard]] rpl::producer<double> wideMultiplierChanges() const { return _wideMultiplier.changes(); }
 	[[nodiscard]] rpl::producer<bool> spoofWebviewAsAndroidValue() const { return _spoofWebviewAsAndroid.value(); }
@@ -503,6 +511,10 @@ public:
 	[[nodiscard]] rpl::producer<bool> showMicrophoneButtonInMessageFieldChanges() const { return _showMicrophoneButtonInMessageField.changes(); }
 	[[nodiscard]] rpl::producer<bool> showAutoDeleteButtonInMessageFieldValue() const { return _showAutoDeleteButtonInMessageField.value(); }
 	[[nodiscard]] rpl::producer<bool> showAutoDeleteButtonInMessageFieldChanges() const { return _showAutoDeleteButtonInMessageField.changes(); }
+	[[nodiscard]] rpl::producer<bool> showGiftButtonInMessageFieldValue() const { return _showGiftButtonInMessageField.value(); }
+	[[nodiscard]] rpl::producer<bool> showGiftButtonInMessageFieldChanges() const { return _showGiftButtonInMessageField.changes(); }
+	[[nodiscard]] rpl::producer<bool> showAiEditorButtonInMessageFieldValue() const { return _showAiEditorButtonInMessageField.value(); }
+	[[nodiscard]] rpl::producer<bool> showAiEditorButtonInMessageFieldChanges() const { return _showAiEditorButtonInMessageField.changes(); }
 	[[nodiscard]] rpl::producer<bool> showAttachPopupValue() const { return _showAttachPopup.value(); }
 	[[nodiscard]] rpl::producer<bool> showAttachPopupChanges() const { return _showAttachPopup.changes(); }
 	[[nodiscard]] rpl::producer<bool> showEmojiPopupValue() const { return _showEmojiPopup.value(); }
@@ -597,8 +609,7 @@ private:
 	rpl::variable<bool> _collapseSimilarChannels = true;
 	rpl::variable<bool> _hideSimilarChannels = false;
 	rpl::variable<int> _messageBubbleRadius = 16;
-	rpl::variable<int> _messageBubbleRadiusPreview = -1;
-	int _appliedMessageBubbleRadius = 16;
+	rpl::variable<bool> _disableOpenLinkWarning = false;
 	rpl::variable<double> _wideMultiplier = 1.0;
 	rpl::variable<bool> _spoofWebviewAsAndroid = false;
 	rpl::variable<bool> _increaseWebviewHeight = false;
@@ -629,6 +640,8 @@ private:
 	rpl::variable<bool> _showEmojiButtonInMessageField = true;
 	rpl::variable<bool> _showMicrophoneButtonInMessageField = true;
 	rpl::variable<bool> _showAutoDeleteButtonInMessageField = true;
+	rpl::variable<bool> _showGiftButtonInMessageField = true;
+	rpl::variable<bool> _showAiEditorButtonInMessageField = true;
 	rpl::variable<bool> _showAttachPopup = true;
 	rpl::variable<bool> _showEmojiPopup = true;
 	rpl::variable<bool> _showMyProfileInDrawer = true;
@@ -645,6 +658,7 @@ private:
 	rpl::variable<bool> _showStreamerToggleInDrawer = false;
 	rpl::variable<bool> _showGhostToggleInTray = true;
 	rpl::variable<bool> _showStreamerToggleInTray = false;
+	rpl::variable<bool> _hidePremiumStatuses = false;
 	rpl::variable<QString> _monoFont;
 	rpl::variable<bool> _hideNotificationCounters = false;
 	rpl::variable<bool> _hideNotificationBadge = false;

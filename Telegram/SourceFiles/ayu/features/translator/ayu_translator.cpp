@@ -7,16 +7,13 @@
 #include "ayu/features/translator/ayu_translator.h"
 
 #include "api/api_text_entities.h"
-#include "ayu/ayu_settings.h"
 #include "ayu/features/translator/implementations/google.h"
-#include "ayu/features/translator/implementations/telegram.h"
 #include "ayu/features/translator/implementations/yandex.h"
 #include "data/data_peer.h"
 #include "data/data_session.h"
 #include "history/history_item.h"
 #include "main/main_session.h"
 
-#include <optional>
 #include <QtCore/QCryptographicHash>
 #include <QtCore/QString>
 #include <QtNetwork/QNetworkReply>
@@ -26,16 +23,17 @@
 namespace Ayu::Translator {
 namespace {
 
-BaseTranslator &translatorForProvider(TranslationProvider provider) {
+BaseTranslator *translatorForProvider(TranslationProvider provider) {
 	switch (provider) {
-	case TranslationProvider::Telegram:
-		return TelegramTranslator::instance();
 	case TranslationProvider::Yandex:
-		return YandexTranslator::instance();
+		return &YandexTranslator::instance();
 	case TranslationProvider::Google:
-		return GoogleTranslator::instance();
+		return &GoogleTranslator::instance();
+	case TranslationProvider::Telegram:
+	case TranslationProvider::Native:
+		return nullptr;
 	}
-	return GoogleTranslator::instance();
+	return nullptr;
 }
 
 } // namespace
@@ -47,7 +45,8 @@ TranslateManager::Builder::Builder(
 	const MTPInputPeer &peer,
 	const MTPVector<MTPint> &id,
 	const MTPVector<MTPTextWithEntities> &text,
-	const MTPstring &to_lang
+	const MTPstring &to_lang,
+	TranslationProvider provider
 )
 	: _manager(&manager)
 	  , _session(session)
@@ -55,7 +54,8 @@ TranslateManager::Builder::Builder(
 	  , _peer(peer)
 	  , _idList(id)
 	  , _text(text)
-	  , _toLang(to_lang) {
+	  , _toLang(to_lang)
+	  , _provider(provider) {
 }
 
 TranslateManager::Builder &TranslateManager::Builder::done(std::function<void(const Result &)> cb) {
@@ -80,22 +80,16 @@ mtpRequestId TranslateManager::Builder::send() {
 	return _manager->performTranslation(*this);
 }
 
-void TranslateManager::Builder::cancel() {
-	if (_id) {
-		_manager->cancel(_id);
-		_id = 0;
-	}
-}
-
 TranslateManager::Builder TranslateManager::request(
 	Main::Session *session,
 	const MTPflags<MTPmessages_translateText::Flags> &flags,
 	const MTPInputPeer &peer,
 	const MTPVector<MTPint> &id,
 	const MTPVector<MTPTextWithEntities> &text,
-	const MTPstring &to_lang
+	const MTPstring &to_lang,
+	TranslationProvider provider
 ) {
-	return Builder(*this, session, flags, peer, id, text, to_lang);
+	return Builder(*this, session, flags, peer, id, text, to_lang, provider);
 }
 
 mtpRequestId TranslateManager::performTranslation(Builder &req) {
@@ -105,10 +99,8 @@ mtpRequestId TranslateManager::performTranslation(Builder &req) {
 		Pending{
 			.done = std::move(req._done),
 			.fail = std::move(req._fail),
-			.cancel = nullptr,
 		}
 	);
-	req._id = id;
 
 	std::vector<TextWithEntities> texts;
 	std::vector<QString> cacheKeys;
@@ -242,22 +234,15 @@ mtpRequestId TranslateManager::performTranslation(Builder &req) {
 	};
 
 	if (const auto it = _pending.find(id); it != _pending.end()) {
-		const auto &settings = AyuSettings::getInstance();
-		it->second.cancel = translatorForProvider(settings.translationProvider()).startTranslation(args);
+		const auto translator = translatorForProvider(req._provider);
+		if (!translator) {
+			triggerFail(id);
+			return id;
+		}
+		translator->startTranslation(args);
 	}
 
 	return id;
-}
-
-bool TranslateManager::cancel(mtpRequestId requestId) {
-	const auto it = _pending.find(requestId);
-	if (it == _pending.end()) return false;
-	if (it->second.cancel) {
-		it->second.cancel();
-	}
-	// already erased by `triggerFail`
-	// _pending.erase(it);
-	return true;
 }
 
 bool TranslateManager::triggerDone(mtpRequestId id, const Result &result) {

@@ -29,6 +29,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 // AyuGram includes
 #include "ayu/ayu_settings.h"
+#include "ayu/features/message_shot/message_shot.h"
 
 
 namespace HistoryView {
@@ -305,6 +306,15 @@ QMargins GroupedMedia::groupedPadding() const {
 		(normal.bottom() - grouped.bottom()) + addToBottom);
 }
 
+QRect GroupedMedia::groupItemRect(int index) const {
+	if (index >= 0 && index < int(_parts.size())) {
+		return _parts[index].geometry.translated(
+			0,
+			groupedPadding().top());
+	}
+	return {};
+}
+
 Media *GroupedMedia::lookupSpoilerTagMedia() const {
 	if (_parts.empty()) {
 		return nullptr;
@@ -412,6 +422,11 @@ void GroupedMedia::draw(Painter &p, const PaintContext &context) const {
 	auto anyDeleted = false;
 	const auto &settings = AyuSettings::getInstance();
 	const auto perItemOpacityEnabled = settings.semiTransparentDeletedMessages();
+	if (!perItemOpacityEnabled) {
+		for (const auto &part : _parts) {
+			part.deletedAnimation.stop();
+		}
+	}
 	if (perItemOpacityEnabled) {
 		for (const auto &part : _parts) {
 			if (part.item->isDeleted()) {
@@ -455,7 +470,13 @@ void GroupedMedia::draw(Painter &p, const PaintContext &context) const {
 			if (part.item->wasDeletedAnimated()
 				&& !part.deletedAnimation.animating()) {
 				part.deletedAnimation.start(
-					[parent = _parent] { parent->repaint(); },
+					[parent = _parent] {
+						if (!AyuSettings::getInstance().semiTransparentDeletedMessages()) {
+							return false;
+						}
+						parent->repaint();
+						return true;
+					},
 					1.,
 					0.7,
 					500,
@@ -512,7 +533,7 @@ void GroupedMedia::draw(Painter &p, const PaintContext &context) const {
 	if (_parent->media() == this && (!_parent->hasBubble() || isBubbleBottom())) {
 		auto fullRight = width();
 		auto fullBottom = height();
-		if (needInfoDisplay()) {
+		if (needInfoDisplay() && !AyuFeatures::MessageShot::ignoreRender(AyuFeatures::MessageShot::RenderPart::Date)) {
 			_parent->drawInfo(
 				p,
 				context,
@@ -847,6 +868,12 @@ void GroupedMedia::hideSpoilers() {
 	}
 }
 
+void GroupedMedia::revealSpoilers() {
+	for (const auto &part : _parts) {
+		part.content->revealSpoilers();
+	}
+}
+
 Storage::SharedMediaTypesMask GroupedMedia::sharedMediaTypes() const {
 	return main()->sharedMediaTypes();
 }
@@ -960,6 +987,9 @@ bool GroupedMedia::computeNeedBubble() const {
 }
 
 bool GroupedMedia::needInfoDisplay() const {
+	if (AyuFeatures::MessageShot::isTakingShot()) {
+		return (_mode != Mode::Column);
+	}
 	const auto item = _parent->data();
 	return (_mode != Mode::Column)
 		&& (item->isSending()

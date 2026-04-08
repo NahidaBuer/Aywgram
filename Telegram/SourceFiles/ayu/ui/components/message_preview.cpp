@@ -22,6 +22,7 @@
 #include "ui/painter.h"
 #include "ui/chat/chat_style_radius.h"
 #include "ui/chat/chat_style.h"
+#include "ui/chat/chat_style_radius.h"
 #include "ui/chat/chat_theme.h"
 #include "ui/effects/animations.h"
 #include "window/section_widget.h"
@@ -46,6 +47,7 @@ struct MessagePreview::State {
 	Ui::Animations::Simple heightAnimation;
 	std::unique_ptr<Ui::ChatTheme> theme;
 	int currentHeight = 0;
+	int bubbleRadius = 16;
 };
 
 MessagePreview::MessagePreview(
@@ -54,6 +56,7 @@ MessagePreview::MessagePreview(
 : RpWidget(parent)
 , _controller(controller)
 , _state(lifetime().make_state<State>()) {
+	_state->bubbleRadius = AyuSettings::getInstance().messageBubbleRadius();
 	_state->delegate = std::make_unique<PreviewDelegate>(
 		controller,
 		crl::guard(this, [=] { update(); }));
@@ -167,8 +170,7 @@ void MessagePreview::paintEvent(QPaintEvent *e) {
 
 	const auto padding = st::settingsForwardPrivacyPadding;
 	p.translate(padding / 2, padding + view->marginBottom());
-	Ui::SetBubbleRadiusOverride(
-		AyuSettings::getInstance().previewMessageBubbleRadius());
+	Ui::SetBubbleRadiusOverride(_state->bubbleRadius);
 	view->draw(p, context);
 	Ui::ClearBubbleRadiusOverride();
 
@@ -191,6 +193,14 @@ void MessagePreview::paintEvent(QPaintEvent *e) {
 			p,
 			shareRect);
 	}
+}
+
+void MessagePreview::setBubbleRadius(int radius) {
+	if (_state->bubbleRadius == radius) {
+		return;
+	}
+	_state->bubbleRadius = radius;
+	refresh();
 }
 
 void MessagePreview::updateWidgetSize(int width, bool animate) {

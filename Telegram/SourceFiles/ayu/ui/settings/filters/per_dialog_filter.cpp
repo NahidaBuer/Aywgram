@@ -127,11 +127,11 @@ void PerDialogFiltersListController::prepare() {
 }
 
 void PerDialogFiltersListController::rowClicked(not_null<PeerListRow*> peer) {
-	auto did = ID();
+	ID did;
 	if (const auto row = dynamic_cast<PerDialogFiltersListRow*>(peer.get())) {
 		did = row->dialogId();
 	} else if (peer->special()) {
-		const auto pred = ID(peer->id() & PeerId::kChatTypeMask);
+		const auto pred = static_cast<long long>(peer->id() & PeerId::kChatTypeMask);
 		did = countsByDialogIds.contains(pred) ? pred : -pred;
 	} else {
 		did = getDialogIdFromPeer(peer->peer());

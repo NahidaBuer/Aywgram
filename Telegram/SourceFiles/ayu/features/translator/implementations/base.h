@@ -23,7 +23,6 @@ namespace Ayu::Translator {
 
 using CallbackSuccess = std::function<void(const std::vector<TextWithEntities> &)>;
 using CallbackFail = std::function<void()>;
-using CallbackCancel = std::function<void()>;
 
 using MultiThreadCallbackSuccess = std::function<void(const TextWithEntities &)>;
 
@@ -88,7 +87,7 @@ public:
 
 	[[nodiscard]] virtual QSet<QString> supportedLanguages() const { return {}; }
 
-	[[nodiscard]] virtual CallbackCancel startTranslation(
+	virtual void startTranslation(
 		const StartTranslationArgs &args
 	) = 0;
 };
@@ -108,7 +107,7 @@ public:
 	[[nodiscard]] virtual int getMaxRetries() const { return 3; }
 	[[nodiscard]] virtual int getBaseWaitTimeMs() const { return 1000; }
 
-	[[nodiscard]] CallbackCancel startTranslation(
+	void startTranslation(
 		const StartTranslationArgs &args
 	) override;
 

@@ -6,6 +6,7 @@
 // Copyright @Radolyn, 2026
 #pragma once
 
+#include "ayu/ayu_settings.h"
 #include "ayu/features/translator/implementations/base.h"
 #include "mtproto/sender.h"
 
@@ -38,7 +39,8 @@ public:
             const MTPInputPeer &peer,
             const MTPVector<MTPint> &id,
             const MTPVector<MTPTextWithEntities> &text,
-            const MTPstring &to_lang
+            const MTPstring &to_lang,
+            TranslationProvider provider
         );
 
         Builder(Builder &&) noexcept = default;
@@ -49,7 +51,6 @@ public:
         Builder &fail(std::function<void()> cb);
 
         mtpRequestId send();
-        void cancel();
 
         [[nodiscard]] auto *session() const { return _session; }
         [[nodiscard]] const auto &flags() const { return _flags; }
@@ -61,13 +62,13 @@ public:
     private:
         TranslateManager *_manager = nullptr;
         Main::Session* _session;
-        mtpRequestId _id = 0;
 
         MTPflags<MTPmessages_translateText::Flags> _flags;
         MTPInputPeer _peer;
         MTPVector<MTPint> _idList;
         MTPVector<MTPTextWithEntities> _text;
         MTPstring _toLang;
+        TranslationProvider _provider;
 
         std::function<void(const Result &)> _done;
         std::function<void(const MTP::Error &)> _fail;
@@ -84,12 +85,11 @@ public:
         const MTPInputPeer &peer,
         const MTPVector<MTPint> &id,
         const MTPVector<MTPTextWithEntities> &text,
-        const MTPstring &to_lang
+        const MTPstring &to_lang,
+        TranslationProvider provider
     );
 
     [[nodiscard]] mtpRequestId performTranslation(Builder &req);
-
-    bool cancel(mtpRequestId requestId);
 
     bool triggerDone(mtpRequestId id, const Result &result);
     bool triggerFail(mtpRequestId id);
@@ -126,7 +126,6 @@ private:
     {
         std::function<void(const Result &)> done;
         std::function<void(const MTP::Error &)> fail;
-        CallbackCancel cancel;
     };
 
     mtpRequestId _nextId = 1;

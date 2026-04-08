@@ -365,6 +365,8 @@ ReplyFields ReplyFields::clone(not_null<HistoryItem*> parent) const {
 		.messageId = messageId,
 		.topMessageId = topMessageId,
 		.storyId = storyId,
+		.todoItemId = todoItemId,
+		.pollOption = pollOption,
 		.quoteOffset = quoteOffset,
 		.manualQuote = manualQuote,
 		.topicPost = topicPost,
@@ -393,6 +395,7 @@ ReplyFields ReplyFieldsFromMTP(
 			result.topicPost = data.is_forum_topic() ? 1 : 0;
 		}
 		result.todoItemId = data.vtodo_item_id().value_or_empty();
+		result.pollOption = data.vpoll_option().value_or_empty();
 		if (const auto header = data.vreply_from()) {
 			const auto &data = header->data();
 			result.externalPostAuthor
@@ -447,6 +450,8 @@ FullReplyTo ReplyToFromMTP(
 				data.vquote_entities().value_or_empty()),
 		};
 		result.quoteOffset = data.vquote_offset().value_or_empty();
+		result.todoItemId = data.vtodo_item_id().value_or_empty();
+		result.pollOption = data.vpoll_option().value_or_empty();
 		return result;
 	}, [&](const MTPDinputReplyToStory &data) {
 		if (const auto parsed = Data::PeerFromInputMTP(
@@ -1013,7 +1018,18 @@ void ReplyKeyboard::paint(
 
 			auto buttonRounding = Ui::BubbleRounding();
 			using Corner = Ui::BubbleCornerRounding;
-			buttonRounding.topLeft = buttonRounding.topRight = Corner::Small;
+			buttonRounding.topLeft = ((!y)
+				&& !x
+				&& !st
+				&& (rounding.topLeft == Corner::Large))
+				? Corner::Large
+				: Corner::Small;
+			buttonRounding.topRight = ((!y)
+				&& (x + 1 == count)
+				&& !st
+				&& (rounding.topRight == Corner::Large))
+				? Corner::Large
+				: Corner::Small;
 			buttonRounding.bottomLeft = ((y + 1 == rowsCount)
 				&& !x
 				&& (rounding.bottomLeft == Corner::Large))

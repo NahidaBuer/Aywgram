@@ -11,13 +11,16 @@
 #include "ayu/ui/settings/ayu_builder.h"
 #include "ayu/ui/settings/settings_ayu_utils.h"
 #include "ayu/ui/settings/settings_main.h"
+#include "base/platform/base_platform_info.h"
 #include "core/application.h"
+#include "lang/lang_text_entity.h"
+#include "platform/platform_translate_provider.h"
 #include "settings/settings_builder.h"
 #include "settings/settings_common.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_settings.h"
-#include "ui/boxes/confirm_box.h"
 #include "ui/boxes/single_choice_box.h"
+#include "ui/toast/toast.h"
 #include "ui/widgets/buttons.h"
 #include "ui/wrap/vertical_layout.h"
 #include "window/window_controller.h"
@@ -26,7 +29,7 @@
 namespace Settings {
 
 using namespace Builder;
-using namespace AyBuilder;
+using namespace AyuBuilder;
 
 namespace {
 
@@ -36,18 +39,44 @@ void BuildTranslator(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 	auto *settings = &AyuSettings::getInstance();
 
 	const auto options = std::vector{
-		QString("Telegram"),
-		QString("Google"),
-		QString("Yandex")
+		std::pair(TranslationProvider::Telegram, QString("Telegram")),
+		std::pair(TranslationProvider::Google, QString("Google")),
+		std::pair(TranslationProvider::Yandex, QString("Yandex")),
 	};
+	const auto nativeAvailable = Platform::IsTranslateProviderAvailable();
+	auto availableOptions = options;
+	if (nativeAvailable) {
+		availableOptions.push_back(std::pair(
+			TranslationProvider::Native,
+			[] {
+				if constexpr (Platform::IsMac()) {
+					return QString("macOS");
+				} else if constexpr (Platform::IsWindows()) {
+					return QString("Windows");
+				} else {
+					return QString("Linux");
+				}
+			}()));
+	}
+	auto optionLabels = std::vector<QString>();
+	optionLabels.reserve(availableOptions.size());
+	for (const auto &option : availableOptions) {
+		optionLabels.push_back(option.second);
+	}
 
 	const auto getIndex = [=](TranslationProvider val) {
-		return static_cast<int>(val);
+		const auto i = ranges::find(
+			availableOptions,
+			val,
+			&std::pair<TranslationProvider, QString>::first);
+		return (i != end(availableOptions))
+			? int(i - begin(availableOptions))
+			: 0;
 	};
 
 	auto currentVal = AyuSettings::getInstance().translationProviderValue()
 		| rpl::map(getIndex)
-		| rpl::map([=](int val) { return options[val]; });
+		| rpl::map([=](int val) { return availableOptions[val].second; });
 
 	const auto button = builder.addButton({
 		.id = u"ayu/translationProvider"_q,
@@ -57,18 +86,27 @@ void BuildTranslator(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 		.onClick = [=] {
 			if (const auto controller = Core::App().activeWindow()->sessionController()) {
 				controller->show(Box(
-					[=](not_null<Ui::GenericBox*> box) {
-						const auto save = [=](int index) {
-							AyuSettings::getInstance().setTranslationProvider(
-								static_cast<TranslationProvider>(index));
-						};
-						SingleChoiceBox(box, {
-							.title = tr::ayu_TranslationProvider(),
-							.options = options,
-							.initialSelection = getIndex(settings->translationProvider()),
-							.callback = save,
-						});
-					}));
+						[=](not_null<Ui::GenericBox*> box) {
+							const auto save = [=](int index) {
+								const auto option = availableOptions[index].first;
+								AyuSettings::getInstance().setTranslationProvider(option);
+
+								if constexpr (Platform::IsMac()) {
+									if (option == TranslationProvider::Native) {
+										controller->showToast(Ui::Toast::Config{
+											.text = tr::lng_translate_settings_use_platform_mac_about(tr::now, tr::rich),
+											.duration = 6 * crl::time(1000)
+										});
+									}
+								}
+							};
+							SingleChoiceBox(box, {
+								.title = tr::ayu_TranslationProvider(),
+								.options = optionLabels,
+								.initialSelection = getIndex(settings->translationProvider()),
+								.callback = save,
+							});
+						}));
 			}
 		},
 	});
@@ -132,6 +170,13 @@ void BuildQoLToggles(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 		.setter = &AyuSettings::setDisableStories,
 	});
 
+	ayu.addSettingToggle({
+		.id = u"ayu/disableOpenLinkWarning"_q,
+		.title = tr::ayu_DisableOpenLinkWarning(),
+		.getter = &AyuSettings::disableOpenLinkWarning,
+		.setter = &AyuSettings::setDisableOpenLinkWarning,
+	});
+
 	ayu.addCollapsibleToggle({
 		.id = u"ayu/similarChannels"_q,
 		.title = tr::ayu_DisableSimilarChannels(),
@@ -175,12 +220,7 @@ void BuildQoLToggles(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 		) | on_next(
 			[=](bool enabled) {
 				AyuSettings::getInstance().setFilterZalgo(enabled);
-				controller->show(Ui::MakeConfirmBox({
-					.text = tr::lng_settings_need_restart(),
-					.confirmed = [] { Core::Restart(); },
-					.confirmText = tr::lng_settings_restart_now(),
-					.cancelText = tr::lng_settings_restart_later(),
-				}));
+				ShowRestartPrompt(controller);
 			},
 			zalgoButton->lifetime());
 		ayu.addBetaBadge(zalgoButton);

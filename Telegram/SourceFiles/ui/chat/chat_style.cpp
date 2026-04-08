@@ -15,6 +15,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/ui_utility.h"
 #include "styles/style_chat.h"
 #include "styles/style_dialogs.h"
+#include "styles/style_polls.h"
 #include "styles/style_widgets.h"
 
 // AyuGram includes
@@ -479,6 +480,12 @@ ChatStyle::ChatStyle(rpl::producer<ColorIndicesCompressed> colorIndices) {
 		st::historyFileInDocumentSelected,
 		st::historyFileOutDocument,
 		st::historyFileOutDocumentSelected);
+	make(
+		&MessageStyle::historyFilePlugin,
+		st::ayuHistoryFileInPlugin,
+		st::ayuHistoryFileInPluginSelected,
+		st::ayuHistoryFileOutPlugin,
+		st::ayuHistoryFileOutPluginSelected);
 	make(
 		&MessageStyle::historyAudioDownload,
 		st::historyAudioInDownload,

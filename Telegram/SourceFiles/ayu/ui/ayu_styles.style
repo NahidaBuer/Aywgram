@@ -63,8 +63,10 @@ exteraBadgeToast: Toast(defaultToast) {
 	minWidth: 40px;
 	maxWidth: 480px;
 	padding: margins(54px, 13px, 19px, 12px);
-	icon: icon {{ "ayu/extera_badge", toastFg }};
-	iconPosition: point(13px, 13px);
+}
+
+exteraBadgeToastBadge: InfoPeerBadge(infoPeerBadge) {
+	premiumFg: toastFg;
 }
 
 supportLogoSize: 96px;
@@ -115,3 +117,10 @@ ghostPickerButton: LinkButton(defaultLinkButton) {
 }
 
 ayuBetaBadgePadding: margins(4px, 1px, 4px, 1px);
+
+ayuServiceTimeBadgeFont: font(11px semibold);
+ayuServiceTimeBadgeHorizontalPadding: 7px;
+ayuServiceTimeBadgeVerticalPadding: 2px;
+ayuServiceTimeBadgeGap: 8px;
+ayuServiceTimeBadgeTrailingInset: 3px;
+ayuServiceTimeBadgeLastLineWidthAdd: 9px;

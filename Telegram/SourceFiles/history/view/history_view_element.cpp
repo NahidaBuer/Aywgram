@@ -39,6 +39,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "chat_helpers/stickers_emoji_pack.h"
 #include "payments/payments_reaction_process.h" // TryAddingPaidReaction.
 #include "window/window_session_controller.h"
+#include "ui/chat/chat_style.h"
 #include "ui/effects/glare.h"
 #include "ui/effects/path_shift_gradient.h"
 #include "ui/effects/reaction_fly_animation.h"
@@ -511,6 +512,16 @@ void DefaultElementDelegate::elementStartStickerLoop(
 void DefaultElementDelegate::elementShowPollResults(
 	not_null<PollData*> poll,
 	FullMsgId context) {
+}
+
+void DefaultElementDelegate::elementShowAddPollOption(
+	not_null<Element*> view,
+	not_null<PollData*> poll,
+	FullMsgId context,
+	QRect optionRect) {
+}
+
+void DefaultElementDelegate::elementSubmitAddPollOption(FullMsgId context) {
 }
 
 void DefaultElementDelegate::elementOpenPhoto(
@@ -1199,13 +1210,23 @@ Element::Element(
 		if (user
 			&& user->isBot()
 			&& !user->isRepliesChat()
-			&& !user->isVerifyCodes()) {
+			&& !user->isVerifyCodes()
+			&& !user->botManagerId()) {
 			AddComponents(FakeBotAboutTop::Bit());
 		}
 	}
-	if (replacing && replacing->_deletedOpacityAnimation.animating()) {
+	const auto deletedOpacityEnabled
+		= AyuSettings::getInstance().semiTransparentDeletedMessages();
+	if (deletedOpacityEnabled
+		&& replacing
+		&& replacing->_deletedOpacityAnimation.animating()) {
 		_deletedOpacityAnimation = replacing->takeDeletedAnimation();
-	} else if (data->isDeleted() && data->wasDeletedAnimated()) {
+		_deletedOpacityAnimationTarget
+			= replacing->_deletedOpacityAnimationTarget;
+		refreshDeletedAnimationTarget();
+	} else if (deletedOpacityEnabled
+		&& data->isDeleted()
+		&& data->wasDeletedAnimated()) {
 		// grouped messages handle it per-item
 		if (!history()->owner().groups().find(data)) {
 			startDeletedAnimation();
@@ -1298,6 +1319,15 @@ void Element::hideSpoilers() {
 	}
 }
 
+void Element::revealSpoilers() {
+	if (_text.hasSpoilers()) {
+		_text.setSpoilerRevealed(true, anim::type::instant);
+	}
+	if (_media) {
+		_media->revealSpoilers();
+	}
+}
+
 void Element::customEmojiRepaint() {
 	if (!(_flags & Flag::CustomEmojiRepainting)) {
 		_flags |= Flag::CustomEmojiRepainting;
@@ -1344,9 +1374,19 @@ void Element::repaint(QRect r) const {
 	history()->owner().requestViewRepaint(this, r);
 }
 
+void Element::refreshDeletedAnimationTarget() {
+	if (!_deletedOpacityAnimationTarget) {
+		_deletedOpacityAnimationTarget
+			= std::make_shared<base::weak_ptr<Element>>();
+	}
+	*_deletedOpacityAnimationTarget = base::make_weak(this);
+}
+
 float64 Element::deletedOpacity() const {
 	const auto &settings = AyuSettings::getInstance();
 	if (!settings.semiTransparentDeletedMessages()) {
+		_deletedOpacityAnimation.stop();
+		_deletedOpacityAnimationTarget = nullptr;
 		return 1.;
 	}
 	if (_context == Context::AdminLog) { // render normally in "View Deleted"
@@ -1360,14 +1400,33 @@ float64 Element::deletedOpacity() const {
 				&HistoryItem::isDeleted);
 			return allDeleted ? 0.7 : 1.;
 		}
-		return _deletedOpacityAnimation.value(0.7);
+		const auto opacity = _deletedOpacityAnimation.value(0.7);
+		if (!_deletedOpacityAnimation.animating()) {
+			_deletedOpacityAnimationTarget = nullptr;
+		}
+		return opacity;
 	}
 	return 1.;
 }
 
 void Element::startDeletedAnimation() {
+	if (!AyuSettings::getInstance().semiTransparentDeletedMessages()) {
+		_deletedOpacityAnimation.stop();
+		_deletedOpacityAnimationTarget = nullptr;
+		return;
+	}
+	refreshDeletedAnimationTarget();
 	_deletedOpacityAnimation.start(
-		[=] { repaint(); },
+		[target = _deletedOpacityAnimationTarget] {
+			if (!AyuSettings::getInstance().semiTransparentDeletedMessages()) {
+				return false;
+			}
+			if (const auto view = target->get()) {
+				view->repaint();
+				return true;
+			}
+			return false;
+		},
 		1.,
 		0.7,
 		500,
@@ -1498,8 +1557,7 @@ void Element::overrideMedia(std::unique_ptr<Media> media) {
 	Expects(!history()->owner().groups().find(data()));
 
 	_text = Ui::Text::String(st::msgMinWidth);
-	_textWidth = -1;
-	_textHeight = 0;
+	invalidateTextSizeCache();
 
 	_media = std::move(media);
 	if (!pendingResize()) {
@@ -1522,6 +1580,7 @@ void Element::overrideRightBadge(const QString &text, BadgeRole role) {
 	const auto badge = Get<RightBadge>();
 	badge->overridden = true;
 	badge->role = role;
+	badge->channel = false;
 	badge->tag.setMarkedText(
 		st::defaultTextStyle,
 		{ text },
@@ -1684,8 +1743,8 @@ OnlyEmojiAndSpaces Element::isOnlyEmojiAndSpaces() const {
 	}
 }
 
-int Element::textHeightFor(int textWidth) {
-	validateText();
+int Element::textHeightFor(int textWidth) const {
+	const_cast<Element*>(this)->validateText();
 	if (_textWidth != textWidth) {
 		_textWidth = textWidth;
 		_textHeight = _text.countHeight(textWidth);
@@ -1756,19 +1815,25 @@ auto Element::contextDependentServiceText() -> TextWithLinks {
 
 	if (info->closed) {
 		return {
-			tr::lng_action_topic_closed(
+			tr::lng_action_topic_closed_by(
 				tr::now,
+				lt_from,
+				fromLink(1),
 				lt_topic,
 				wrapParentTopic(),
 				tr::marked),
+			{ from->createOpenLink() },
 		};
 	} else if (info->reopened) {
 		return {
-			tr::lng_action_topic_reopened(
+			tr::lng_action_topic_reopened_by(
 				tr::now,
+				lt_from,
+				fromLink(1),
 				lt_topic,
 				wrapParentTopic(),
 				tr::marked),
+			{ from->createOpenLink() },
 		};
 	} else if (info->hidden) {
 		return {
@@ -1954,20 +2019,17 @@ void Element::setTextWithLinks(
 	if (const auto next = _text.nextFormattedDateUpdate()) {
 		history()->session().data().registerFormattedDateUpdate(next, this);
 	}
-	_textWidth = -1;
-	_textHeight = 0;
+	invalidateTextSizeCache();
 }
 
 void Element::validateTextSkipBlock(bool has, int width, int height) {
 	validateText();
 	if (!has) {
 		if (_text.removeSkipBlock()) {
-			_textWidth = -1;
-			_textHeight = 0;
+			invalidateTextSizeCache();
 		}
 	} else if (_text.updateSkipBlock(width, height)) {
-		_textWidth = -1;
-		_textHeight = 0;
+		invalidateTextSizeCache();
 	}
 }
 
@@ -2604,17 +2666,27 @@ void Element::itemTextUpdated() {
 	_flags &= ~Flag::SummaryShown;
 	clearSpecialOnlyEmoji();
 	_text = Ui::Text::String(st::msgMinWidth);
-	_textWidth = -1;
-	_textHeight = 0;
+	invalidateTextSizeCache();
 	if (_media && !data()->media()) {
 		refreshMedia(nullptr);
 	}
 }
 
+void Element::itemTextUpdatedStreaming() {
+	clearSpecialOnlyEmoji();
+	_text = Ui::Text::String(st::msgMinWidth);
+	invalidateTextSizeCache();
+}
+
 void Element::blockquoteExpandChanged() {
+	invalidateTextSizeCache();
+	history()->owner().requestViewResize(this);
+}
+
+void Element::invalidateTextSizeCache() {
 	_textWidth = -1;
 	_textHeight = 0;
-	history()->owner().requestViewResize(this);
+	invalidateTextDependentCache();
 }
 
 void Element::unloadHeavyPart() {
@@ -2968,6 +3040,10 @@ QRect Element::effectIconGeometry() const {
 	return QRect();
 }
 
+QPoint Element::mediaTopLeft() const {
+	return innerGeometry().topLeft();
+}
+
 Element::~Element() {
 	setReactions(nullptr);
 
@@ -3141,6 +3217,127 @@ int FindViewTaskY(not_null<Element*> view, int taskId, int yfrom) {
 		}
 	}
 	return origin.y() + (yfrom + ytill) / 2;
+}
+
+int FindViewPollOptionY(
+		not_null<Element*> view,
+		const QByteArray &option,
+		int yfrom) {
+	auto request = HistoryView::StateRequest();
+	request.flags = Ui::Text::StateRequest::Flag::LookupLink;
+	const auto single = st::messageTextStyle.font->height;
+	const auto inner = view->innerGeometry();
+	const auto origin = inner.topLeft();
+	if (origin.y() < 0
+		|| origin.y() + inner.height() > view->height()
+		|| inner.height() <= 0) {
+		return yfrom;
+	}
+	const auto media = view->data()->media();
+	const auto poll = media ? media->poll() : nullptr;
+	if (!poll) {
+		return yfrom;
+	}
+	const auto &answers = poll->answers;
+	const auto indexOf = [&](const QByteArray &opt) -> int {
+		return int(ranges::find(
+			answers, opt, &PollAnswer::option) - begin(answers));
+	};
+	const auto index = indexOf(option);
+	const auto count = int(answers.size());
+	if (index == count) {
+		return yfrom;
+	}
+	yfrom = std::max(yfrom - origin.y(), 0);
+	auto ytill = inner.height() - 1;
+	const auto middle = (yfrom + ytill) / 2;
+	const auto fory = [&](int y) {
+		const auto state = view->textState(origin + QPoint(0, y), request);
+		const auto &link = state.link;
+		const auto opt = link
+			? link->property(kPollOptionProperty).toByteArray()
+			: QByteArray();
+		const auto idx = !opt.isEmpty() ? indexOf(opt) : count;
+		return (idx < count) ? idx : (y < middle) ? -1 : count;
+	};
+	auto indexfrom = fory(yfrom);
+	auto indextill = fory(ytill);
+	if ((yfrom >= ytill) || (indexfrom >= index)) {
+		return origin.y() + yfrom;
+	} else if (indextill <= index) {
+		return origin.y() + ytill;
+	}
+	while (ytill - yfrom >= 2 * single) {
+		const auto mid = (yfrom + ytill) / 2;
+		const auto found = fory(mid);
+		if (found == index
+			|| indexfrom > found
+			|| indextill < found) {
+			return origin.y() + mid;
+		} else if (found < index) {
+			yfrom = mid;
+			indexfrom = found;
+		} else {
+			ytill = mid;
+			indextill = found;
+		}
+	}
+	return origin.y() + (yfrom + ytill) / 2;
+}
+
+HighlightYRange FindHighlightYRange(
+		not_null<Element*> view,
+		const Ui::ChatPaintHighlight &highlight) {
+	const auto sel = highlight.range;
+	const auto single = st::messageTextStyle.font->height;
+	if (IsSubGroupSelection(sel)) {
+		const auto index = FirstGroupItemIndex(sel);
+		if (index < 0) {
+			return {};
+		}
+		const auto media = view->media();
+		if (!media) {
+			return {};
+		}
+		const auto rect = media->groupItemRect(index);
+		if (rect.isEmpty()) {
+			return {};
+		}
+		const auto inner = view->innerGeometry();
+		return {
+			inner.y() + rect.y() - 2 * single,
+			inner.y() + rect.y() + rect.height() + 2 * single,
+		};
+	}
+	if (highlight.todoItemId) {
+		const auto y = FindViewTaskY(view, highlight.todoItemId);
+		return { y - 4 * single, y + 4 * single };
+	}
+	if (!highlight.pollOption.isEmpty()) {
+		const auto y = FindViewPollOptionY(view, highlight.pollOption);
+		return { y - 4 * single, y + 4 * single };
+	}
+	if (!sel.empty()) {
+		const auto begin = FindViewY(view, sel.from) - single;
+		const auto end = FindViewY(view, sel.to, begin + single)
+			+ 2 * single;
+		return { begin, end };
+	}
+	return {};
+}
+
+int AdjustScrollForRange(
+		int viewTop,
+		int available,
+		HighlightYRange range) {
+	auto result = viewTop;
+	if (range.end > available) {
+		result = std::max(result, viewTop + range.end - available);
+	}
+	if (viewTop + range.begin < result) {
+		result = viewTop + range.begin;
+	}
+	return result;
 }
 
 Window::SessionController *ExtractController(const ClickContext &context) {

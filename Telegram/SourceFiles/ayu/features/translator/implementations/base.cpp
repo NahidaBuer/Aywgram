@@ -143,15 +143,13 @@ QString parseJsonPath(const QByteArray &body, const QString &jsonPath, bool *ok)
 	return result;
 }
 
-CallbackCancel MultiThreadTranslator::startTranslation(const StartTranslationArgs &args) {
+void MultiThreadTranslator::startTranslation(const StartTranslationArgs &args) {
 	const auto &texts = args.parsedData.texts;
 	const auto &fromLang = args.parsedData.fromLang;
 	const auto &toLang = args.parsedData.toLang;
 	if (texts.empty() || toLang.trimmed().isEmpty()) {
 		if (args.onFail) args.onFail();
-		return []
-		{
-		};
+		return;
 	}
 
 	struct BatchState
@@ -292,11 +290,6 @@ CallbackCancel MultiThreadTranslator::startTranslation(const StartTranslationArg
 	};
 
 	state->pump();
-
-	return [state, finishFail]() mutable
-	{
-		finishFail();
-	};
 }
 
 }

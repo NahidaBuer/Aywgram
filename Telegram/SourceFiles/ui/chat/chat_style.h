@@ -87,6 +87,7 @@ struct MessageStyle {
 	style::icon historyFilePause = { Qt::Uninitialized };
 	style::icon historyFileImage = { Qt::Uninitialized };
 	style::icon historyFileDocument = { Qt::Uninitialized };
+	style::icon historyFilePlugin = { Qt::Uninitialized };
 	style::icon historyAudioDownload = { Qt::Uninitialized };
 	style::icon historyAudioCancel = { Qt::Uninitialized };
 	style::icon historyQuizTimer = { Qt::Uninitialized };
@@ -185,6 +186,7 @@ struct ChatPaintHighlight {
 	float64 collapsion = 0.;
 	TextSelection range;
 	int todoItemId = 0;
+	QByteArray pollOption;
 };
 
 struct ChatPaintContext {

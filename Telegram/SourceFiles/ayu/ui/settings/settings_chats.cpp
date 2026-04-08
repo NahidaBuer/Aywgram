@@ -13,33 +13,26 @@
 #include "ayu/ui/settings/ayu_builder.h"
 #include "ayu/ui/settings/settings_ayu_utils.h"
 #include "ayu/ui/settings/settings_main.h"
-#include "core/application.h"
 #include "settings/settings_builder.h"
 #include "settings/settings_common.h"
 #include "styles/style_ayu_icons.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_settings.h"
-#include "ui/boxes/confirm_box.h"
 #include "ui/wrap/vertical_layout.h"
 #include "window/window_session_controller.h"
+
+#include <memory>
 
 namespace Settings {
 
 using namespace Builder;
-using namespace AyBuilder;
+using namespace AyuBuilder;
 
 namespace {
 
-void ShowRestartPrompt(not_null<Window::SessionController*> controller) {
-	crl::on_main([=] {
-		controller->show(Ui::MakeConfirmBox({
-			.text = tr::lng_settings_need_restart(),
-			.confirmed = [] { Core::Restart(); },
-			.confirmText = tr::lng_settings_restart_now(),
-			.cancelText = tr::lng_settings_restart_later(),
-		}));
-	});
-}
+struct PreviewState {
+	MessagePreview *widget = nullptr;
+};
 
 void BuildStickersAndEmoji(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 	builder.addSubsectionTitle(tr::lng_settings_stickers_emoji());
@@ -136,15 +129,20 @@ void BuildGroupsAndChannels(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 	builder.addSkip();
 }
 
-void BuildMarks(SectionBuilder &builder, AyuSectionBuilder &ayu) {
+void BuildMarks(
+		SectionBuilder &builder,
+		AyuSectionBuilder &ayu,
+		std::shared_ptr<PreviewState> previewState) {
 	auto *settings = &AyuSettings::getInstance();
 	const auto controller = builder.controller();
 
 	builder.addSubsectionTitle(tr::lng_settings_messages());
 
 	builder.add([=](const WidgetContext &ctx) -> SectionBuilder::WidgetToAdd {
+		auto preview = object_ptr<MessagePreview>(ctx.container, controller);
+		previewState->widget = preview.data();
 		return {
-			.widget = object_ptr<MessagePreview>(ctx.container, controller),
+			.widget = std::move(preview),
 			.margin = style::margins(
 				0,
 				st::defaultVerticalListSkip,
@@ -234,10 +232,12 @@ void BuildMarks(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 	ayu.addSectionDivider();
 }
 
-void BuildWideMessagesMultiplier(SectionBuilder &builder, AyuSectionBuilder &ayu) {
+void BuildWideMessagesMultiplier(
+		SectionBuilder &builder,
+		AyuSectionBuilder &ayu,
+		std::shared_ptr<PreviewState> previewState) {
 	auto *settings = &AyuSettings::getInstance();
 
-	constexpr auto kSizeAmount = 61; // (4.00 - 1.00) / 0.05 + 1
 	constexpr auto kMinSize = 1.00;
 	constexpr auto kStep = 0.05;
 
@@ -252,12 +252,16 @@ void BuildWideMessagesMultiplier(SectionBuilder &builder, AyuSectionBuilder &ayu
 		.steps = 17,
 		.current = settings->messageBubbleRadius(),
 		.indexToValue = [](int index) { return index; },
-		.onChanged = [](int index) {
-			AyuSettings::getInstance().setPreviewMessageBubbleRadius(index);
+		.onChanged = [=](int index) {
+			if (previewState->widget) {
+				previewState->widget->setBubbleRadius(index);
+			}
 		},
 		.onFinalChanged = [=](int index) {
+			if (previewState->widget) {
+				previewState->widget->setBubbleRadius(index);
+			}
 			AyuSettings::getInstance().setMessageBubbleRadius(index);
-			AyuSettings::getInstance().clearPreviewMessageBubbleRadius();
 			ShowRestartPrompt(controller);
 		},
 		.formatLabel = [](int index) {
@@ -265,10 +269,12 @@ void BuildWideMessagesMultiplier(SectionBuilder &builder, AyuSectionBuilder &ayu
 		},
 	});
 
+	ayu.addSectionDivider();
+
 	ayu.addSlider({
 		.id = u"ayu/wideMultiplier"_q,
 		.title = tr::ayu_SettingsWideMultiplier(),
-		.steps = kSizeAmount,
+		.steps = 61, // (4.00 - 1.00) / 0.05 + 1
 		.current = valueToIndex(settings->wideMultiplier()),
 		.indexToValue = [](int index) { return index; },
 		.onChanged = nullptr,
@@ -407,6 +413,20 @@ void BuildMessageFieldElements(SectionBuilder &builder, AyuSectionBuilder &ayu) 
 		.setter = &AyuSettings::setShowMicrophoneButtonInMessageField,
 		.icon = { &st::messageFieldVoiceIcon },
 	});
+	ayu.addSettingToggle({
+		.id = u"ayu/showGiftButtonInMessageField"_q,
+		.title = tr::lng_profile_action_short_gift(),
+		.getter = &AyuSettings::showGiftButtonInMessageField,
+		.setter = &AyuSettings::setShowGiftButtonInMessageField,
+		.icon = { &st::settingsButtonIconGift },
+	});
+	ayu.addSettingToggle({
+		.id = u"ayu/showAiEditorButtonInMessageField"_q,
+		.title = tr::lng_ai_compose_title(),
+		.getter = &AyuSettings::showAiEditorButtonInMessageField,
+		.setter = &AyuSettings::setShowAiEditorButtonInMessageField,
+		.icon = { &st::messageFieldCocoonAiIcon },
+	});
 
 	ayu.addSectionDivider();
 }
@@ -437,13 +457,14 @@ const auto kMeta = BuildHelper({
 	.icon = &st::menuIconChatBubble,
 }, [](SectionBuilder &builder) {
 	auto ayu = AyuSectionBuilder(builder);
+	const auto previewState = std::make_shared<PreviewState>();
 
 	builder.addSkip();
 	BuildStickersAndEmoji(builder, ayu);
 	BuildRecentStickersLimit(builder, ayu);
 	BuildGroupsAndChannels(builder, ayu);
-	BuildMarks(builder, ayu);
-	BuildWideMessagesMultiplier(builder, ayu);
+	BuildMarks(builder, ayu, previewState);
+	BuildWideMessagesMultiplier(builder, ayu, previewState);
 	BuildContextMenuElements(builder, ayu);
 	BuildMessageFieldElements(builder, ayu);
 	BuildMessageFieldPopups(builder, ayu);

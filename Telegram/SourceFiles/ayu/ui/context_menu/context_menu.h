@@ -17,6 +17,10 @@ namespace HistoryView {
 	enum class Context : char;
 }
 
+namespace HistoryView {
+enum class Context : char;
+}
+
 namespace AyuUi {
 
 bool ShouldShowContextMenuItem(ContextMenuVisibility state);
@@ -45,10 +49,7 @@ void AddHistoryAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item);
 void AddHideMessageAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item);
 void AddUserMessagesAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item);
 void AddMessageDetailsAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item);
-void AddRepeatMessageAction(
-	not_null<Ui::PopupMenu*> menu,
-	HistoryItem *item,
-	HistoryView::Context context = HistoryView::Context::History);
+void AddRepeatMessageAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item, HistoryView::Context context);
 void AddReadUntilAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item);
 void AddBurnAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item);
 void AddCreateFilterAction(not_null<Ui::PopupMenu*> menu,
