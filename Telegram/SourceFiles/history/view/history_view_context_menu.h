@@ -120,6 +120,7 @@ void AddWhoReactedAction(
 void MaybeAddWhenEditedForwardedAction(
 	not_null<Ui::PopupMenu*> menu,
 	not_null<HistoryItem*> item,
+	Element *view,
 	not_null<Window::SessionController*> controller,
 	bool separateFromPrevious = true);
 [[nodiscard]] ContextMenuAnchorInfoPlacement

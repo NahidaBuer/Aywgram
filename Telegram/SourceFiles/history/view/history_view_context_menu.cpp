@@ -1497,6 +1497,7 @@ void FillContextMenuItems(
 			MaybeAddWhenEditedForwardedAction(
 				result,
 				item,
+				view,
 				list->controller(),
 				false);
 		}
@@ -1655,6 +1656,7 @@ void FillContextMenuItems(
 			MaybeAddWhenEditedForwardedAction(
 				result,
 				item,
+				view,
 				list->controller(),
 				false);
 		}
@@ -2085,6 +2087,7 @@ void AddSaveSoundForNotifications(
 void AddWhenEditedForwardedAuthorActionHelper(
 		not_null<Ui::PopupMenu*> menu,
 		not_null<HistoryItem*> item,
+		Element *view,
 		not_null<Window::SessionController*> controller,
 		bool insertSeparator) {
 	if (const auto forwarded = item->Get<HistoryMessageForwarded>()) {
@@ -2096,6 +2099,13 @@ void AddWhenEditedForwardedAuthorActionHelper(
 				menu.get(),
 				Api::WhenOriginal(item->from(), forwarded->originalDate)));
 		}
+	} else if (const auto editedDate = view ? view->displayedEditDate() : TimeId(0)) {
+		if (insertSeparator && !menu->empty()) {
+			menu->addSeparator(&st::expandedMenuSeparator);
+		}
+		menu->addAction(Ui::WhenReadContextAction(
+			menu.get(),
+			Api::WhenEdited(item->from(), editedDate)));
 	} else if (const auto edited = item->Get<HistoryMessageEdited>()) {
 		if (!item->hideEditedBadge()) {
 			if (insertSeparator && !menu->empty()) {
@@ -2171,6 +2181,7 @@ void AddWhoReactedAction(
 		AddWhenEditedForwardedAuthorActionHelper(
 			menu,
 			item,
+			nullptr,
 			controller,
 			false);
 		menu->addAction(Ui::WhenReadContextAction(
@@ -2187,6 +2198,7 @@ void AddWhoReactedAction(
 		AddWhenEditedForwardedAuthorActionHelper(
 			menu,
 			item,
+			nullptr,
 			controller,
 			separateInfoDetails);
 	}
@@ -2201,7 +2213,7 @@ int AddContextMenuAnchorInfo(
 	if (Api::WhoReactedExists(item, Api::WhoReactedList::All)) {
 		AddWhoReactedAction(menu, context, item, controller);
 	} else {
-		MaybeAddWhenEditedForwardedAction(menu, item, controller);
+		MaybeAddWhenEditedForwardedAction(menu, item, nullptr, controller);
 	}
 	return int(menu->actions().size()) - before;
 }
@@ -2209,11 +2221,13 @@ int AddContextMenuAnchorInfo(
 void MaybeAddWhenEditedForwardedAction(
 		not_null<Ui::PopupMenu*> menu,
 		not_null<HistoryItem*> item,
+		Element *view,
 		not_null<Window::SessionController*> controller,
 		bool separateFromPrevious) {
 	AddWhenEditedForwardedAuthorActionHelper(
 		menu,
 		item,
+		view,
 		controller,
 		separateFromPrevious);
 }
