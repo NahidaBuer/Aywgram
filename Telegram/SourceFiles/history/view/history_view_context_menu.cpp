@@ -1171,7 +1171,6 @@ void AddMessageActions(
 		const ContextMenuRequest &request,
 		not_null<ListWidget*> list) {
 	if (request.item) {
-		const auto context = request.view ? request.view->context() : Context::History;
 		AyuUi::AddHistoryAction(menu, request.item);
 		AyuUi::AddHideMessageAction(menu, request.item);
 		AyuUi::AddUserMessagesAction(menu, request.item);
@@ -1464,7 +1463,8 @@ void FillContextMenuItems(
 		not_null<Ui::PopupMenu*> result,
 		not_null<ListWidget*> list,
 		const ContextMenuRequest &request,
-		bool skipWhoReacted = false,ContextMenuAnchorInfoPlacement anchorInfoPlacement) {
+		bool skipWhoReacted,
+		ContextMenuAnchorInfoPlacement anchorInfoPlacement) {
 	const auto link = request.link;
 	const auto view = request.view;
 	const auto item = request.item;
@@ -1482,9 +1482,6 @@ void FillContextMenuItems(
 		: nullptr;
 	const auto hasSelection = !request.selectedItems.empty()
 		|| !request.selectedText.empty();
-	auto result = base::make_unique_q<Ui::PopupMenu>(
-		list,
-		st::popupMenuWithIcons);
 
 	if (item
 		&& anchorInfoPlacement == ContextMenuAnchorInfoPlacement::Top) {
@@ -1663,10 +1660,12 @@ void FillContextMenuItems(
 		}
 	}
 	result->menu()->clearLastSeparator();
+}
 
 base::unique_qptr<Ui::PopupMenu> FillContextMenu(
 		not_null<ListWidget*> list,
-		const ContextMenuRequest &request) {
+		const ContextMenuRequest &request,
+		ContextMenuAnchorInfoPlacement anchorInfoPlacement) {
 	const auto link = request.link;
 	const auto item = request.item;
 	const auto itemId = item ? item->fullId() : FullMsgId();
@@ -1680,7 +1679,12 @@ base::unique_qptr<Ui::PopupMenu> FillContextMenu(
 		st::popupMenuWithIcons);
 
 	// Build the full message menu.
-	FillContextMenuItems(result, list, request, hasPollOption);
+	FillContextMenuItems(
+		result,
+		list,
+		request,
+		hasPollOption,
+		anchorInfoPlacement);
 
 	if (item) {
 		const auto media = item->media();

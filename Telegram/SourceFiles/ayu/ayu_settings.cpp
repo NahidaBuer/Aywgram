@@ -385,7 +385,6 @@ void AyuSettings::load() {
 	}
 
 	settings.validate();
-	settings._appliedMessageBubbleRadius = settings._messageBubbleRadius.current();
 }
 
 void AyuSettings::save() {

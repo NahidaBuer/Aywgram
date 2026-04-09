@@ -3258,7 +3258,10 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 					_menu->addAction(tr::lng_context_forward(tr::now), std::move(fwdSubmenu), &st::menuIconForward);
 				}
 
-				AyuUi::AddRepeatMessageAction(_menu, item);
+				AyuUi::AddRepeatMessageAction(
+					_menu,
+					item,
+					HistoryView::Context::History);
 
 				if (HistoryView::CanAddOfferToMessage(item)) {
 					_menu->addAction(tr::lng_context_add_offer(tr::now), [=] {
@@ -3562,7 +3565,10 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 					}
 				}
 
-				AyuUi::AddRepeatMessageAction(_menu, item);
+				AyuUi::AddRepeatMessageAction(
+					_menu,
+					item,
+					HistoryView::Context::History);
 
 				if (HistoryView::CanAddOfferToMessage(item)) {
 					_menu->addAction(tr::lng_context_add_offer(tr::now), [=] {

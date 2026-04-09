@@ -7970,9 +7970,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_KeepAliveServiceNote" = "我们建议迁移到 **FCM** 版本。";
 "ayu_DisableAds" = "禁用广告";
 "ayu_DisableStories" = "禁用动态";
-"ayu_DisableOpenLinkWarning" = "Disable Open Link Warning";
+"ayu_DisableOpenLinkWarning" = "禁用打开链接警告";
 "ayu_DisableCustomBackgrounds" = "禁用自定义背景";
-"ayu_HidePremiumStatuses" = "Hide Premium Statuses";
+"ayu_HidePremiumStatuses" = "隐藏 Premium 状态";
 "ayu_SmoothScroll" = "平滑滚动";
 "ayu_DisableNotificationsDelay" = "禁用通知延迟";
 "ayu_LocalPremium" = "本地大会员";
@@ -8061,7 +8061,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_DrawerElementsHeader" = "抽屉元素";
 "ayu_TrayElementsHeader" = "托盘元素";
 "ayu_MessageBubbleRadius" = "消息气泡圆角";
-"ayu_MessageBubbleRadius" = "Message Bubble Radius";
 "ayu_SettingsWideMultiplier" = "扩展消息宽度";
 "ayu_SettingsWideMultiplierDescription" = "你可以调整消息宽度，以在超宽显示器上获得更好的显示效果。";
 "ayu_SettingsSpoofWebviewAsAndroid" = "伪装为安卓客户端";
@@ -8255,7 +8254,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_MessageShotShowReactions" = "显示表情回应菜单";
 "ayu_MessageShotShowHeaderDecorations" = "显示右上角标识";
 "ayu_MessageShotShowColorfulReplies" = "显示彩色回复";
-"ayu_MessageShotRevealSpoilers" = "Reveal spoilers";
+"ayu_MessageShotRevealSpoilers" = "显示剧透内容";
 "ayu_SendAsSticker" = "发送为贴纸";
 "ayu_SendWithSound" = "有声发送";
 "ayu_AyuForwardStatusPreparing" = "转发消息中";
@@ -8283,7 +8282,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_ReadDateMenuText" = "阅读日期";
 "ayu_ContentsReadDateMenuText" = "内容阅读日期";
 "ayu_UnforwardableContextMenuText" = "不允许直接转发。";
-"ayu_LastSeenPillAutoRefresh" = "Auto-Refresh";
+"ayu_LastSeenPillAutoRefresh" = "自动刷新";
 "ayu_LikelyOfflineStatus" = "离线 ?";
 "ayu_GhostModeShortcut" = "以隐身模式进入";
 "ayu_SettingsShowMessageSeconds" = "显示消息秒数";
@@ -8307,8 +8306,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_DeveloperPopup" = "**{item}** 是 **exteraGram** 开发团队的成员。";
 "ayu_SupporterPopup" = "**{item}** 支持 **exteraGram** 或 **AyuGram** 的开发并获得专属勋章。";
 "ayu_OfficialResourcePopup" = "**{item}** 是 **exteraGram** 或 **AyuGram** 的官方社群。";
-"ayu_MutualContactInfo" = "This contact is mutual.";
-"ayu_SessionInfoOfficialApp" = "Official app";
+"ayu_MutualContactInfo" = "此为双向联系人。";
+"ayu_SessionInfoOfficialApp" = "官方应用";
 "ayu_SettingsWatermark" = "AyuGram 由 Radolyn Labs 开发和维护。";
 "ayu_SettingsDescription" = "基于 Telegram Desktop 的分支版本，专注于自定义与扩展功能。";
 "ayu_ConfirmationSticker" = "确定要发送这个贴纸?";

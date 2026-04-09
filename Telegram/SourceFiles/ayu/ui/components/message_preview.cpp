@@ -126,8 +126,6 @@ MessagePreview::MessagePreview(
 			| rpl::to_empty,
 		AyuSettings::getInstance().editedMarkChanges()
 			| rpl::to_empty,
-		AyuSettings::getInstance().messageBubbleRadiusPreviewChanges()
-			| rpl::to_empty,
 		AyuSettings::getInstance().messageBubbleRadiusChanges()
 			| rpl::to_empty,
 		AyuSettings::getInstance().removeMessageTailChanges()

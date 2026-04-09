@@ -736,27 +736,22 @@ void AddRepeatMessageAction(
 		}
 	}
 
+	const auto itemId = item->fullId();
+
 	menu->addAction(
 		tr::ayu_RepeatMessage(tr::now),
 		[=] {
 			const auto session = &history->session();
 			const auto shiftPressed = base::IsShiftPressed();
 			const auto inRepliesView = (context == HistoryView::Context::Replies);
-			const auto isReplyMsg = (item->replyTo().messageId.msg != 0);
-			const auto useNoQuote = inRepliesView || shiftPressed;
-			const auto useReply = inRepliesView || (shiftPressed && isReplyMsg);
+			const auto replyTo = item->replyTo();
+			const auto hasReply = (replyTo.messageId.msg != 0);
+			const auto useNoQuote = shiftPressed || (inRepliesView && !history->peer->isForum());
+			const auto useReply = inRepliesView ? hasReply : (hasReply && shiftPressed);
 
 			const auto sendAs = (peer->isUser() || peer->isChat() || history->peer->isMonoforum())
 				? nullptr
 				: session->sendAsPeers().resolveChosen(peer).get();
-
-			const auto inRepliesView = (context == HistoryView::Context::Replies);
-			const auto replyTo = item->replyTo();
-			const auto hasReply = replyTo.messageId.msg != 0;
-			const auto shiftPressed = base::IsShiftPressed();
-
-			const auto useNoQuote = shiftPressed || (inRepliesView && !history->peer->isForum());
-			const auto preserveReply = inRepliesView ? hasReply : (hasReply && shiftPressed);
 
 			const auto currentItem = history->owner().message(itemId);
 			if (!currentItem) {
@@ -771,15 +766,15 @@ void AddRepeatMessageAction(
 			}
 			action.clearDraft = false;
 
-            applyGhostScheduling(session, action.options);
+			applyGhostScheduling(session, action.options);
 
 			if (currentItem->topic()) {
-                action.replyTo.topicRootId = currentItem->topicRootId();
-            }
+				action.replyTo.topicRootId = currentItem->topicRootId();
+			}
 
-            if (preserveReply) {
-                action.replyTo.messageId = replyTo.messageId;
-            }
+			if (useReply) {
+				action.replyTo.messageId = replyTo.messageId;
+			}
 
 			if (useNoQuote) {
 				auto message = ApiWrap::MessageToSend(action);
