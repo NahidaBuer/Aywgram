@@ -244,9 +244,7 @@ int PaintBadges(
 	}
 	if ((!narrow || (painted < 2))
 		&& (badgesState.mention || badgesState.reaction)) {
-		const auto muted = badgesState.mention
-			? badgesState.mentionMuted
-			: badgesState.reactionMuted;
+		const auto muted = false;
 		paintIconBadge(
 			badgesState.mention
 				? (narrow
@@ -270,15 +268,16 @@ int PaintBadges(
 		++painted;
 	}
 	if ((!narrow || (painted < 2)) && badgesState.poll) {
+		const auto muted = false;
 		paintIconBadge(
 			narrow
-				? (badgesState.pollMuted
+				? (muted
 					? st::dialogsUnreadPollBadgeMuted
 					: st::dialogsUnreadPollBadge)
-				: (badgesState.pollMuted
+				: (muted
 					? st::dialogsUnreadPollMuted
 					: st::dialogsUnreadPoll),
-			badgesState.pollMuted,
+			muted,
 			UnreadBadgeSize::PollInDialogs);
 		++painted;
 	}
