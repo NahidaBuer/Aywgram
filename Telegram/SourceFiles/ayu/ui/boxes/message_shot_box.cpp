@@ -12,7 +12,12 @@
 #include "ayu/ui/components/image_view.h"
 #include "ayu/utils/telegram_helpers.h"
 #include "boxes/abstract_box.h"
+#include "data/data_chat.h"
+#include "data/data_channel.h"
 #include "data/data_todo_list.h"
+#include "data/data_user.h"
+#include "history/history.h"
+#include "history/history_item_components.h"
 #include "history/history_item.h"
 #include "main/main_session.h"
 #include "settings/settings_common.h"
@@ -87,6 +92,7 @@ void MessageShotBox::setupContent() {
 
 	auto hasReactions = false;
 	auto hasReplies = false;
+	auto hasHeaderDecorations = false;
 	auto hasSpoilers = false;
 	for (const auto &item : _config.messages) {
 		if (!hasReactions && !item->reactions().empty()) {
@@ -128,6 +134,65 @@ void MessageShotBox::setupContent() {
 					}
 				}
 			}
+		}
+		if (!hasHeaderDecorations) {
+			const auto drawChannelBadge = [&] {
+				if (item->isDiscussionPost()) {
+					return true;
+				} else if (item->author()->isMegagroup()) {
+					if (const auto signedInfo = item->Get<HistoryMessageSigned>()) {
+						if (!signedInfo->viaBusinessBot) {
+							return false;
+						}
+					}
+				}
+				return item->history()->peer->isMegagroup()
+					&& item->author()->isChannel()
+					&& !item->out();
+			}();
+
+			auto badgeText = QString();
+			if (item->isDiscussionPost()) {
+				badgeText = tr::lng_channel_badge(tr::now);
+			} else if (item->author()->isMegagroup()) {
+				if (const auto signedInfo = item->Get<HistoryMessageSigned>()) {
+					if (!signedInfo->viaBusinessBot) {
+						badgeText = signedInfo->author;
+					}
+				}
+			} else if (drawChannelBadge) {
+				badgeText = tr::lng_channel_badge(tr::now);
+			} else if (const auto chat = item->history()->peer->asChat()) {
+				if (const auto user = item->author()->asUser()) {
+					const auto rank = chat->memberRanks.find(peerToUser(user->id));
+					if (rank != chat->memberRanks.end()) {
+						badgeText = rank->second;
+					}
+				}
+			} else if (const auto channel = item->history()->peer->asMegagroup()) {
+				if (const auto user = item->author()->asUser()) {
+					const auto info = channel->mgInfo.get();
+					const auto userId = peerToUser(user->id);
+					const auto isCreator = info && (info->creator == user);
+					const auto isAdmin = info && info->admins.contains(userId);
+					if (isCreator || isAdmin) {
+						const auto rank = info->memberRanks.find(userId);
+						if (rank != info->memberRanks.end() && !rank->second.isEmpty()) {
+							badgeText = rank->second;
+						} else if (isCreator) {
+							badgeText = tr::lng_owner_badge(tr::now);
+						} else {
+							badgeText = tr::lng_admin_badge(tr::now);
+						}
+					} else {
+						badgeText = item->fromRank();
+					}
+				}
+			}
+
+			hasHeaderDecorations = drawChannelBadge
+				|| !badgeText.isEmpty()
+				|| (item->boostsApplied() > 0);
 		}
 		if (hasReactions && hasReplies && hasSpoilers) {
 			break;
@@ -270,19 +335,21 @@ void MessageShotBox::setupContent() {
 			content->lifetime());
 	}
 	
-	AddButtonWithIcon(
-		content,
-		tr::ayu_MessageShotShowHeaderDecorations(),
-		st::settingsButtonNoIcon
-	)->toggleOn(rpl::single(shotSettings.showHeaderDecorations())
-	)->toggledValue(
-	) | rpl::skip(1) | on_next(
-		[=](bool enabled)
-		{
-			AyuSettings::getInstance().messageShotSettings().setShowHeaderDecorations(enabled);
-			updatePreview();
-		},
-		content->lifetime());
+	if (hasHeaderDecorations) {
+		AddButtonWithIcon(
+			content,
+			tr::ayu_MessageShotShowHeaderDecorations(),
+			st::settingsButtonNoIcon
+		)->toggleOn(rpl::single(shotSettings.showHeaderDecorations())
+		)->toggledValue(
+		) | rpl::skip(1) | on_next(
+			[=](bool enabled)
+			{
+				AyuSettings::getInstance().messageShotSettings().setShowHeaderDecorations(enabled);
+				updatePreview();
+			},
+			content->lifetime());
+	}
 
 	if (hasReplies) {
 		latestToggle = AddButtonWithIcon(
