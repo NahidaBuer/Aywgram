@@ -1298,7 +1298,7 @@ void TopBarWidget::updateControlsVisibility() {
 	_delete->setVisible(_canDelete && visible);
 	_messageShot->setVisible(settings.showMessageShot() && visible);
 	_forward->setVisible(_canForward && visible);
-	_noQuote->setVisible(_canForward && !_canSendNow && !_hideNoQuote);
+	_noQuote->setVisible(_canForward && !_canSendNow && !_hideNoQuote && visible);
 	_sendNow->setVisible(_canSendNow && visible);
 
 	const auto isOneColumn = _controller->adaptive().isOneColumn();
