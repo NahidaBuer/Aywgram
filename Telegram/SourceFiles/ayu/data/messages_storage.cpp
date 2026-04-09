@@ -115,10 +115,6 @@ void addDeletedMessage(not_null<HistoryItem*> item) {
 	DeletedMessage message;
 	map(item, message);
 
-	if (message.text.empty()) {
-		return;
-	}
-
 	AyuDatabase::addDeletedMessage(message);
 }
 
