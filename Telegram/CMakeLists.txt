@@ -2357,7 +2357,6 @@ if (MSVC)
             /DELAYLOAD:API-MS-Win-Core-Fibers-l2-1-0.dll
             /DELAYLOAD:API-MS-Win-Core-Fibers-l2-1-1.dll
             /DELAYLOAD:API-MS-Win-Core-File-l1-1-0.dll
-            /DELAYLOAD:API-MS-Win-Core-LibraryLoader-l1-2-0.dll
             /DELAYLOAD:API-MS-Win-Core-Localization-l1-2-0.dll
             /DELAYLOAD:API-MS-Win-Core-Memory-l1-1-0.dll
             /DELAYLOAD:API-MS-Win-Core-Memory-l1-1-1.dll
