@@ -488,6 +488,7 @@ void AyuSettings::validate() {
 
 	validateRange(_messageBubbleRadius, 0, 16, defaults._messageBubbleRadius);
 	validateRange(_wideMultiplier, 0.5, 4.0, defaults._wideMultiplier);
+	validateRange(_stickerPanelScale, 1.0, 4.0, defaults._stickerPanelScale);
 	validateRange(_recentStickersCount, 1, 200, defaults._recentStickersCount);
 	validateRange(_avatarCorners, 0, AyuUiSettings::kMaxAvatarCorners, defaults._avatarCorners);
 
@@ -600,6 +601,18 @@ void AyuSettings::setWideMultiplier(double val) {
 	// doesn't work because it should be set before style::StartManager()
 	// AyuUiSettings::setWideMultiplier(val);
 	// repaintApp();
+	save();
+}
+
+void AyuSettings::setUnlimitedRightColumnWidth(bool val) {
+	if (_unlimitedRightColumnWidth.current() == val) return;
+	_unlimitedRightColumnWidth = val;
+	save();
+}
+
+void AyuSettings::setStickerPanelScale(double val) {
+	if (_stickerPanelScale.current() == val) return;
+	_stickerPanelScale = val;
 	save();
 }
 
@@ -1048,6 +1061,8 @@ void to_json(nlohmann::json &j, const AyuSettings &s) {
 		{"messageBubbleRadius", s._messageBubbleRadius.current()},
 		{"disableOpenLinkWarning", s._disableOpenLinkWarning.current()},
 		{"wideMultiplier", s._wideMultiplier.current()},
+		{"unlimitedRightColumnWidth", s._unlimitedRightColumnWidth.current()},
+		{"stickerPanelScale", s._stickerPanelScale.current()},
 		{"spoofWebviewAsAndroid", s._spoofWebviewAsAndroid.current()},
 		{"increaseWebviewHeight", s._increaseWebviewHeight.current()},
 		{"increaseWebviewWidth", s._increaseWebviewWidth.current()},
@@ -1148,6 +1163,8 @@ void from_json(const nlohmann::json &j, AyuSettings &s) {
 	s._messageBubbleRadius = j.value("messageBubbleRadius", defaults._messageBubbleRadius.current());
 	s._disableOpenLinkWarning = j.value("disableOpenLinkWarning", defaults._disableOpenLinkWarning.current());
 	s._wideMultiplier = j.value("wideMultiplier", defaults._wideMultiplier.current());
+	s._unlimitedRightColumnWidth = j.value("unlimitedRightColumnWidth", defaults._unlimitedRightColumnWidth.current());
+	s._stickerPanelScale = j.value("stickerPanelScale", defaults._stickerPanelScale.current());
 	s._spoofWebviewAsAndroid = j.value("spoofWebviewAsAndroid", defaults._spoofWebviewAsAndroid.current());
 	s._increaseWebviewHeight = j.value("increaseWebviewHeight", defaults._increaseWebviewHeight.current());
 	s._increaseWebviewWidth = j.value("increaseWebviewWidth", defaults._increaseWebviewWidth.current());

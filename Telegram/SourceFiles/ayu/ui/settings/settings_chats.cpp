@@ -73,6 +73,13 @@ void BuildStickersAndEmoji(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 void BuildRecentStickersLimit(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 	auto *settings = &AyuSettings::getInstance();
 
+	constexpr auto kMinScale = 1.0;
+	constexpr auto kScaleStep = 0.1;
+
+	const auto scaleToIndex = [=](double value) {
+		return static_cast<int>(std::round((value - kMinScale) / kScaleStep));
+	};
+
 	ayu.addSlider({
 		.id = u"ayu/recentStickersCount"_q,
 		.title = tr::ayu_SettingsRecentStickersCount(),
@@ -84,6 +91,26 @@ void BuildRecentStickersLimit(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 			AyuSettings::getInstance().setRecentStickersCount(amount);
 		},
 		.formatLabel = [](int amount) { return QString::number(amount); },
+	});
+
+	ayu.addSlider({
+		.id = u"ayu/stickerPanelScale"_q,
+		.title = tr::ayu_StickerPanelScale(),
+		.steps = 31,
+		.current = scaleToIndex(settings->stickerPanelScale()),
+		.indexToValue = [](int index) { return index; },
+		.onChanged = [=](int index) {
+			AyuSettings::getInstance().setStickerPanelScale(
+				kMinScale + index * kScaleStep);
+		},
+		.onFinalChanged = [=](int index) {
+			AyuSettings::getInstance().setStickerPanelScale(
+				kMinScale + index * kScaleStep);
+		},
+		.formatLabel = [=](int index) {
+			return QString::number(kMinScale + index * kScaleStep, 'f', 1)
+				+ 'x';
+		},
 	});
 
 	ayu.addSectionDivider();
@@ -291,6 +318,13 @@ void BuildWideMessagesMultiplier(
 	builder.addSkip();
 	builder.addDividerText(tr::ayu_SettingsWideMultiplierDescription());
 	builder.addSkip();
+
+	ayu.addSettingToggle({
+		.id = u"ayu/unlimitedRightColumnWidth"_q,
+		.title = tr::ayu_UnlimitedRightColumnWidth(),
+		.getter = &AyuSettings::unlimitedRightColumnWidth,
+		.setter = &AyuSettings::setUnlimitedRightColumnWidth,
+	});
 }
 
 void BuildContextMenuElements(SectionBuilder &builder, AyuSectionBuilder &ayu) {

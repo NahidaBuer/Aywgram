@@ -1900,6 +1900,16 @@ base::unique_qptr<Ui::PopupMenu> ParticipantsBoxController::rowContextMenu(
 			(participant->isUser()
 				? &st::menuIconProfile
 				: &st::menuIconInfo));
+		if (user) {
+			result->addAction(
+				tr::ayu_UserMessagesMenuText(tr::now),
+				crl::guard(this, [=, this] {
+					_navigation->parentController()->searchInChat(
+						_peer->owner().history(_peer),
+						user);
+				}),
+				&st::menuIconTTL);
+		}
 	}
 	if (user) {
 		const auto isSelf = user->isSelf();

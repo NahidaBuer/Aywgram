@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "api/api_updates.h"
 #include "api/api_views.h"
+#include "ayu/ayu_settings.h"
 #include "data/components/scheduled_messages.h"
 #include "data/data_document_media.h"
 #include "data/data_document_resolver.h"
@@ -343,7 +344,9 @@ MainWidget::MainWidget(
 		) | filter(true) | rpl::to_empty,
 		Core::App().settings().dialogsNoChatWidthRatioChanges(
 		) | filter(false) | rpl::to_empty,
-		Core::App().settings().thirdColumnWidthChanges() | rpl::to_empty
+		Core::App().settings().thirdColumnWidthChanges() | rpl::to_empty,
+		AyuSettings::getInstance().unlimitedRightColumnWidthChanges(
+		) | rpl::to_empty
 	) | rpl::on_next([=] {
 		updateControlsGeometry();
 	}, lifetime());
@@ -2617,10 +2620,14 @@ void MainWidget::ensureThirdColumnResizeAreaCreated() {
 		if (!isThreeColumn() || !_thirdSection) {
 			return;
 		}
-		Core::App().settings().setThirdColumnWidth(std::clamp(
-			Core::App().settings().thirdColumnWidth(),
-			st::columnMinimalWidthThird,
-			st::columnMaximalWidthThird));
+		const auto width = Core::App().settings().thirdColumnWidth();
+		Core::App().settings().setThirdColumnWidth(
+			AyuSettings::getInstance().unlimitedRightColumnWidth()
+				? std::max(width, st::columnMinimalWidthThird)
+				: std::clamp(
+					width,
+					st::columnMinimalWidthThird,
+					st::columnMaximalWidthThird));
 		Core::App().saveSettingsDelayed();
 	};
 	createResizeArea(

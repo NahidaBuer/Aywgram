@@ -2553,7 +2553,9 @@ int SessionController::countDialogsWidthFromRatio(int bodyWidth) const {
 int SessionController::countThirdColumnWidthFromRatio(int bodyWidth) const {
 	auto result = Core::App().settings().thirdColumnWidth();
 	accumulate_max(result, st::columnMinimalWidthThird);
-	accumulate_min(result, st::columnMaximalWidthThird);
+	if (!AyuSettings::getInstance().unlimitedRightColumnWidth()) {
+		accumulate_min(result, st::columnMaximalWidthThird);
+	}
 	return result;
 }
 

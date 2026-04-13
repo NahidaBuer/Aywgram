@@ -306,6 +306,7 @@ private:
 	void takeHeavyData(Set &to, Set &from);
 	void takeHeavyData(Sticker &to, Sticker &from);
 	void clearHeavyIn(Set &set, bool clearSavedFrames = true);
+	void clearSavedStickerFrames();
 	void clearHeavyData();
 	void updateItems();
 	void updateSets();
