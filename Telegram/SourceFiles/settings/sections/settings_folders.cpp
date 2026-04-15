@@ -43,6 +43,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/fields/input_field.h"
 #include "ui/widgets/labels.h"
 #include "ui/wrap/slide_wrap.h"
+#include "ui/wrap/vertical_layout_reorder.h"
 #include "window/window_controller.h"
 #include "window/window_session_controller.h"
 #include "styles/style_boxes.h"
@@ -361,6 +362,8 @@ struct FoldersState {
 	Fn<void(const FilterRowButton*, Fn<void(Data::ChatFilter)>)> save;
 	Ui::Animations::Simple tagsEnabledAnimation;
 	rpl::event_stream<bool> tagsButtonEnabled;
+	std::unique_ptr<Ui::VerticalLayoutReorder> reorder;
+	int reordering = 0;
 };
 
 not_null<Ui::VerticalLayout*> SetupFoldersList(
@@ -436,7 +439,9 @@ not_null<Ui::VerticalLayout*> SetupFoldersList(
 	};
 	const auto remove = [=](not_null<FilterRowButton*> button) {
 		const auto row = find(button);
-		if (row->removed || row->removePeersRequestId > 0) {
+		if (state->reordering
+			|| row->removed
+			|| row->removePeersRequestId > 0) {
 			return;
 		} else if (row->filter.chatlist() && !row->removePeersRequestId) {
 			row->removePeersRequestId = session->api().request(
@@ -472,6 +477,9 @@ not_null<Ui::VerticalLayout*> SetupFoldersList(
 		}, button->lifetime());
 		button->restoreRequests(
 		) | rpl::on_next([=] {
+			if (state->reordering) {
+				return;
+			}
 			if (showLimitReached()) {
 				return;
 			}
@@ -480,7 +488,7 @@ not_null<Ui::VerticalLayout*> SetupFoldersList(
 		}, button->lifetime());
 		button->setClickedCallback([=] {
 			const auto found = find(button);
-			if (found->removed) {
+			if (state->reordering || found->removed) {
 				return;
 			}
 			const auto doneCallback = [=](const Data::ChatFilter &result) {
@@ -546,6 +554,71 @@ not_null<Ui::VerticalLayout*> SetupFoldersList(
 		}
 	}
 
+	state->reorder = std::make_unique<Ui::VerticalLayoutReorder>(wrap);
+	state->reorder->updates(
+	) | rpl::on_next([=](Ui::VerticalLayoutReorder::Single data) {
+		using State = Ui::VerticalLayoutReorder::State;
+		if (data.state == State::Started) {
+			++state->reordering;
+		} else {
+			Ui::PostponeCall(wrap, [=] {
+				--state->reordering;
+			});
+			if (data.state == State::Applied) {
+				auto rows = std::vector<FilterRow>();
+				rows.reserve(state->rows.size());
+				auto customOrder = std::vector<FilterId>();
+				customOrder.reserve(state->rows.size());
+				for (auto i = 0; i != wrap->count(); ++i) {
+					const auto widget = wrap->widgetAt(i);
+					const auto j = ranges::find(
+						state->rows,
+						widget,
+						[](const FilterRow &row) {
+							return row.button.get();
+						});
+					if (j == end(state->rows)) {
+						continue;
+					}
+					rows.push_back(*j);
+					if (!j->removed && j->filter.id()) {
+						customOrder.push_back(j->filter.id());
+					}
+				}
+				for (const auto &row : state->rows) {
+					if (!ranges::contains(
+							rows,
+							row.button,
+							&FilterRow::button)) {
+						rows.push_back(row);
+					}
+				}
+				state->rows = std::move(rows);
+				if (customOrder.size() < 2
+					|| ranges::contains(
+						state->rows,
+						true,
+						&FilterRow::removed)) {
+					return;
+				}
+				auto order = std::vector<FilterId>();
+				const auto &realList = session->data().chatsFilters().list();
+				order.reserve(realList.size());
+				auto custom = customOrder.begin();
+				for (const auto &filter : realList) {
+					const auto id = filter.id();
+					if (id && ranges::contains(customOrder, id)) {
+						order.push_back(*custom++);
+					} else {
+						order.push_back(id);
+					}
+				}
+				session->data().chatsFilters().saveOrder(order);
+			}
+		}
+	}, wrap->lifetime());
+	state->reorder->start();
+
 	session->data().chatsFilters().isChatlistChanged(
 	) | rpl::on_next([=](FilterId id) {
 		const auto filters = &session->data().chatsFilters();
@@ -570,6 +643,9 @@ not_null<Ui::VerticalLayout*> SetupFoldersList(
 		highlights->push_back({ u"folders/create"_q, { createButton.get() } });
 	}
 	createButton->setClickedCallback([=] {
+		if (state->reordering) {
+			return;
+		}
 		if (showLimitReached()) {
 			return;
 		}
