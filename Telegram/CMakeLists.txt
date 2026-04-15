@@ -2303,7 +2303,10 @@ PRIVATE
 )
 
 get_property(is_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
-if (APPLE
+if (WIN32
+    AND "${output_name}" STREQUAL "AyuGram")
+    set(output_folder ${CMAKE_BINARY_DIR}/$<CONFIG>)
+elseif (APPLE
     OR is_multi_config
     OR NOT CMAKE_EXECUTABLE_SUFFIX STREQUAL ""
     OR NOT "${output_name}" STREQUAL "AyuGram")
