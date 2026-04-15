@@ -8432,18 +8432,19 @@ void HistoryWidget::checkPinnedBarState() {
 		? (currentPinnedId.msg - ServerMaxMsgId)
 		: currentPinnedId.msg;
 	if (universalPinnedId == hiddenId) {
+		_pinnedTracker->reset();
+		_list->setShownPinned(nullptr);
 		if (_pinnedBar) {
-			_pinnedBar->setContent(rpl::single(Ui::MessageBarContent()));
-			_pinnedTracker->reset();
-			_list->setShownPinned(nullptr);
-			_hidingPinnedBar = base::take(_pinnedBar);
-			const auto raw = _hidingPinnedBar.get();
-			base::call_delayed(st::defaultMessageBar.duration, this, [=] {
-				if (_hidingPinnedBar.get() == raw) {
-					clearHidingPinnedBar();
-				}
-			});
+			_hidingPinnedBar = std::move(_pinnedBar);
+			_hidingPinnedBar->finishAnimating();
+			clearHidingPinnedBar();
 		}
+		const auto topDelta = _preserveScrollTop ? 0 : -_pinnedBarHeight;
+		_topDelta = topDelta;
+		_pinnedBarHeight = 0;
+		updateHistoryGeometry();
+		updateControlsGeometry();
+		_topDelta = 0;
 		return;
 	}
 	if (_pinnedBar || !universalPinnedId) {
