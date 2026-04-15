@@ -8063,8 +8063,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_MessageBubbleRadius" = "消息气泡圆角";
 "ayu_SettingsWideMultiplier" = "扩展消息宽度";
 "ayu_SettingsWideMultiplierDescription" = "你可以调整消息宽度，以在超宽显示器上获得更好的显示效果。";
+"ayu_WideScreenMessagesLeftAligned" = "宽屏时消息左对齐";
 "ayu_UnlimitedRightColumnWidth" = "取消右侧栏宽度限制";
 "ayu_StickerPanelScale" = "贴纸大小倍率";
+"ayu_ShowMediaMetadata" = "显示媒体元数据";
+"ayu_ContextToSharedMedia" = "转到媒体";
+"ayu_PinnedBarHidden" = "置顶消息已隐藏，点击可重新显示。";
+"ayu_ShowPinnedMessages" = "显示置顶消息";
 "ayu_SettingsSpoofWebviewAsAndroid" = "伪装为安卓客户端";
 "ayu_SettingsBiggerWindow" = "更大的窗口";
 "ayu_SettingsIncreaseWebviewHeight" = "增加内容高度";

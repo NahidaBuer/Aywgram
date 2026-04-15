@@ -266,8 +266,10 @@ public:
 	[[nodiscard]] int messageBubbleRadius() const { return _messageBubbleRadius.current(); }
 	[[nodiscard]] bool disableOpenLinkWarning() const { return _disableOpenLinkWarning.current(); }
 	[[nodiscard]] double wideMultiplier() const { return _wideMultiplier.current(); }
+	[[nodiscard]] bool wideScreenMessagesLeftAligned() const { return _wideScreenMessagesLeftAligned.current(); }
 	[[nodiscard]] bool unlimitedRightColumnWidth() const { return _unlimitedRightColumnWidth.current(); }
 	[[nodiscard]] double stickerPanelScale() const { return _stickerPanelScale.current(); }
+	[[nodiscard]] bool showMediaMetadata() const { return _showMediaMetadata.current(); }
 	[[nodiscard]] bool spoofWebviewAsAndroid() const { return _spoofWebviewAsAndroid.current(); }
 	[[nodiscard]] bool increaseWebviewHeight() const { return _increaseWebviewHeight.current(); }
 	[[nodiscard]] bool increaseWebviewWidth() const { return _increaseWebviewWidth.current(); }
@@ -352,8 +354,10 @@ public:
 	void setMessageBubbleRadius(int val);
 	void setDisableOpenLinkWarning(bool val);
 	void setWideMultiplier(double val);
+	void setWideScreenMessagesLeftAligned(bool val);
 	void setUnlimitedRightColumnWidth(bool val);
 	void setStickerPanelScale(double val);
+	void setShowMediaMetadata(bool val);
 	void setSpoofWebviewAsAndroid(bool val);
 	void setIncreaseWebviewHeight(bool val);
 	void setIncreaseWebviewWidth(bool val);
@@ -457,10 +461,14 @@ public:
 	[[nodiscard]] rpl::producer<bool> disableOpenLinkWarningChanges() const { return _disableOpenLinkWarning.changes(); }
 	[[nodiscard]] rpl::producer<double> wideMultiplierValue() const { return _wideMultiplier.value(); }
 	[[nodiscard]] rpl::producer<double> wideMultiplierChanges() const { return _wideMultiplier.changes(); }
+	[[nodiscard]] rpl::producer<bool> wideScreenMessagesLeftAlignedValue() const { return _wideScreenMessagesLeftAligned.value(); }
+	[[nodiscard]] rpl::producer<bool> wideScreenMessagesLeftAlignedChanges() const { return _wideScreenMessagesLeftAligned.changes(); }
 	[[nodiscard]] rpl::producer<bool> unlimitedRightColumnWidthValue() const { return _unlimitedRightColumnWidth.value(); }
 	[[nodiscard]] rpl::producer<bool> unlimitedRightColumnWidthChanges() const { return _unlimitedRightColumnWidth.changes(); }
 	[[nodiscard]] rpl::producer<double> stickerPanelScaleValue() const { return _stickerPanelScale.value(); }
 	[[nodiscard]] rpl::producer<double> stickerPanelScaleChanges() const { return _stickerPanelScale.changes(); }
+	[[nodiscard]] rpl::producer<bool> showMediaMetadataValue() const { return _showMediaMetadata.value(); }
+	[[nodiscard]] rpl::producer<bool> showMediaMetadataChanges() const { return _showMediaMetadata.changes(); }
 	[[nodiscard]] rpl::producer<bool> spoofWebviewAsAndroidValue() const { return _spoofWebviewAsAndroid.value(); }
 	[[nodiscard]] rpl::producer<bool> spoofWebviewAsAndroidChanges() const { return _spoofWebviewAsAndroid.changes(); }
 	[[nodiscard]] rpl::producer<bool> increaseWebviewHeightValue() const { return _increaseWebviewHeight.value(); }
@@ -619,8 +627,10 @@ private:
 	rpl::variable<int> _messageBubbleRadius = 16;
 	rpl::variable<bool> _disableOpenLinkWarning = false;
 	rpl::variable<double> _wideMultiplier = 1.0;
+	rpl::variable<bool> _wideScreenMessagesLeftAligned = true;
 	rpl::variable<bool> _unlimitedRightColumnWidth = true;
 	rpl::variable<double> _stickerPanelScale = 1.0;
+	rpl::variable<bool> _showMediaMetadata = false;
 	rpl::variable<bool> _spoofWebviewAsAndroid = false;
 	rpl::variable<bool> _increaseWebviewHeight = false;
 	rpl::variable<bool> _increaseWebviewWidth = false;

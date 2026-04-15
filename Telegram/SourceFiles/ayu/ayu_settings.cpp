@@ -604,6 +604,14 @@ void AyuSettings::setWideMultiplier(double val) {
 	save();
 }
 
+void AyuSettings::setWideScreenMessagesLeftAligned(bool val) {
+	if (_wideScreenMessagesLeftAligned.current() == val) return;
+	_wideScreenMessagesLeftAligned = val;
+	Core::App().settings().setAdaptiveForWide(val);
+	Core::App().saveSettingsDelayed();
+	save();
+}
+
 void AyuSettings::setUnlimitedRightColumnWidth(bool val) {
 	if (_unlimitedRightColumnWidth.current() == val) return;
 	_unlimitedRightColumnWidth = val;
@@ -613,6 +621,12 @@ void AyuSettings::setUnlimitedRightColumnWidth(bool val) {
 void AyuSettings::setStickerPanelScale(double val) {
 	if (_stickerPanelScale.current() == val) return;
 	_stickerPanelScale = val;
+	save();
+}
+
+void AyuSettings::setShowMediaMetadata(bool val) {
+	if (_showMediaMetadata.current() == val) return;
+	_showMediaMetadata = val;
 	save();
 }
 
@@ -1061,8 +1075,10 @@ void to_json(nlohmann::json &j, const AyuSettings &s) {
 		{"messageBubbleRadius", s._messageBubbleRadius.current()},
 		{"disableOpenLinkWarning", s._disableOpenLinkWarning.current()},
 		{"wideMultiplier", s._wideMultiplier.current()},
+		{"wideScreenMessagesLeftAligned", s._wideScreenMessagesLeftAligned.current()},
 		{"unlimitedRightColumnWidth", s._unlimitedRightColumnWidth.current()},
 		{"stickerPanelScale", s._stickerPanelScale.current()},
+		{"showMediaMetadata", s._showMediaMetadata.current()},
 		{"spoofWebviewAsAndroid", s._spoofWebviewAsAndroid.current()},
 		{"increaseWebviewHeight", s._increaseWebviewHeight.current()},
 		{"increaseWebviewWidth", s._increaseWebviewWidth.current()},
@@ -1163,8 +1179,10 @@ void from_json(const nlohmann::json &j, AyuSettings &s) {
 	s._messageBubbleRadius = j.value("messageBubbleRadius", defaults._messageBubbleRadius.current());
 	s._disableOpenLinkWarning = j.value("disableOpenLinkWarning", defaults._disableOpenLinkWarning.current());
 	s._wideMultiplier = j.value("wideMultiplier", defaults._wideMultiplier.current());
+	s._wideScreenMessagesLeftAligned = j.value("wideScreenMessagesLeftAligned", defaults._wideScreenMessagesLeftAligned.current());
 	s._unlimitedRightColumnWidth = j.value("unlimitedRightColumnWidth", defaults._unlimitedRightColumnWidth.current());
 	s._stickerPanelScale = j.value("stickerPanelScale", defaults._stickerPanelScale.current());
+	s._showMediaMetadata = j.value("showMediaMetadata", defaults._showMediaMetadata.current());
 	s._spoofWebviewAsAndroid = j.value("spoofWebviewAsAndroid", defaults._spoofWebviewAsAndroid.current());
 	s._increaseWebviewHeight = j.value("increaseWebviewHeight", defaults._increaseWebviewHeight.current());
 	s._increaseWebviewWidth = j.value("increaseWebviewWidth", defaults._increaseWebviewWidth.current());

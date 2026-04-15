@@ -320,10 +320,22 @@ void BuildWideMessagesMultiplier(
 	builder.addSkip();
 
 	ayu.addSettingToggle({
+		.id = u"ayu/wideScreenMessagesLeftAligned"_q,
+		.title = tr::ayu_WideScreenMessagesLeftAligned(),
+		.getter = &AyuSettings::wideScreenMessagesLeftAligned,
+		.setter = &AyuSettings::setWideScreenMessagesLeftAligned,
+	});
+	ayu.addSettingToggle({
 		.id = u"ayu/unlimitedRightColumnWidth"_q,
 		.title = tr::ayu_UnlimitedRightColumnWidth(),
 		.getter = &AyuSettings::unlimitedRightColumnWidth,
 		.setter = &AyuSettings::setUnlimitedRightColumnWidth,
+	});
+	ayu.addSettingToggle({
+		.id = u"ayu/showMediaMetadata"_q,
+		.title = tr::ayu_ShowMediaMetadata(),
+		.getter = &AyuSettings::showMediaMetadata,
+		.setter = &AyuSettings::setShowMediaMetadata,
 	});
 }
 
