@@ -62,6 +62,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_peer_menu.h"
 #include "window/notifications_manager.h"
 #include "info/info_memento.h"
+#include "info/info_controller.h"
+#include "info/media/info_media_widget.h"
 #include "info/statistics/info_statistics_widget.h"
 #include "boxes/about_sponsored_box.h"
 #include "boxes/delete_messages_box.h"
@@ -115,6 +117,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_changes.h"
 #include "data/data_poll.h"
 #include "data/data_todo_list.h"
+#include "storage/storage_shared_media.h"
 #include "dialogs/ui/dialogs_video_userpic.h"
 #include "styles/style_chat.h"
 #include "styles/style_chat_helpers.h"
@@ -141,6 +144,31 @@ namespace {
 constexpr auto kScrollDateHideTimeout = 800;
 constexpr auto kUnloadHeavyPartsPages = 2;
 constexpr auto kClearUserpicsAfter = 50;
+constexpr auto kSharedMediaJumpIdsLimit = 40;
+
+std::optional<Storage::SharedMediaType> SharedMediaTypeForItem(
+		not_null<HistoryItem*> item) {
+	using Type = Storage::SharedMediaType;
+
+	const auto types = item->sharedMediaTypes();
+	for (const auto type : {
+			Type::Photo,
+			Type::Video,
+			Type::File,
+			Type::MusicFile,
+			Type::VoiceFile,
+			Type::RoundVoiceFile,
+			Type::GIF,
+			Type::RoundFile,
+			Type::Link,
+			Type::Poll,
+		}) {
+		if (types.test(type)) {
+			return type;
+		}
+	}
+	return std::nullopt;
+}
 
 // Helper binary search for an item in a list that is not completely
 // above the given top of the visible area or below the given bottom of the visible area
@@ -2863,6 +2891,31 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 
 		AyuUi::AddHistoryAction(_menu, item);
 		AyuUi::AddHideMessageAction(_menu, item);
+		if (const auto type = SharedMediaTypeForItem(item)) {
+			_menu->addAction(
+				tr::ayu_ContextToSharedMedia(tr::now),
+				crl::guard(controller, [=] {
+					auto memento = item->topic()
+						? std::make_shared<Info::Memento>(
+							item->topic(),
+							Info::Section(*type))
+						: item->savedSublist()
+						? std::make_shared<Info::Memento>(
+							item->savedSublist(),
+							Info::Section(*type))
+						: std::make_shared<Info::Memento>(
+							item->history()->peer,
+							Info::Section(*type));
+					if (const auto media = dynamic_cast<Info::Media::Memento*>(
+							memento->content().get())) {
+						media->setAroundId(item->fullId());
+						media->setIdsLimit(kSharedMediaJumpIdsLimit);
+						media->setJumpToMessageId(item->id);
+					}
+					controller->showSection(std::move(memento));
+				}),
+				&st::menuIconShowInChat);
+		}
 		AyuUi::AddUserMessagesAction(_menu, item);
 		AyuUi::AddMessageDetailsAction(_menu, item);
 	};

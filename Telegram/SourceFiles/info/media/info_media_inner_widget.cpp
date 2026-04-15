@@ -176,6 +176,9 @@ void InnerWidget::saveState(not_null<Memento*> memento) {
 
 void InnerWidget::restoreState(not_null<Memento*> memento) {
 	_list->restoreState(memento);
+	if (const auto id = memento->jumpToMessageId()) {
+		jumpToMessage(id);
+	}
 }
 
 rpl::producer<SelectedItems> InnerWidget::selectedListValue() const {

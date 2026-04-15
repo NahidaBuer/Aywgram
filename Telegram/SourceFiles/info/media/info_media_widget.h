@@ -63,6 +63,12 @@ public:
 	[[nodiscard]] int idsLimit() const {
 		return _idsLimit;
 	}
+	void setJumpToMessageId(MsgId id) {
+		_jumpToMessageId = id;
+	}
+	[[nodiscard]] MsgId jumpToMessageId() const {
+		return _jumpToMessageId;
+	}
 
 	void setScrollTopItem(GlobalMsgId item) {
 		_scrollTopItem = item;
@@ -100,6 +106,7 @@ private:
 	Type _type = Type::Photo;
 	FullMsgId _aroundId;
 	int _idsLimit = 0;
+	MsgId _jumpToMessageId = 0;
 	int64 _scrollTopItemPosition = 0;
 	GlobalMsgId _scrollTopItem;
 	int _scrollTopShift = 0;

@@ -29,7 +29,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/media/history_view_save_document_action.h"
 #include "history/view/media/history_view_web_page.h"
 #include "history/view/reactions/history_view_reactions_list.h"
+#include "info/info_controller.h"
 #include "info/info_memento.h"
+#include "info/media/info_media_widget.h"
 #include "info/profile/info_profile_widget.h"
 #include "ui/widgets/popup_menu.h"
 #include "ui/widgets/menu/menu_action.h"
@@ -87,6 +89,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/platform/base_platform_info.h"
 #include "base/call_delayed.h"
 #include "settings/sections/settings_premium.h"
+#include "storage/storage_shared_media.h"
 #include "window/window_peer_menu.h"
 #include "window/window_controller.h"
 #include "window/window_session_controller.h"
@@ -951,6 +954,74 @@ bool AddGoToMessageAction(
 	return true;
 }
 
+constexpr auto kSharedMediaJumpIdsLimit = 40;
+
+std::optional<Storage::SharedMediaType> SharedMediaTypeForItem(
+		not_null<HistoryItem*> item) {
+	using Type = Storage::SharedMediaType;
+
+	const auto types = item->sharedMediaTypes();
+	for (const auto type : {
+			Type::Photo,
+			Type::Video,
+			Type::File,
+			Type::MusicFile,
+			Type::VoiceFile,
+			Type::RoundVoiceFile,
+			Type::GIF,
+			Type::RoundFile,
+			Type::Link,
+			Type::Poll,
+		}) {
+		if (types.test(type)) {
+			return type;
+		}
+	}
+	return std::nullopt;
+}
+
+bool AddGoToSharedMediaAction(
+		not_null<Ui::PopupMenu*> menu,
+		const ContextMenuRequest &request,
+		not_null<ListWidget*> list) {
+	const auto context = list->elementContext();
+	const auto item = request.item;
+	if (!item
+		|| !item->isRegular()
+		|| context != Context::History) {
+		return false;
+	}
+	const auto type = SharedMediaTypeForItem(item);
+	if (!type) {
+		return false;
+	}
+	const auto controller = list->controller();
+	menu->addAction(
+		tr::ayu_ContextToSharedMedia(tr::now),
+		crl::guard(controller, [=] {
+			auto memento = item->topic()
+				? std::make_shared<Info::Memento>(
+					item->topic(),
+					Info::Section(*type))
+				: item->savedSublist()
+				? std::make_shared<Info::Memento>(
+					item->savedSublist(),
+					Info::Section(*type))
+				: std::make_shared<Info::Memento>(
+					item->history()->peer,
+					Info::Section(*type));
+			if (const auto media = dynamic_cast<Info::Media::Memento*>(
+					memento->content().get())) {
+				media->setAroundId(item->fullId());
+				media->setIdsLimit(kSharedMediaJumpIdsLimit);
+				media->setJumpToMessageId(item->id);
+			}
+			controller->showSection(std::move(memento));
+		}),
+		&st::menuIconShowInChat);
+	return true;
+}
+
 void AddSendNowAction(
 		not_null<Ui::PopupMenu*> menu,
 		const ContextMenuRequest &request,
@@ -1160,6 +1231,7 @@ void AddTopMessageActions(
 		const ContextMenuRequest &request,
 		not_null<ListWidget*> list) {
 	AddGoToMessageAction(menu, request, list);
+	AddGoToSharedMediaAction(menu, request, list);
 	AddViewRepliesAction(menu, request, list);
 	AddEditMessageAction(menu, request, list);
 	AddFactcheckAction(menu, request, list);
