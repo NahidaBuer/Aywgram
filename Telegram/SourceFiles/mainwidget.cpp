@@ -2909,9 +2909,10 @@ void MainWidget::updateWindowAdaptiveLayout() {
 
 	Core::App().settings().updateDialogsWidthRatio(dialogsWidthRatio, nochat);
 
+	const auto forceDisplayWide = _controller->chatsForceDisplayWide();
 	auto useSmallColumnWidth = !isOneColumn()
 		&& !dialogsWidthRatio
-		&& !_controller->chatsForceDisplayWide();
+		&& !forceDisplayWide;
 	_dialogsWidth = !_dialogs
 		? 0
 		: useSmallColumnWidth

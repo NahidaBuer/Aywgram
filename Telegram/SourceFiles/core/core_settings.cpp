@@ -969,7 +969,7 @@ void Settings::addFromSerialized(const QByteArray &serialized) {
 	} else if (!_proxy.setFromSerialized(proxy)) {
 		return;
 	}
-	_adaptiveForWide = (adaptiveForWide == 1);
+	_adaptiveForWide = AyuSettings::getInstance().wideScreenMessagesLeftAligned();
 	_moderateModeEnabled = (moderateModeEnabled == 1);
 	_songVolume = std::clamp(songVolume / 1e6, 0., 1.);
 	_videoVolume = std::clamp(videoVolume / 1e6, 0., 1.);
