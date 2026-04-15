@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "media/player/media_player_widget.h"
 
+#include "ayu/ayu_settings.h"
 #include "platform/platform_specific.h"
 #include "data/data_document.h"
 #include "data/data_session.h"
@@ -42,6 +43,51 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 namespace Media {
 namespace Player {
+namespace {
+
+[[nodiscard]] QString FormatMediaDimensions(QSize size) {
+	return size.isEmpty()
+		? QString()
+		: (QString::number(size.width())
+			+ 'x'
+			+ QString::number(size.height()));
+}
+
+[[nodiscard]] QString FormatAverageBitrate(int64 bytes, crl::time duration) {
+	return (bytes > 0 && duration > 0)
+		? (u"~"_q
+			+ QString::number(qRound(bytes * 8. / duration))
+			+ " kbps avg")
+		: QString();
+}
+
+[[nodiscard]] QString DocumentMetadataText(not_null<DocumentData*> document) {
+	auto parts = QStringList();
+	if (const auto dimensions = FormatMediaDimensions(document->dimensions);
+			!dimensions.isEmpty()) {
+		parts.push_back(dimensions);
+	}
+	if (const auto video = document->video()) {
+		if (!video->codec.isEmpty()) {
+			parts.push_back(video->codec.toUpper());
+		}
+	}
+	if (!document->mimeString().isEmpty()) {
+		parts.push_back(document->mimeString());
+	}
+	if (const auto bitrate = FormatAverageBitrate(
+			document->size,
+			document->duration());
+			!bitrate.isEmpty()) {
+		parts.push_back(bitrate);
+	}
+	if (document->size > 0) {
+		parts.push_back(Ui::FormatSizeText(document->size));
+	}
+	return parts.join(u" · "_q);
+}
+
+} // namespace
 
 Widget::Widget(
 	QWidget *parent,
@@ -105,6 +151,11 @@ Widget::Widget(
 	_playbackProgress->setInLoadingStateChangedCallback([=](bool loading) {
 		_playbackSlider->setDisabled(loading);
 	});
+	AyuSettings::getInstance().showMediaMetadataChanges(
+	) | rpl::on_next([=] {
+		_lastSongId = AudioMsgId();
+		handleSongChange();
+	}, lifetime());
 	_playbackProgress->setValueChangedCallback([=](float64 value, float64) {
 		_playbackSlider->setValue(value);
 	});
@@ -728,6 +779,12 @@ void Widget::handleSongChange() {
 	} else {
 		textWithEntities = Ui::Text::FormatSongNameFor(document)
 			.textWithEntities(true);
+	}
+	if (AyuSettings::getInstance().showMediaMetadata()) {
+		const auto metadata = DocumentMetadataText(document);
+		if (!metadata.isEmpty()) {
+			textWithEntities.text += u" · "_q + metadata;
+		}
 	}
 	_nameLabel->setMarkedText(textWithEntities);
 	handlePlaylistUpdate();

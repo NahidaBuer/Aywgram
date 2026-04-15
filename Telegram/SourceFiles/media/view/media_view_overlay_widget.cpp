@@ -118,6 +118,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <kurlmimedata.h>
 
 // AyuGram includes
+#include "ayu/ayu_settings.h"
 #include "ayu/features/streamer_mode/streamer_mode.h"
 
 
@@ -163,6 +164,93 @@ constexpr auto kLeftSiblingTextureIndex = 1;
 constexpr auto kRightSiblingTextureIndex = 2;
 constexpr auto kStoriesControlsOpacity = 1.;
 constexpr auto kStorySavePromoDuration = 3 * crl::time(1000);
+
+[[nodiscard]] QString FormatMediaDimensions(QSize size) {
+	return size.isEmpty()
+		? QString()
+		: (QString::number(size.width())
+			+ 'x'
+			+ QString::number(size.height()));
+}
+
+[[nodiscard]] QString FormatAverageBitrate(int64 bytes, crl::time duration) {
+	return (bytes > 0 && duration > 0)
+		? (u"~"_q
+			+ QString::number(qRound(bytes * 8. / duration))
+			+ " kbps avg")
+		: QString();
+}
+
+QString MediaMetadataText(PhotoData *photo, DocumentData *document) {
+	if (!AyuSettings::getInstance().showMediaMetadata()) {
+		return QString();
+	}
+	auto parts = QStringList();
+	if (photo) {
+		if (const auto dimensions = FormatMediaDimensions(
+				QSize(photo->width(), photo->height()));
+				!dimensions.isEmpty()) {
+			parts.push_back(dimensions);
+		}
+		const auto bytes = photo->imageByteSize(Data::PhotoSize::Large);
+		if (bytes > 0) {
+			parts.push_back(Ui::FormatSizeText(bytes));
+		}
+		if (photo->hasVideo()) {
+			auto video = QStringList(u"video"_q);
+			if (const auto duration = photo->extendedMediaVideoDuration()) {
+				video.push_back(Ui::FormatDurationText(*duration));
+			}
+			const auto videoBytes = photo->videoByteSize(
+				Data::PhotoSize::Large);
+			if (videoBytes > 0) {
+				video.push_back(Ui::FormatSizeText(videoBytes));
+			}
+			parts.push_back(video.join(' '));
+		}
+	} else if (document) {
+		if (const auto dimensions = FormatMediaDimensions(
+				document->dimensions);
+				!dimensions.isEmpty()) {
+			parts.push_back(dimensions);
+		}
+		if (const auto video = document->video()) {
+			if (!video->codec.isEmpty()) {
+				parts.push_back(video->codec.toUpper());
+			}
+		} else if (const auto song = document->song()) {
+			if (!song->title.isEmpty()) {
+				parts.push_back(song->title);
+			}
+			if (!song->performer.isEmpty()) {
+				parts.push_back(song->performer);
+			}
+		}
+		if (document->size > 0) {
+			parts.push_back(Ui::FormatSizeText(document->size));
+		}
+		if (!document->mimeString().isEmpty()) {
+			parts.push_back(document->mimeString());
+		}
+		if (document->hasDuration()) {
+			parts.push_back(Ui::FormatDurationText(
+				document->duration() / crl::time(1000)));
+		}
+		if (const auto bitrate = FormatAverageBitrate(
+				document->size,
+				document->duration());
+				!bitrate.isEmpty()) {
+			parts.push_back(bitrate);
+		}
+		if (document->isSilentVideo()) {
+			parts.push_back(u"silent"_q);
+		}
+		if (document->supportsStreaming()) {
+			parts.push_back(u"streamable"_q);
+		}
+	}
+	return parts.join(u" · "_q);
+}
 
 class PipDelegate final : public Pip::Delegate {
 public:
@@ -1564,6 +1652,10 @@ void OverlayWidget::updateControls() {
 		_dateText += QString(", DC%1").arg(_photo->getDC());
 	} else if (_document) {
 		_dateText += QString(", DC%1").arg(_document->getDC());
+	}
+	if (const auto metadata = MediaMetadataText(_photo, _document);
+			!metadata.isEmpty()) {
+		_dateText += u" · "_q + metadata;
 	}
 	if (!_fromName.isEmpty()) {
 		_fromNameLabel.setText(
