@@ -4,7 +4,8 @@
 
 ![Logo 1](Telegram/Resources/art/ayu/nahida/app.png)
 
-AywGram Desktop 是一个基于 [Telegram Desktop](https://github.com/telegramdesktop/tdesktop) 并集成 AyuGram 改动的非官方 Telegram 桌面客户端。本仓库提供完整源代码，供审阅、构建和改进；它不是 Telegram 官方客户端，也不代表 Telegram 或 AyuGram 项目。
+AywGram Desktop 是一个基于 [Telegram Desktop](https://github.com/telegramdesktop/tdesktop) 并集成 AyuGram 改动的非官方 Telegram 桌面客户端。
+本仓库提供完整源代码，供审阅、构建和改进；它不是 Telegram 官方客户端，也不代表 Telegram 或 AyuGram 项目。
 
 
 ## 项目名称迁移说明
@@ -26,10 +27,9 @@ AywGram Desktop 是一个基于 [Telegram Desktop](https://github.com/telegramde
 - 会话迁移：与 Pyrogram 会话串及 Mithka JSON 备份互操作
 - 还在缓慢增加中...
 
-~~AywGram 是我的个人项目~~
+> ~~AywGram 是我的个人项目~~
 
-功能会随上游同步和本仓库的维护策略变化。请只从本仓库的
-[Releases](../../releases) 获取与本源码对应的发行包；第三方打包渠道不由本仓库维护。
+功能会随上游同步和本仓库的维护策略变化。请只从本仓库的 [Releases](../../releases) 或 [Telegram 频道 @AywGram](https://t.me/AywGram) 获取与源码对应的发行包；第三方打包渠道不由本仓库维护。
 
 ## 构建与文档
 
@@ -46,7 +46,9 @@ AywGram Desktop 是一个基于 [Telegram Desktop](https://github.com/telegramde
 
 ## 许可证与致谢
 
-本项目遵循 [GNU GPLv3](LICENSE)，并保留许可证中对 OpenSSL 链接的特别例外。它派生自 Telegram Desktop，并包含 AyuGram 与多个第三方依赖的代码；各组件的版权声明和许可证仍适用于对应文件。详见 [LEGAL](LEGAL) 以及各依赖目录中的许可证文件。
+本项目遵循 [GNU GPLv3](LICENSE)，并保留许可证中对 OpenSSL 链接的特别例外。
+它派生自 Telegram Desktop，并包含 AyuGram 与多个第三方依赖的代码；各组件的版权声明和许可证仍适用于对应文件。
+详见 [LEGAL](LEGAL) 以及各依赖目录中的许可证文件。
 
 ### Telegram 客户端
 
