@@ -75,7 +75,7 @@ void MessageShotBox::setupContent() {
 
 	AyuFeatures::MessageShot::setShotConfig(_config);
 
-	setTitle(rpl::single(tr::ayu_MessageShotTopBarText(tr::now)));
+	setTitle(tr::ayu_MessageShotTopBarText());
 
 	auto wrap = object_ptr<Ui::VerticalLayout>(this);
 	const auto content = wrap.data();
@@ -177,7 +177,8 @@ void MessageShotBox::setupContent() {
 					const auto isAdmin = info && info->admins.contains(userId);
 					if (isCreator || isAdmin) {
 						const auto rank = info->memberRanks.find(userId);
-						if (rank != info->memberRanks.end() && !rank->second.isEmpty()) {
+						if (rank != info->memberRanks.end()
+							&& !rank->second.isEmpty()) {
 							badgeText = rank->second;
 						} else if (isCreator) {
 							badgeText = tr::lng_owner_badge(tr::now);
@@ -194,7 +195,10 @@ void MessageShotBox::setupContent() {
 				|| !badgeText.isEmpty()
 				|| (item->boostsApplied() > 0);
 		}
-		if (hasReactions && hasReplies && hasSpoilers) {
+		if (hasReactions
+			&& hasReplies
+			&& hasHeaderDecorations
+			&& hasSpoilers) {
 			break;
 		}
 	}
@@ -334,13 +338,14 @@ void MessageShotBox::setupContent() {
 			},
 			content->lifetime());
 	}
-	
+
 	if (hasHeaderDecorations) {
-		AddButtonWithIcon(
+		latestToggle = AddButtonWithIcon(
 			content,
 			tr::ayu_MessageShotShowHeaderDecorations(),
 			st::settingsButtonNoIcon
-		)->toggleOn(rpl::single(shotSettings.showHeaderDecorations())
+		);
+		latestToggle->toggleOn(rpl::single(shotSettings.showHeaderDecorations())
 		)->toggledValue(
 		) | rpl::skip(1) | on_next(
 			[=](bool enabled)

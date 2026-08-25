@@ -63,7 +63,7 @@ void BuildAppIcon(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 		};
 	});
 
-#ifdef Q_OS_WIN
+#if defined Q_OS_WIN || defined Q_OS_MAC
 	builder.addDivider();
 	builder.addSkip();
 	ayu.addSettingToggle({
@@ -204,7 +204,6 @@ void BuildAppearance(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 		.getter = &AyuSettings::disableCustomBackgrounds,
 		.setter = &AyuSettings::setDisableCustomBackgrounds,
 	});
-
 	ayu.addSettingToggle({
 		.id = u"ayu/hidePremiumStatuses"_q,
 		.title = tr::ayu_HidePremiumStatuses(),

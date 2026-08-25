@@ -9,19 +9,29 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 namespace Ui {
 
+inline constexpr auto kBubbleRadiusSliderMin = 0;
+inline constexpr auto kBubbleRadiusSliderMax = 16;
+inline constexpr auto kBubbleRadiusSliderMidpoint
+	= (kBubbleRadiusSliderMin + kBubbleRadiusSliderMax) / 2;
+
+class BubbleRadiusOverride final {
+public:
+	explicit BubbleRadiusOverride(int value);
+	BubbleRadiusOverride(const BubbleRadiusOverride &) = delete;
+	BubbleRadiusOverride &operator=(const BubbleRadiusOverride &) = delete;
+	~BubbleRadiusOverride();
+
+private:
+	int _previous = -1;
+
+};
+
 void SetAppliedBubbleRadius(int value);
-void SetBubbleRadiusOverride(int value);
-void ClearBubbleRadiusOverride();
 
 [[nodiscard]] int BubbleRadiusSmall();
 [[nodiscard]] int BubbleRadiusLarge();
-
-void SetBubbleRadiusOverride(int value);
-void ClearBubbleRadiusOverride();
-
 [[nodiscard]] int MsgFileThumbRadiusSmall();
 [[nodiscard]] int MsgFileThumbRadiusLarge();
-
-extern const char kOptionUseSmallMsgBubbleRadius[];
+[[nodiscard]] bool TakeLegacySmallBubbleRadius();
 
 } // namespace Ui

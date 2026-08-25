@@ -9,7 +9,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "api/api_text_entities.h"
 #include "data/business/data_shortcut_messages.h"
+#include "data/components/ephemeral_messages.h"
 #include "data/components/scheduled_messages.h"
+#include "data/components/welcome_messages.h"
+#include "data/notify/data_notify_settings.h"
 #include "data/data_channel.h"
 #include "data/data_chat.h"
 #include "data/data_document.h"
@@ -34,6 +37,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 // AyuGram includes
 #include "ayu/ayu_settings.h"
 #include "ayu/ayu_worker.h"
+#include "ayu/data/messages_storage.h"
 #include "ayu/utils/telegram_helpers.h"
 
 
@@ -385,6 +389,11 @@ void Histories::requestDialogEntry(not_null<Data::Folder*> folder) {
 void Histories::requestDialogEntry(
 		not_null<History*> history,
 		Fn<void()> callback) {
+	if (const auto channel = history->peer->asChannel()) {
+		if (channel->isCommunity()) {
+			return;
+		}
+	}
 	const auto i = _dialogRequests.find(history);
 	if (i != end(_dialogRequests)) {
 		if (callback) {
@@ -499,6 +508,15 @@ void Histories::applyPeerDialogs(const MTPmessages_PeerDialogs &dialogs) {
 		}, [&](const MTPDdialogFolder &data) {
 			const auto folder = _owner->processFolder(data.vfolder());
 			folder->applyDialog(data);
+		}, [&](const MTPDdialogCommunity &data) {
+			const auto channelId = ChannelId(data.vcommunity_id().v);
+			if (const auto channel = _owner->channelLoaded(channelId)) {
+				if (channel->isCommunity()) {
+					_owner->notifySettings().apply(
+						peerFromChannel(channelId),
+						data.vnotify_settings());
+				}
+			}
 		});
 	}
 	_owner->sendHistoryChangeNotifications();
@@ -976,9 +994,22 @@ void Histories::deleteMessages(const MessageIdsList &ids, bool revoke) {
 					_owner->shortcutMessages().removeSending(item);
 				}
 				continue;
+			} else if (item->isWelcomeTemplate()) {
+				auto &welcome = _owner->session().welcomeMessages();
+				if (item->isSending() || item->hasFailed()) {
+					welcome.removeSending(item);
+				} else {
+					welcome.deleteTemplate(item);
+				}
+				continue;
+			} else if (item->isEphemeral()) {
+				_owner->session().ephemeralMessages().deleteMessage(item);
+				continue;
 			}
 			remove.push_back(item);
-			if (item->isRegular()) {
+			if (item->isDeleted()) {
+				AyuMessages::removeDeletedMessage(item);
+			} else if (item->isRegular()) {
 				idsByPeer[history].push_back(MTP_int(itemId.msg));
 			}
 		}
@@ -1008,6 +1039,9 @@ void Histories::deleteMessages(const MessageIdsList &ids, bool revoke) {
 		document->owner().savedMusic().remove(document);
 	}
 
+	if (!remove.empty()) {
+		_owner->notifyItemsAboutToBeDestroyed(remove);
+	}
 	for (const auto &item : remove) {
 		const auto history = item->history();
 		const auto wasLast = (history->lastMessage() == item);

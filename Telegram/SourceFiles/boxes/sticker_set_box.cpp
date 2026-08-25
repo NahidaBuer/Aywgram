@@ -8,14 +8,19 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/sticker_set_box.h"
 
 #include "api/api_common.h"
+#include "api/api_stickers_creator.h"
 #include "api/api_toggling_media.h"
 #include "apiwrap.h"
+#include "ayu/ayu_settings.h"
 #include "base/unixtime.h"
 #include "boxes/premium_preview_box.h"
+#include "boxes/share_box.h"
+#include "boxes/sticker_creator_box.h"
 #include "chat_helpers/compose/compose_show.h"
 #include "chat_helpers/stickers_list_widget.h"
 #include "chat_helpers/stickers_lottie.h"
 #include "core/application.h"
+#include "core/click_handler_types.h"
 #include "data/data_document.h"
 #include "data/data_document_media.h"
 #include "data/data_file_origin.h"
@@ -52,13 +57,23 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/fields/input_field.h"
 #include "ui/widgets/gradient_round_button.h"
+#include "ui/widgets/labels.h"
+#include "ui/widgets/menu/menu_action.h"
 #include "ui/widgets/menu/menu_add_action_callback.h"
 #include "ui/widgets/menu/menu_add_action_callback_factory.h"
+#include "ui/widgets/menu/menu_multiline_action.h"
+#include "base/event_filter.h"
+#include "chat_helpers/tabbed_panel.h"
+#include "chat_helpers/tabbed_selector.h"
+#include "ui/widgets/inner_dropdown.h"
 #include "ui/widgets/popup_menu.h"
 #include "ui/widgets/scroll_area.h"
 #include "window/window_session_controller.h"
+#include "styles/style_chat.h"
+#include "styles/style_dialogs.h"
 #include "styles/style_layers.h"
 #include "styles/style_chat_helpers.h"
+#include "styles/style_window.h"
 #include "styles/style_info.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_premium.h"
@@ -66,14 +81,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtWidgets/QApplication>
 #include <QtGui/QClipboard>
 #include <QtSvg/QSvgRenderer>
-
-// AyuGram includes
-#include "ayu/ayu_settings.h"
-#include "ayu/utils/telegram_helpers.h"
-#include "styles/style_ayu_styles.h"
-#include "window/window_session_controller.h"
-#include "data/data_user.h"
-
 
 namespace {
 
@@ -295,6 +302,9 @@ public:
 	[[nodiscard]] QString shortName() const;
 	[[nodiscard]] bool isEmojiSet() const;
 	[[nodiscard]] uint64 setId() const;
+	[[nodiscard]] int count() const {
+		return int(_pack.size());
+	}
 
 	void install();
 	void showPreviewForDocument(DocumentId documentId);
@@ -333,6 +343,7 @@ public:
 	}
 
 	void applySet(const TLStickerSet &set);
+	void setOuterContainer(QPointer<QWidget> container);
 
 	~Inner();
 
@@ -389,6 +400,22 @@ private:
 	void setSelected(int selected);
 	void startOverAnimation(int index, float64 from, float64 to);
 	int stickerFromGlobalPos(const QPoint &p) const;
+
+	[[nodiscard]] bool hasAddCell() const;
+	[[nodiscard]] int totalCellsCount() const;
+	[[nodiscard]] QRect addCellRect() const;
+	[[nodiscard]] bool addCellFromGlobalPos(const QPoint &p) const;
+	void setAddCellHovered(bool hovered);
+	void paintAddCell(QPainter &p) const;
+	void showAddMenu(QPoint globalPos);
+	void startAddExistingStickerFlow();
+	void startCreateNewStickerFlow();
+	void startAddExistingEmojiFlow();
+	void startCreateNewEmojiFlow();
+	void startAdaptStickerToEmojiFlow();
+	[[nodiscard]] ChatHelpers::TabbedPanel *createPickerPanel(
+		ChatHelpers::TabbedSelector::Mode mode,
+		uint64 excludeSetId);
 
 	void installDone(const MTPmessages_StickerSetInstallResult &result);
 
@@ -473,6 +500,8 @@ private:
 	mtpRequestId _installRequest = 0;
 
 	int _selected = -1;
+	bool _addCellHovered = false;
+	bool _addCellPressed = false;
 
 	base::Timer _previewTimer;
 	int _previewShown = -1;
@@ -480,6 +509,8 @@ private:
 	bool _previewLocked = false;
 
 	base::unique_qptr<Ui::PopupMenu> _menu;
+	base::unique_qptr<ChatHelpers::TabbedPanel> _pickerPanel;
+	QPointer<QWidget> _outerContainer;
 
 	rpl::event_stream<uint64> _setInstalled;
 	rpl::event_stream<uint64> _setArchived;
@@ -528,11 +559,13 @@ base::weak_qptr<Ui::BoxContent> StickerSetBox::Show(
 }
 
 void StickerSetBox::prepare() {
+	setStyle(st::stickerSetBox);
 	setTitle(tr::lng_contacts_loading());
 
 	_inner = setInnerWidget(
 		object_ptr<Inner>(this, _show, _set, _type),
 		st::stickersScroll);
+	_inner->setOuterContainer(getDelegate()->outerContainer());
 	if (const auto previewId = base::take(_previewDocumentId)) {
 		_inner->showPreviewForDocument(previewId);
 	}
@@ -558,7 +591,11 @@ void StickerSetBox::prepare() {
 	_inner->setInstalled(
 	) | rpl::on_next([=](uint64 setId) {
 		if (_inner->setType() == Data::StickersType::Masks) {
-			showToast(tr::lng_masks_installed(tr::now));
+			showToast({
+				.text = { tr::lng_masks_installed(tr::now) },
+				.iconLottie = u"toast/contact_check"_q,
+				.iconLottieSize = st::toastLottieIconSize,
+			});
 		} else if (_inner->setType() == Data::StickersType::Emoji) {
 			auto &stickers = _session->data().stickers();
 			stickers.notifyEmojiSetInstalled(setId);
@@ -738,18 +775,107 @@ void ChangeSetNameBox(
 
 void StickerSetBox::updateButtons() {
 	clearButtons();
+	addTopButton(st::boxTitleClose, [=] { closeBox(); });
 	if (_inner->reorderState()) {
 		addButton(tr::lng_box_done(), [=] {
 			_inner->setReorderState(false);
 			updateButtons();
-		});
+		})->setFullRadius(true);
 	} else if (_inner->loaded()) {
 		const auto type = _inner->setType();
 		const auto share = [=] {
+			const auto part = _inner->isEmojiSet()
+				? u"addemoji"_q
+				: u"addstickers"_q;
+			FastShareLink(
+				_show,
+				_session->createInternalLinkFull(
+					part + '/' + _inner->shortName()));
+		};
+		const auto copyLink = [=] {
 			copyStickersLink();
-			showToast(type == Data::StickersType::Emoji
+			showToast({
+				.text = { type == Data::StickersType::Emoji
 					? tr::lng_stickers_copied_emoji(tr::now)
-					: tr::lng_stickers_copied(tr::now));
+					: tr::lng_stickers_copied(tr::now) },
+				.iconLottie = u"toast/voip_invite"_q,
+				.iconLottieSize = st::toastLottieIconSize,
+			});
+		};
+		const auto addTextWithBadge = [&](
+				Ui::RoundButton *button,
+				const QString &text,
+				const style::RoundButton &buttonSt,
+				const style::color &badgeFg,
+				const style::color &badgeBg) {
+			if (!button) {
+				return;
+			}
+			const auto count = _inner->count();
+			const auto countText = QString::number(count);
+			const auto badgeFont = st::mainMenuBadgeFont;
+			const auto badgePadding = st::dialogsUnreadPadding;
+			const auto badgeHeight = st::mainMenuBadgeSize;
+			const auto cap = badgeFont->metrics().capHeight();
+			const auto badgeWidth = (count > 0)
+				? std::max(
+					badgeFont->width(countText) + 2 * badgePadding,
+					badgeHeight)
+				: 0;
+			const auto skip = (count > 0)
+				? st::stickerSetBoxBadgeSkip
+				: 0;
+			const auto font = buttonSt.style.font;
+			const auto textWidth = font->width(text);
+			const auto baseline = buttonSt.textTop + font->ascent;
+			const auto badgeTop = int(
+				std::round(baseline - (badgeHeight + cap) / 2.));
+			const auto content = Ui::CreateChild<Ui::RpWidget>(button);
+			content->setAttribute(Qt::WA_TransparentForMouseEvents);
+			content->resize(textWidth + skip + badgeWidth, buttonSt.height);
+			content->show();
+			base::install_event_filter(content, button, [=](
+					not_null<QEvent*> e) {
+				const auto type = e->type();
+				if (type == QEvent::Enter
+					|| type == QEvent::Leave
+					|| type == QEvent::MouseButtonPress
+					|| type == QEvent::MouseButtonRelease) {
+					content->update();
+				}
+				return base::EventFilterResult::Continue;
+			});
+			content->paintRequest() | rpl::on_next([=] {
+				auto p = Painter(content);
+				const auto active = button->isOver() || button->isDown();
+				p.setFont(font);
+				p.setPen(active ? buttonSt.textFgOver : buttonSt.textFg);
+				p.drawText(QPointF(0., qreal(baseline)), text);
+				if (badgeWidth > 0) {
+					auto hq = PainterHighQualityEnabler(p);
+					const auto rect = QRectF(
+						textWidth + skip,
+						badgeTop,
+						badgeWidth,
+						badgeHeight);
+					const auto radius = rect.height() / 2.;
+					p.setPen(Qt::NoPen);
+					p.setBrush(badgeBg);
+					p.drawRoundedRect(rect, radius, radius);
+					p.setFont(badgeFont);
+					p.setPen(badgeFg);
+					const auto exact = badgeFont->metrics(
+					).horizontalAdvance(countText);
+					p.drawText(
+						QPointF(
+							rect.x() + (rect.width() - exact) / 2.,
+							qreal(baseline)),
+						countText);
+				}
+			}, content->lifetime());
+			button->widthValue() | rpl::on_next([=](int width) {
+				content->moveToLeft((width - content->width()) / 2, 0);
+			}, content->lifetime());
 		};
 		const auto fillSetCreatorMenu = [&] {
 			using Filler = Fn<void(not_null<Ui::PopupMenu*>)>;
@@ -779,78 +905,98 @@ void StickerSetBox::updateButtons() {
 					&st::menuIconReorder);
 			});
 		}();
-		const auto addPackIdActions = [=](const std::shared_ptr<base::unique_qptr<Ui::PopupMenu>> &menu)
-		{
-			if (type == Data::StickersType::Stickers || type == Data::StickersType::Emoji) {
-				const auto &settings = AyuSettings::getInstance();
-				const auto weak = base::make_weak(this);
-				const auto session = _session;
-				const auto setId = _inner->setId();
-				const auto innerId = setId >> 32;
-
-				(*menu)->addAction(
-					tr::ayu_MessageDetailsPackOwnerPC(tr::now),
-					[weak, session, innerId]
-					{
-						if (!weak) {
-							return;
-						}
-
-						const auto strong = weak.get();
-						if (!strong) {
-							return;
-						}
-
-						searchUserById(
-							innerId,
-							session,
-							[session, weak, innerId](const QString &username, PeerData *user)
-							{
-								if (!weak) {
-									return;
-								}
-
-								const auto strongInner = weak.get();
-								if (!strongInner) {
-									return;
-								}
-
-								if (!user) {
-									QGuiApplication::clipboard()->setText(QString::number(innerId));
-									strongInner->showToast(tr::ayu_IDCopiedToast(tr::now));
-									return;
-								}
-
-								if (const auto window = session->tryResolveWindow()) {
-									if (const auto mainWidget = window->widget()->sessionController()) {
-										mainWidget->showPeer(user);
-									}
-								}
-							});
-					},
-					&st::menuIconProfile);
-
-				if (settings.showPeerId() != PeerIdDisplay::Hidden) {
-					(*menu)->addAction(
-						tr::ayu_ContextCopyID(tr::now),
-						[weak, setId]
-						{
-							if (!weak) {
-								return;
-							}
-
-							const auto strongInner = weak.get();
-							if (!strongInner) {
-								return;
-							}
-
-							QGuiApplication::clipboard()->setText(QString::number(setId));
-							strongInner->showToast(tr::ayu_IDCopiedToast(tr::now));
-						},
-						&st::menuIconCopy);
-				}
+		const auto fillSetCreatorFooter = [&] {
+			using Filler = Fn<void(not_null<Ui::PopupMenu*>)>;
+			if (!_inner->amSetCreator()) {
+				return Filler(nullptr);
 			}
-		};
+			const auto data = &_session->data();
+			return Filler([=, show = _show, set = _set](
+					not_null<Ui::PopupMenu*> menu) {
+				const auto weak = base::weak_qptr<StickerSetBox>(this);
+				const auto deleteEveryone = [=] {
+					const auto confirm = [=](Fn<void()> close) {
+						Api::DeleteStickerSet(
+							&data->session(),
+							set,
+							[=] {
+								if (const auto strong = weak.get()) {
+									strong->closeBox();
+								}
+							},
+							[=](const QString &error) {
+								show->showToast(error);
+							});
+						close();
+					};
+					show->showBox(Ui::MakeConfirmBox({
+						.text = tr::lng_stickers_delete_pack_sure(tr::now),
+						.confirmed = confirm,
+						.confirmText
+							= tr::lng_stickers_remove_pack_confirm(),
+						.confirmStyle = &st::attentionBoxButton,
+					}));
+				};
+				const auto deleteSelf = [show, inner = _inner] {
+					const auto raw = inner.data();
+					if (!raw) {
+						return;
+					}
+					auto box = ChatHelpers::MakeConfirmRemoveSetBox(
+						&show->session(),
+						st::boxLabel,
+						raw->setId());
+					if (box) {
+						show->showBox(std::move(box));
+					}
+				};
+				const auto deleteAction = menu->addAction(
+					base::make_unique_q<Ui::Menu::Action>(
+						menu->menu(),
+						st::menuWithIconsAttention,
+						Ui::Menu::CreateAction(
+							menu->menu().get(),
+							tr::lng_stickers_context_delete_pack(tr::now),
+							nullptr),
+						&st::menuIconDeleteAttention,
+						&st::menuIconDeleteAttention));
+				deleteAction->setMenu(
+					Ui::CreateChild<QMenu>(menu->menu().get()));
+				const auto sub = menu->ensureSubmenu(
+					deleteAction,
+					st::popupMenuWithIcons);
+				const auto addSub = Ui::Menu::CreateAddActionCallback(sub);
+				addSub({
+					.text = tr::lng_stickers_context_delete_pack_everyone(
+						tr::now),
+					.handler = deleteEveryone,
+					.icon = &st::menuIconDeleteAttention,
+					.isAttention = true,
+				});
+				sub->addAction(
+					tr::lng_stickers_context_delete_pack_self(tr::now),
+					deleteSelf,
+					&st::menuIconRemove);
+				menu->addSeparator(&st::expandedMenuSeparator);
+				auto item = base::make_unique_q<Ui::Menu::MultilineAction>(
+					menu->menu(),
+					st::defaultMenu,
+					st::historyHasCustomEmoji,
+					QPoint(
+						st::defaultMenu.itemPadding.left(),
+						st::defaultMenu.itemPadding.top()),
+					tr::lng_stickers_bot_more_options(
+						tr::now,
+						lt_bot,
+						Ui::Text::Colorized(tr::bold(u"@stickers"_q)),
+						Ui::Text::RichLangValue));
+				item->clicks(
+				) | rpl::on_next([] {
+					UrlClickHandler::Open(u"https://t.me/stickers"_q);
+				}, item->lifetime());
+				menu->addAction(std::move(item));
+			});
+		}();
 		if (_inner->notInstalled()) {
 			if (!_session->premium()
 				&& _session->premiumPossible()
@@ -870,95 +1016,124 @@ void StickerSetBox::updateButtons() {
 				});
 				addButton(std::move(button));
 			} else {
-				auto addText = (type == Data::StickersType::Emoji)
-					? tr::lng_stickers_add_emoji()
+				const auto addText = ((type == Data::StickersType::Emoji)
+					? tr::lng_stickers_add_emoji
 					: (type == Data::StickersType::Masks)
-					? tr::lng_stickers_add_masks()
-					: tr::lng_stickers_add_pack();
-				addButton(std::move(addText), [=] { addStickers(); });
-				addButton(tr::lng_cancel(), [=] { closeBox(); });
+					? tr::lng_stickers_add_masks
+					: tr::lng_stickers_add_pack)(tr::now);
+				const auto add = addButton(
+					rpl::single(QString()),
+					[=] { addStickers(); });
+				add->setFullRadius(true);
+				addTextWithBadge(
+					add.data(),
+					addText,
+					st::stickerSetBox.button,
+					st::activeButtonBg,
+					st::activeButtonFg);
 			}
-
-			if (!_inner->shortName().isEmpty()) {
-				const auto top = addTopButton(st::infoTopBarMenu);
-				const auto menu
-					= std::make_shared<base::unique_qptr<Ui::PopupMenu>>();
-				top->setClickedCallback([=] {
-					*menu = base::make_unique_q<Ui::PopupMenu>(
-						top,
-						st::popupMenuWithIcons);
-					if (fillSetCreatorMenu) {
-						fillSetCreatorMenu(*menu);
-					}
-					(*menu)->addAction(
-						((type == Data::StickersType::Emoji)
-							? tr::lng_stickers_share_emoji
-							: (type == Data::StickersType::Masks)
-							? tr::lng_stickers_share_masks
-							: tr::lng_stickers_share_pack)(tr::now),
-						[=] { share(); closeBox(); },
-						&st::menuIconShare);
-					addPackIdActions(menu);
-					(*menu)->popup(QCursor::pos());
-					return true;
-				});
-			}
-		} else if (_inner->official()) {
-			addButton(tr::lng_about_done(), [=] { closeBox(); });
-		} else {
-			auto shareText = (type == Data::StickersType::Emoji)
-				? tr::lng_stickers_share_emoji()
+		} else if (_inner->amSetCreator()) {
+			auto editText = ((type == Data::StickersType::Emoji)
+				? tr::lng_custom_emoji_edit_pack_button
 				: (type == Data::StickersType::Masks)
-				? tr::lng_stickers_share_masks()
-				: tr::lng_stickers_share_pack();
-			addButton(std::move(shareText), std::move(share));
-			addButton(tr::lng_cancel(), [=] { closeBox(); });
-
-			if (!_inner->shortName().isEmpty()) {
-				const auto top = addTopButton(st::infoTopBarMenu);
-				const auto archive = [=] {
-					_inner->archiveStickers();
-				};
-				const auto remove = [=] {
-					const auto session = &_show->session();
-					auto box = ChatHelpers::MakeConfirmRemoveSetBox(
-						session,
-						st::boxLabel,
-						_inner->setId());
-					if (box) {
-						_show->showBox(std::move(box));
-					}
-				};
-				const auto menu
-					= std::make_shared<base::unique_qptr<Ui::PopupMenu>>();
-				top->setClickedCallback([=] {
-					*menu = base::make_unique_q<Ui::PopupMenu>(
-						top,
-						st::popupMenuWithIcons);
-					if (type == Data::StickersType::Emoji) {
-						(*menu)->addAction(
-							tr::lng_custom_emoji_remove_pack_button(tr::now),
-							remove,
-							&st::menuIconRemove);
-					} else {
-						if (fillSetCreatorMenu) {
-							fillSetCreatorMenu(*menu);
-						}
-						(*menu)->addAction(
-							(type == Data::StickersType::Masks
-								? tr::lng_masks_archive_pack(tr::now)
-								: tr::lng_stickers_archive_pack(tr::now)),
-							archive,
-							&st::menuIconArchive);
-					}
-					addPackIdActions(menu);
-					(*menu)->popup(QCursor::pos());
-					return true;
-				});
-			}
+				? tr::lng_masks_edit_pack_button
+				: tr::lng_stickers_edit_pack_button)();
+			addButton(std::move(editText), [=] {
+				_inner->setReorderState(true);
+				updateButtons();
+			})->setFullRadius(true);
+		} else if (_inner->official()) {
+			addButton(
+				tr::lng_about_done(),
+				[=] { closeBox(); })->setFullRadius(true);
+		} else {
+			const auto removeText = ((type == Data::StickersType::Emoji)
+				? tr::lng_custom_emoji_remove_pack_button
+				: (type == Data::StickersType::Masks)
+				? tr::lng_masks_remove_pack_button
+				: tr::lng_stickers_remove_pack_button)(tr::now);
+			const auto remove = addButton(rpl::single(QString()), [=] {
+				const auto session = &_show->session();
+				auto box = ChatHelpers::MakeConfirmRemoveSetBox(
+					session,
+					st::boxLabel,
+					_inner->setId());
+				if (box) {
+					_show->showBox(std::move(box));
+				}
+			}, st::stickerSetBoxRemoveButton);
+			remove->setFullRadius(true);
+			addTextWithBadge(
+				remove.data(),
+				removeText,
+				st::stickerSetBoxRemoveButton,
+				st::activeButtonFg,
+				st::attentionButtonFg);
 		}
-	} else {
-		addButton(tr::lng_cancel(), [=] { closeBox(); });
+		if (!_inner->shortName().isEmpty()) {
+			const auto installed = !_inner->notInstalled();
+			const auto top = addTopButton(st::stickerSetBoxMenu);
+			const auto menu = top->lifetime().make_state<
+				base::unique_qptr<Ui::PopupMenu>>();
+			top->setClickedCallback([=] {
+				*menu = base::make_unique_q<Ui::PopupMenu>(
+					top,
+					st::popupMenuWithIcons);
+				const auto raw = menu->get();
+				raw->addAction(
+					((type == Data::StickersType::Emoji)
+						? tr::lng_stickers_share_emoji
+						: (type == Data::StickersType::Masks)
+						? tr::lng_stickers_share_masks
+						: tr::lng_stickers_share_pack)(tr::now),
+					share,
+					&st::menuIconShare);
+				raw->addAction(
+					tr::lng_context_copy_link(tr::now),
+					copyLink,
+					&st::menuIconCopy);
+				if (AyuSettings::getInstance().showPeerId()
+						!= PeerIdDisplay::Hidden) {
+					const auto setId = _inner->setId();
+					raw->addAction(
+						tr::ayu_ContextCopyID(tr::now),
+						[=] {
+							QGuiApplication::clipboard()->setText(
+								QString::number(setId));
+							_show->showToast(tr::ayu_IDCopiedToast(tr::now));
+						},
+						&st::menuIconCopy);
+				}
+				if (fillSetCreatorMenu) {
+					fillSetCreatorMenu(raw);
+				}
+				if (installed && type != Data::StickersType::Emoji) {
+					raw->addAction(
+						(type == Data::StickersType::Masks
+							? tr::lng_masks_archive_pack(tr::now)
+							: tr::lng_stickers_archive_pack(tr::now)),
+						[=] { _inner->archiveStickers(); },
+						&st::menuIconArchive);
+				}
+				if (fillSetCreatorFooter) {
+					fillSetCreatorFooter(raw);
+				}
+				raw->setForcedOrigin(
+					Ui::PanelAnimation::Origin::TopRight);
+				top->setForceRippled(true);
+				raw->setDestroyedCallback([top] {
+					crl::on_main(top, [top] {
+						if (const auto strong = top.data()) {
+							strong->setForceRippled(false);
+						}
+					});
+				});
+				raw->popup(top->mapToGlobal(QPoint(
+					top->width(),
+					top->height() - st::lineWidth * 3)));
+				return true;
+			});
+		}
 	}
 	update();
 }
@@ -1095,7 +1270,8 @@ void StickerSetBox::Inner::applySet(const TLStickerSet &set) {
 					& (SetFlag::Featured
 						| SetFlag::NotLoaded
 						| SetFlag::Unread
-						| SetFlag::Special);
+						| SetFlag::Special
+						| SetFlag::Installed);
 				_setFlags |= clientFlags;
 				set->flags = _setFlags;
 				set->installDate = _setInstallDate;
@@ -1112,15 +1288,15 @@ void StickerSetBox::Inner::applySet(const TLStickerSet &set) {
 		_errors.fire(Error::NotFound);
 		return;
 	}
+	_loaded = true;
 	_perRow = isEmojiSet() ? kEmojiPerRow : kStickersPerRow;
-	_rowsCount = (_pack.size() + _perRow - 1) / _perRow;
 	_singleSize = isEmojiSet() ? st::emojiSetSize : st::stickersSize;
+	_rowsCount = (totalCellsCount() + _perRow - 1) / _perRow;
 
 	resize(
 		_padding.left() + _perRow * _singleSize.width(),
 		_padding.top() + _rowsCount * _singleSize.height() + _padding.bottom());
 
-	_loaded = true;
 	if (const auto previewId = base::take(_previewDocumentId)) {
 		showPreviewForDocument(previewId);
 	}
@@ -1249,6 +1425,10 @@ void StickerSetBox::Inner::mousePressEvent(QMouseEvent *e) {
 		return;
 	}
 	if (e->button() != Qt::LeftButton) {
+		return;
+	}
+	if (addCellFromGlobalPos(e->globalPos())) {
+		_addCellPressed = !_dragging.enabled;
 		return;
 	}
 	const auto index = stickerFromGlobalPos(e->globalPos());
@@ -1389,6 +1569,7 @@ void StickerSetBox::Inner::showPreviewForDocument(DocumentId documentId) {
 
 void StickerSetBox::Inner::leaveEventHook(QEvent *e) {
 	setSelected(-1);
+	setAddCellHovered(false);
 }
 
 void StickerSetBox::Inner::requestReorder(
@@ -1481,6 +1662,13 @@ void StickerSetBox::Inner::mouseReleaseEvent(QMouseEvent *e) {
 		_previewShown = -1;
 		return;
 	}
+	if (_addCellPressed) {
+		_addCellPressed = false;
+		if (addCellFromGlobalPos(e->globalPos())) {
+			showAddMenu(e->globalPos());
+		}
+		return;
+	}
 	if (!_previewTimer.isActive()) {
 		return;
 	}
@@ -1499,7 +1687,6 @@ void StickerSetBox::Inner::chosen(
 	const auto animation = options.scheduled
 		? Ui::MessageSendingAnimationFrom()
 		: messageSentAnimationInfo(index, sticker);
-
 	_show->processChosenSticker({
 		.document = sticker,
 		.options = options,
@@ -1552,16 +1739,36 @@ void StickerSetBox::Inner::contextMenuEvent(QContextMenuEvent *e) {
 					QGuiApplication::clipboard()->setMimeData(data.release());
 				}
 			}, &st::menuIconCopy);
-
-			const auto &settings = AyuSettings::getInstance();
-			if (settings.showPeerId() != PeerIdDisplay::Hidden) {
-				_menu->addAction(tr::ayu_ContextCopyID(tr::now),
-								 [=]
-								 {
-									 QGuiApplication::clipboard()->setText(QString::number(_pack[index]->id));
-								 },
-								 &st::menuIconCopy);
-			}
+		}
+		if (AyuSettings::getInstance().showPeerId()
+				!= PeerIdDisplay::Hidden) {
+			const auto documentId = _pack[index]->id;
+			_menu->addAction(
+				tr::ayu_ContextCopyID(tr::now),
+				[=] {
+					QGuiApplication::clipboard()->setText(
+						QString::number(documentId));
+				},
+				&st::menuIconCopy);
+		}
+		if (!amSetCreator()) {
+			Api::AddAddToEmojiSetAction(
+				Ui::Menu::CreateAddActionCallback(_menu.get()),
+				_show,
+				_pack[index]);
+		} else {
+			const auto addAction = Ui::Menu::CreateAddActionCallback(
+				_menu.get());
+			addAction({
+				.text = tr::lng_emoji_context_delete(tr::now),
+				.handler = [index, this, show = _show] {
+					show->showBox(Box([=](not_null<Ui::GenericBox*> box) {
+						fillDeleteStickerBox(box, index);
+					}));
+				},
+				.icon = &st::menuIconDeleteAttention,
+				.isAttention = true,
+			});
 		}
 	} else if (details.type != SendMenu::Type::Disabled) {
 		const auto document = _pack[index];
@@ -1594,6 +1801,12 @@ void StickerSetBox::Inner::contextMenuEvent(QContextMenuEvent *e) {
 			(isFaved
 				? &st::menuIconUnfave
 				: &st::menuIconFave));
+		if (!amSetCreator()) {
+			Api::AddAddToStickerSetAction(
+				Ui::Menu::CreateAddActionCallback(_menu.get()),
+				_show,
+				document);
+		}
 		if (amSetCreator()) {
 			const auto addAction = Ui::Menu::CreateAddActionCallback(
 				_menu.get());
@@ -1629,6 +1842,8 @@ void StickerSetBox::Inner::fillDeleteStickerBox(
 	const auto document = _pack[index];
 	const auto weak = base::make_weak(this);
 	const auto show = _show;
+	const auto type = setType();
+	const auto isEmoji = (type == Data::StickersType::Emoji);
 
 	const auto container = box->verticalLayout();
 	Ui::AddSkip(container);
@@ -1663,7 +1878,9 @@ void StickerSetBox::Inner::fillDeleteStickerBox(
 	}, sticker->lifetime());
 	const auto label = Ui::CreateChild<Ui::FlatLabel>(
 		line,
-		tr::lng_stickers_context_delete(),
+		isEmoji
+			? tr::lng_emoji_context_delete()
+			: tr::lng_stickers_context_delete(),
 		box->getDelegate()->style().title);
 	line->widthValue(
 	) | rpl::on_next([=](int width) {
@@ -1687,7 +1904,9 @@ void StickerSetBox::Inner::fillDeleteStickerBox(
 	box->addRow(
 		object_ptr<Ui::FlatLabel>(
 			container,
-			tr::lng_stickers_context_delete_sure(),
+			isEmoji
+				? tr::lng_emoji_context_delete_sure()
+				: tr::lng_stickers_context_delete_sure(),
 			st::boxLabel));
 	const auto save = [=] {
 		if (state->requestId.current()) {
@@ -1702,8 +1921,7 @@ void StickerSetBox::Inner::fillDeleteStickerBox(
 		)).done([=](const TLStickerSet &result) {
 			result.match([&](const MTPDmessages_stickerSet &d) {
 				document->owner().stickers().feedSetFull(d);
-				document->owner().stickers().notifyUpdated(
-					Data::StickersType::Stickers);
+				document->owner().stickers().notifyUpdated(type);
 			}, [](const auto &) {
 			});
 			if ([[maybe_unused]] const auto strong = weak.get()) {
@@ -1746,8 +1964,27 @@ void StickerSetBox::Inner::fillDeleteStickerBox(
 }
 
 void StickerSetBox::Inner::updateSelected() {
-	auto selected = stickerFromGlobalPos(QCursor::pos());
+	const auto cursor = QCursor::pos();
+	const auto onAddCell = addCellFromGlobalPos(cursor);
+	const auto selected = onAddCell
+		? -1
+		: stickerFromGlobalPos(cursor);
 	setSelected(setType() == Data::StickersType::Masks ? -1 : selected);
+	setAddCellHovered(onAddCell);
+}
+
+void StickerSetBox::Inner::setAddCellHovered(bool hovered) {
+	if (_addCellHovered == hovered) {
+		return;
+	}
+	_addCellHovered = hovered;
+	if (hasAddCell()) {
+		setCursor((hovered && !_dragging.enabled)
+			? style::cur_pointer
+			: style::cur_default);
+		const auto rect = addCellRect();
+		rtlupdate(rect.x(), rect.y(), rect.width(), rect.height());
+	}
 }
 
 void StickerSetBox::Inner::setSelected(int selected) {
@@ -1884,6 +2121,10 @@ void StickerSetBox::Inner::paintEvent(QPaintEvent *e) {
 				_shiftAnimations[_dragging.index].yAnimation.value(0))
 			: (mapFromGlobal(QCursor::pos()) - _dragging.point);
 		paintSticker(p, _dragging.index, pos, paused, now);
+	}
+
+	if (hasAddCell()) {
+		paintAddCell(p);
 	}
 
 	if (_lottiePlayer && !paused) {
@@ -2159,18 +2400,6 @@ void StickerSetBox::Inner::paintSticker(
 		(_singleSize.width() - size.width()) / 2,
 		(_singleSize.height() - size.height()) / 2);
 	auto lottieFrame = QImage();
-
-	if (sticker->setType == Data::StickersType::Stickers) {
-		QPainterPath path;
-		path.addRoundedRect(QRectF(ppos, size), st::stickerRoundingSize, st::stickerRoundingSize);
-
-		p.save();
-
-		p.setRenderHint(QPainter::Antialiasing, true);
-		p.setClipPath(path);
-		p.setRenderHint(QPainter::Antialiasing, false);
-	}
-
 	if (element.emoji) {
 		element.emoji->paint(p, {
 			.textColor = st::windowFg->c,
@@ -2204,11 +2433,6 @@ void StickerSetBox::Inner::paintSticker(
 			QRect(ppos, size),
 			_pathGradient.get());
 	}
-
-	if (sticker->setType == Data::StickersType::Stickers) {
-		p.restore();
-	}
-
 	if (premium) {
 		_premiumMark.paint(
 			p,
@@ -2310,6 +2534,334 @@ void StickerSetBox::Inner::updateItems() {
 void StickerSetBox::Inner::repaintItems(crl::time now) {
 	_lastUpdatedAt = now ? now : crl::now();
 	update();
+}
+
+bool StickerSetBox::Inner::hasAddCell() const {
+	if (!_loaded || !_amSetCreator || _pack.isEmpty()) {
+		return false;
+	}
+	const auto type = setType();
+	if (type == Data::StickersType::Emoji) {
+		return (_pack.size() < Api::kEmojiInOwnedSetMax);
+	} else if (type == Data::StickersType::Stickers) {
+		return (_pack.size() < Api::kStickersInOwnedSetMax);
+	}
+	return false;
+}
+
+int StickerSetBox::Inner::totalCellsCount() const {
+	return _pack.size() + (hasAddCell() ? 1 : 0);
+}
+
+QRect StickerSetBox::Inner::addCellRect() const {
+	const auto index = _pack.size();
+	const auto row = index / _perRow;
+	const auto column = index % _perRow;
+	return QRect(
+		_padding.left() + column * _singleSize.width(),
+		_padding.top() + row * _singleSize.height(),
+		_singleSize.width(),
+		_singleSize.height());
+}
+
+bool StickerSetBox::Inner::addCellFromGlobalPos(const QPoint &p) const {
+	if (!hasAddCell()) {
+		return false;
+	}
+	auto local = mapFromGlobal(p);
+	if (rtl()) {
+		local.setX(width() - local.x());
+	}
+	const auto rect = addCellRect();
+	return rect.contains(local);
+}
+
+void StickerSetBox::Inner::paintAddCell(QPainter &p) const {
+	const auto ltrRect = addCellRect();
+	const auto rect = rtl()
+		? QRect(
+			width() - ltrRect.x() - ltrRect.width(),
+			ltrRect.y(),
+			ltrRect.width(),
+			ltrRect.height())
+		: ltrRect;
+	const auto center = rect::center(rect);
+	const auto bgRadius = isEmojiSet()
+		? st::emojiSetAddCellBgRadius
+		: st::stickersAddCellBgRadius;
+	const auto plusSize = isEmojiSet()
+		? st::emojiSetAddCellPlusSize
+		: st::stickersAddCellPlusSize;
+	const auto inner = QRect(
+		center - QPoint(bgRadius, bgRadius),
+		Size(bgRadius * 2));
+
+	auto hq = PainterHighQualityEnabler(p);
+	const auto base = st::windowSubTextFg->c;
+	const auto bgAlpha = (_addCellHovered && !_dragging.enabled)
+		? 0.22
+		: 0.12;
+	p.setPen(Qt::NoPen);
+	p.setBrush(anim::with_alpha(base, bgAlpha));
+	p.drawEllipse(inner);
+
+	const auto plusHalf = plusSize / 2;
+	const auto thickness = st::stickersAddCellPlusThickness;
+	const auto plusH = QRectF(
+		center.x() - plusHalf,
+		center.y() - thickness / 2.,
+		plusHalf * 2,
+		thickness);
+	const auto plusV = QRectF(
+		center.x() - thickness / 2.,
+		center.y() - plusHalf,
+		thickness,
+		plusHalf * 2);
+	const auto radius = thickness / 2.;
+	p.setBrush(base);
+	p.drawRoundedRect(plusH, radius, radius);
+	p.drawRoundedRect(plusV, radius, radius);
+}
+
+void StickerSetBox::Inner::showAddMenu(QPoint globalPos) {
+	if (_dragging.enabled) {
+		return;
+	}
+	_menu = base::make_unique_q<Ui::PopupMenu>(
+		this,
+		st::popupMenuWithIcons);
+	if (setType() == Data::StickersType::Emoji) {
+		_menu->addAction(
+			tr::lng_emoji_create_new(tr::now),
+			crl::guard(this, [=] { startCreateNewEmojiFlow(); }),
+			&st::menuIconStickerCreate);
+		_menu->addAction(
+			tr::lng_emoji_add_existing(tr::now),
+			crl::guard(this, [=] { startAddExistingEmojiFlow(); }),
+			&st::menuIconEmoji);
+		_menu->addAction(
+			tr::lng_emoji_adapt_sticker(tr::now),
+			crl::guard(this, [=] { startAdaptStickerToEmojiFlow(); }),
+			&st::menuIconStickerAdd);
+	} else {
+		_menu->addAction(
+			tr::lng_stickers_create_new(tr::now),
+			crl::guard(this, [=] { startCreateNewStickerFlow(); }),
+			&st::menuIconStickerCreate);
+		_menu->addAction(
+			tr::lng_stickers_add_existing(tr::now),
+			crl::guard(this, [=] { startAddExistingStickerFlow(); }),
+			&st::menuIconStickerAdd);
+	}
+	_menu->popup(globalPos);
+}
+
+void StickerSetBox::Inner::setOuterContainer(QPointer<QWidget> container) {
+	_outerContainer = std::move(container);
+}
+
+ChatHelpers::TabbedPanel *StickerSetBox::Inner::createPickerPanel(
+		ChatHelpers::TabbedSelector::Mode mode,
+		uint64 excludeSetId) {
+	if (!_outerContainer) {
+		return nullptr;
+	}
+	const auto container = _outerContainer.data();
+	using Selector = ChatHelpers::TabbedSelector;
+	_pickerPanel = base::make_unique_q<ChatHelpers::TabbedPanel>(
+		container,
+		ChatHelpers::TabbedPanelDescriptor{
+			.ownedSelector = object_ptr<Selector>(
+				nullptr,
+				ChatHelpers::TabbedSelectorDescriptor{
+					.show = _show,
+					.st = st::defaultComposeControls.tabbed,
+					.level = Window::GifPauseReason::Layer,
+					.mode = mode,
+					.excludeStickerSetId = excludeSetId,
+				}),
+		});
+	const auto panel = _pickerPanel.get();
+	panel->setDesiredHeightValues(
+		1.,
+		st::emojiPanMinHeight / 2,
+		st::emojiPanMinHeight);
+	panel->setDropDown(true);
+	panel->setShowAnimationOrigin(Ui::PanelAnimation::Origin::TopLeft);
+	panel->hide();
+
+	const auto reposition = [=] {
+		const auto size = container->size();
+		const auto margins = st::emojiPanMargins;
+		const auto panelWidth = st::emojiPanWidth
+			+ margins.left()
+			+ margins.right();
+		const auto panelHeight = st::emojiPanMinHeight
+			+ margins.top()
+			+ margins.bottom();
+		const auto top = std::max(0, (size.height() - panelHeight) / 2);
+		const auto right = (size.width() + panelWidth) / 2;
+		panel->moveTopRight(top, right);
+	};
+	base::install_event_filter(panel, container, [=](
+			not_null<QEvent*> event) {
+		const auto type = event->type();
+		if (type == QEvent::Move || type == QEvent::Resize) {
+			crl::on_main(panel, reposition);
+		}
+		return base::EventFilterResult::Continue;
+	});
+	reposition();
+	return panel;
+}
+
+void StickerSetBox::Inner::startAddExistingStickerFlow() {
+	if (!hasAddCell()) {
+		return;
+	}
+	const auto panel = createPickerPanel(
+		ChatHelpers::TabbedSelector::Mode::StickersOnly,
+		_setId);
+	if (!panel) {
+		return;
+	}
+	const auto identifier = StickerSetIdentifier{
+		.id = _setId,
+		.accessHash = _setAccessHash,
+		.shortName = _setShortName,
+	};
+	const auto session = _session;
+	const auto show = _show;
+	panel->selector()->fileChosen(
+	) | rpl::on_next([=, this](const ChatHelpers::FileChosen &chosen) {
+		const auto document = chosen.document;
+		if (_pickerPanel) {
+			_pickerPanel->hideAnimated();
+		}
+		const auto emoji = Api::StickerEmojiOrDefault(document);
+		Api::AddExistingStickerToSet(
+			session,
+			identifier,
+			document,
+			emoji,
+			crl::guard(this, [=, this](MTPmessages_StickerSet result) {
+				applySet(result);
+				show->showToast(
+					tr::lng_stickers_create_added(tr::now));
+			}),
+			crl::guard(this, [=](QString err) {
+				show->showToast(err.isEmpty()
+					? tr::lng_attach_failed(tr::now)
+					: err);
+			}));
+	}, panel->lifetime());
+	panel->showAnimated();
+}
+
+void StickerSetBox::Inner::startAddExistingEmojiFlow() {
+	if (!hasAddCell()) {
+		return;
+	}
+	const auto panel = createPickerPanel(
+		ChatHelpers::TabbedSelector::Mode::CustomEmojiOnly,
+		0);
+	if (!panel) {
+		return;
+	}
+	const auto identifier = StickerSetIdentifier{
+		.id = _setId,
+		.accessHash = _setAccessHash,
+		.shortName = _setShortName,
+	};
+	const auto session = _session;
+	const auto show = _show;
+	panel->selector()->customEmojiChosen(
+	) | rpl::on_next([=, this](const ChatHelpers::FileChosen &chosen) {
+		const auto document = chosen.document;
+		if (_pickerPanel) {
+			_pickerPanel->hideAnimated();
+		}
+		const auto emoji = Api::StickerEmojiOrDefault(document);
+		Api::AddExistingStickerToSet(
+			session,
+			identifier,
+			document,
+			emoji,
+			crl::guard(this, [=, this](MTPmessages_StickerSet result) {
+				applySet(result);
+				show->showToast(tr::lng_emoji_added(tr::now));
+			}),
+			crl::guard(this, [=](QString err) {
+				show->showToast(err.isEmpty()
+					? tr::lng_attach_failed(tr::now)
+					: err);
+			}));
+	}, panel->lifetime());
+	panel->showAnimated();
+}
+
+void StickerSetBox::Inner::startCreateNewStickerFlow() {
+	if (!hasAddCell()) {
+		return;
+	}
+	const auto identifier = StickerSetIdentifier{
+		.id = _setId,
+		.accessHash = _setAccessHash,
+		.shortName = _setShortName,
+	};
+	const auto onDone = crl::guard(this, [=, this](
+			MTPmessages_StickerSet result) {
+		applySet(result);
+	});
+	Api::OpenCreateStickerFlow(_show, identifier, onDone);
+}
+
+void StickerSetBox::Inner::startCreateNewEmojiFlow() {
+	if (!hasAddCell()) {
+		return;
+	}
+	const auto identifier = StickerSetIdentifier{
+		.id = _setId,
+		.accessHash = _setAccessHash,
+		.shortName = _setShortName,
+	};
+	const auto onDone = crl::guard(this, [=, this](
+			MTPmessages_StickerSet result) {
+		applySet(result);
+	});
+	Api::OpenCreateEmojiFlow(_show, identifier, onDone);
+}
+
+void StickerSetBox::Inner::startAdaptStickerToEmojiFlow() {
+	if (!hasAddCell()) {
+		return;
+	}
+	const auto panel = createPickerPanel(
+		ChatHelpers::TabbedSelector::Mode::StickersOnly,
+		0);
+	if (!panel) {
+		return;
+	}
+	const auto identifier = StickerSetIdentifier{
+		.id = _setId,
+		.accessHash = _setAccessHash,
+		.shortName = _setShortName,
+	};
+	const auto show = _show;
+	panel->selector()->fileChosen(
+	) | rpl::on_next([=, this](const ChatHelpers::FileChosen &chosen) {
+		const auto accepted = Api::AdaptStickerToEmoji(
+			show,
+			identifier,
+			chosen.document,
+			crl::guard(this, [=, this](MTPmessages_StickerSet result) {
+				applySet(result);
+			}));
+		if (accepted && _pickerPanel) {
+			_pickerPanel->hideAnimated();
+		}
+	}, panel->lifetime());
+	panel->showAnimated();
 }
 
 StickerSetBox::Inner::~Inner() = default;

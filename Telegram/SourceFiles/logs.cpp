@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "platform/platform_specific.h"
 #include "core/crash_reports.h"
 #include "core/launcher.h"
+#include "core/version.h"
 #include "mtproto/facade.h"
 
 namespace {
@@ -288,55 +289,6 @@ namespace {
 
 bool DebugModeEnabled = false;
 
-[[maybe_unused]] void MoveOldDataFiles(const QString &wasDir) {
-	if (wasDir.isEmpty()) {
-		return;
-	}
-	QFile data(wasDir + "data"), dataConfig(wasDir + "data_config"), tdataConfig(wasDir + "tdata/config");
-	if (data.exists() && dataConfig.exists() && !QFileInfo::exists(cWorkingDir() + "data") && !QFileInfo::exists(cWorkingDir() + "data_config")) { // move to home dir
-		LOG(("Copying data to home dir '%1' from '%2'").arg(cWorkingDir(), wasDir));
-		if (data.copy(cWorkingDir() + "data")) {
-			LOG(("Copied 'data' to home dir"));
-			if (dataConfig.copy(cWorkingDir() + "data_config")) {
-				LOG(("Copied 'data_config' to home dir"));
-				bool tdataGood = true;
-				if (tdataConfig.exists()) {
-					tdataGood = false;
-					QDir().mkpath(cWorkingDir() + "tdata");
-					if (tdataConfig.copy(cWorkingDir() + "tdata/config")) {
-						LOG(("Copied 'tdata/config' to home dir"));
-						tdataGood = true;
-					} else {
-						LOG(("Copied 'data' and 'data_config', but could not copy 'tdata/config'!"));
-					}
-				}
-				if (tdataGood) {
-					if (data.remove()) {
-						LOG(("Removed 'data'"));
-					} else {
-						LOG(("Could not remove 'data'"));
-					}
-					if (dataConfig.remove()) {
-						LOG(("Removed 'data_config'"));
-					} else {
-						LOG(("Could not remove 'data_config'"));
-					}
-					if (!tdataConfig.exists() || tdataConfig.remove()) {
-						LOG(("Removed 'tdata/config'"));
-					} else {
-						LOG(("Could not remove 'tdata/config'"));
-					}
-					QDir().rmdir(wasDir + "tdata");
-				}
-			} else {
-				LOG(("Copied 'data', but could not copy 'data_config'!!"));
-			}
-		} else {
-			LOG(("Could not copy 'data'!"));
-		}
-	}
-}
-
 } // namespace
 
 void SetDebugEnabled(bool enabled) {
@@ -406,14 +358,6 @@ void start() {
 			).arg(_logsFilePath(LogDataMain, u"_startXX"_q)));
 		return;
 	}
-
-#ifdef Q_OS_WIN
-	if (cWorkingDir() == psAppDataPath()) { // fix old "Telegram Win (Unofficial)" version
-		MoveOldDataFiles(psAppDataPathOld());
-	}
-#elif !defined Q_OS_MAC && !defined _DEBUG // fix first version
-	MoveOldDataFiles(launcher.initialWorkingDir());
-#endif
 
 	if (LogsInMemory) {
 		Assert(LogsInMemory != DeletedLogsInMemory);

@@ -77,6 +77,20 @@ Error Error::Local(
 	return Error(MTPLocal(type, description));
 }
 
+std::optional<int> MigrateDcId(const Error &error) {
+	if (error.code() != 303) {
+		return std::nullopt;
+	}
+	static const auto Expression = QRegularExpression(
+		u"^(?:FILE|PHONE|NETWORK|USER)_MIGRATE_([1-9][0-9]*)$"_q);
+	const auto match = Expression.match(error.type());
+	if (!match.hasMatch()) {
+		return std::nullopt;
+	}
+	const auto result = match.captured(1).toInt();
+	return result ? std::make_optional(result) : std::nullopt;
+}
+
 QDebug operator<<(QDebug debug, const Error &error) {
 	return debug.nospace()
 		<< "MTP::Error("

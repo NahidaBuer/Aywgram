@@ -152,7 +152,6 @@ private:
 	mutable int _nameVersion = 0;
 	uint8 _hiddenSenderColorIndexPlusOne : 7 = 0;
 	uint8 _hasQuoteIcon : 1 = 0;
-	uint8 _replyToStory : 1 = 0;
 	uint8 _expanded : 1 = 0;
 	mutable uint8 _expandable : 1 = 0;
 	mutable uint8 _minHeightExpandable : 1 = 0;
@@ -160,6 +159,7 @@ private:
 	mutable uint8 _hasPreview : 1 = 0;
 	mutable uint8 _displaying : 1 = 0;
 	mutable uint8 _multiline : 1 = 0;
+	mutable uint8 _filtered : 1 = 0;
 
 };
 

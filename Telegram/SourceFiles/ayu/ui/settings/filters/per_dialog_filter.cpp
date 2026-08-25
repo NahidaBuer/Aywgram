@@ -74,9 +74,7 @@ void PerDialogFiltersListController::prepareShadowBan() {
 	const auto &shadowBanned = settings.shadowBanIds();
 
 	for (const auto id : shadowBanned) {
-		auto row = std::make_unique<PerDialogFiltersListRow>(id);
-
-		delegate()->peerListAppendRow(reinterpret_cast<std::unique_ptr<PeerListRow>&&>(row));
+		delegate()->peerListAppendRow(std::make_unique<PerDialogFiltersListRow>(id));
 	}
 }
 
@@ -118,7 +116,7 @@ void PerDialogFiltersListController::prepare() {
 
 		row->setCustomStatus(status, false);
 
-		delegate()->peerListAppendRow(reinterpret_cast<std::unique_ptr<PeerListRow>&&>(row));
+		delegate()->peerListAppendRow(std::move(row));
 	}
 
 	// sortByName();

@@ -12,6 +12,7 @@
 #include "ayu/ui/settings/ayu_builder.h"
 #include "ayu/ui/settings/settings_ayu_utils.h"
 #include "ayu/ui/settings/settings_main.h"
+#include "ayu/ui/settings/settings_session_transfer.h"
 #include "boxes/abstract_box.h"
 #include "core/application.h"
 #include "lang/lang_text_entity.h"
@@ -197,6 +198,11 @@ void BuildOtherThings(SectionBuilder &builder) {
 	const auto controller = builder.controller();
 
 	builder.addSkip();
+	builder.addSectionButton({
+		.title = tr::ayu_SessionTransferTitle(),
+		.targetSection = AyuSessionTransfer::Id(),
+		.icon = { &st::menuIconExport },
+	});
 	builder.addButton({
 		.id = u"ayu/registerUrlScheme"_q,
 		.title = tr::ayu_RegisterURLScheme(),

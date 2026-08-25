@@ -6,26 +6,64 @@
 // Copyright @Radolyn, 2026
 #include "ayu/ayu_settings.h"
 
-#include "lang_auto.h"
-#include "tray.h"
 #include "ayu/ayu_ui_settings.h"
 #include "ayu/ayu_worker.h"
+#include "ayu/features/streamer_mode/streamer_mode.h"
 #include "ayu/ui/ayu_logo.h"
 #include "core/application.h"
+#include "core/core_settings.h"
 #include "features/filters/filters_cache_controller.h"
 #include "features/translator/ayu_translator.h"
 #include "main/main_domain.h"
 #include "main/main_session.h"
 #include "platform/platform_translate_provider.h"
 #include "rpl/combine.h"
+#include "ui/chat/chat_style_radius.h"
 #include "window/window_controller.h"
+#include "lang_auto.h"
+#include "tray.h"
 
-#include <fstream>
 #include <QApplication>
+#include <cmath>
+#include <fstream>
 
 using json = nlohmann::json;
 
 namespace {
+
+constexpr auto kMinStickerPanelScale = 1.0;
+constexpr auto kMaxStickerPanelScale = 4.0;
+
+[[nodiscard]] double NormalizeStickerPanelScale(double value) {
+	return std::isfinite(value)
+		? qBound(kMinStickerPanelScale, value, kMaxStickerPanelScale)
+		: kMinStickerPanelScale;
+}
+
+[[nodiscard]] bool ReadBooleanPreference(
+		const json &data,
+		const char *key,
+		bool fallback) {
+	const auto value = data.find(key);
+	return (value != data.end() && value->is_boolean())
+		? value->get<bool>()
+		: fallback;
+}
+
+[[nodiscard]] double ReadNumericPreference(
+		const json &data,
+		const char *key,
+		double fallback) {
+	const auto value = data.find(key);
+	if (value == data.end() || !value->is_number()) {
+		return fallback;
+	}
+	try {
+		return value->get<double>();
+	} catch (...) {
+		return fallback;
+	}
+}
 
 std::string getSettingsPath() {
 	return (cWorkingDir() + u"tdata/ayu_settings.json"_q).toStdString();
@@ -109,9 +147,28 @@ void GhostModeAccountSettings::setUseScheduledMessages(bool val) {
 	AyuSettings::save();
 }
 
-void GhostModeAccountSettings::setSendWithoutSound(bool val) {
+bool GhostModeAccountSettings::shouldSendWithoutSound() const {
+	switch (_sendWithoutSound.current()) {
+	case SendWithoutSoundOption::Never:
+		return false;
+	case SendWithoutSoundOption::InGhostMode:
+		return isGhostModeActive();
+	case SendWithoutSoundOption::Always:
+		return true;
+	}
+	Unexpected("Value in GhostModeAccountSettings::shouldSendWithoutSound.");
+}
+
+void GhostModeAccountSettings::setSendWithoutSound(
+		SendWithoutSoundOption val) {
 	if (_sendWithoutSound.current() == val) return;
 	_sendWithoutSound = val;
+	AyuSettings::save();
+}
+
+void GhostModeAccountSettings::setSuggestGhostModeBeforeViewingStory(bool val) {
+	if (_suggestGhostModeBeforeViewingStory.current() == val) return;
+	_suggestGhostModeBeforeViewingStory = val;
 	AyuSettings::save();
 }
 
@@ -172,6 +229,7 @@ void to_json(nlohmann::json &j, const GhostModeAccountSettings &s) {
 		{"markReadAfterAction", s._markReadAfterAction.current()},
 		{"useScheduledMessages", s._useScheduledMessages.current()},
 		{"sendWithoutSound", s._sendWithoutSound.current()},
+		{"suggestGhostModeBeforeViewingStory", s._suggestGhostModeBeforeViewingStory.current()},
 		{"sendReadMessagesLocked", s._sendReadMessagesLocked.current()},
 		{"sendReadStoriesLocked", s._sendReadStoriesLocked.current()},
 		{"sendOnlinePacketsLocked", s._sendOnlinePacketsLocked.current()},
@@ -188,7 +246,15 @@ void from_json(const nlohmann::json &j, GhostModeAccountSettings &s) {
 	s._sendOfflinePacketAfterOnline = j.value("sendOfflinePacketAfterOnline", false);
 	s._markReadAfterAction = j.value("markReadAfterAction", true);
 	s._useScheduledMessages = j.value("useScheduledMessages", false);
-	s._sendWithoutSound = j.value("sendWithoutSound", false);
+	const auto sendWithoutSound = j.find("sendWithoutSound");
+	s._sendWithoutSound = (sendWithoutSound == j.end())
+		? SendWithoutSoundOption::Never
+		: sendWithoutSound->is_boolean()
+		? (sendWithoutSound->get<bool>()
+			? SendWithoutSoundOption::Always
+			: SendWithoutSoundOption::Never)
+		: sendWithoutSound->get<SendWithoutSoundOption>();
+	s._suggestGhostModeBeforeViewingStory = j.value("suggestGhostModeBeforeViewingStory", true);
 	s._sendReadMessagesLocked = j.value("sendReadMessagesLocked", false);
 	s._sendReadStoriesLocked = j.value("sendReadStoriesLocked", false);
 	s._sendOnlinePacketsLocked = j.value("sendOnlinePacketsLocked", false);
@@ -326,7 +392,8 @@ void from_json(const nlohmann::json &j, MessageShotSettings &s) {
 }
 
 AyuSettings::AyuSettings()
-: _appIcon(AyuAssets::DEFAULT_ICON)
+: _messageBubbleRadius(Ui::kBubbleRadiusSliderMax)
+, _appIcon(AyuAssets::NAHIDA_ICON)
 , _editedMark(Core::IsAppLaunched() ? tr::lng_edited(tr::now) : QString("edited")) {
 }
 
@@ -336,17 +403,23 @@ AyuSettings &AyuSettings::getInstance() {
 }
 
 void AyuSettings::load() {
+	auto &settings = getInstance();
 	std::ifstream file(getSettingsPath());
 	if (!file.good()) {
+		if (Ui::TakeLegacySmallBubbleRadius()) {
+			settings._messageBubbleRadius = Ui::kBubbleRadiusSliderMidpoint;
+			settings.validate();
+			save();
+		}
 		return;
 	}
 
-	auto &settings = getInstance();
-
+	auto hasBubbleRadius = false;
 	try {
 		json p;
 		file >> p;
 		file.close();
+		hasBubbleRadius = p.contains("messageBubbleRadius");
 
 		if (!p.contains("ghostModeSettings")) {
 			p["ghostModeSettings"] = nlohmann::json::object({
@@ -375,6 +448,13 @@ void AyuSettings::load() {
 		LOG(("AyuGramSettings: failed to read settings file (not json-like)"));
 	}
 
+	const auto legacySmallBubbleRadius = Ui::TakeLegacySmallBubbleRadius();
+	const auto migrateBubbleRadius = !hasBubbleRadius
+		&& legacySmallBubbleRadius;
+	if (migrateBubbleRadius) {
+		settings._messageBubbleRadius = Ui::kBubbleRadiusSliderMidpoint;
+	}
+
 	if (cGhost()) {
 		auto &ghost = AyuSettings::ghost();
 		ghost._sendReadMessages = false;
@@ -385,6 +465,9 @@ void AyuSettings::load() {
 	}
 
 	settings.validate();
+	if (migrateBubbleRadius) {
+		save();
+	}
 }
 
 void AyuSettings::save() {
@@ -486,9 +569,19 @@ void AyuSettings::validate() {
 		modified = true;
 	}
 
-	validateRange(_messageBubbleRadius, 0, 16, defaults._messageBubbleRadius);
+	validateRange(
+		_messageBubbleRadius,
+		Ui::kBubbleRadiusSliderMin,
+		Ui::kBubbleRadiusSliderMax,
+		defaults._messageBubbleRadius);
 	validateRange(_wideMultiplier, 0.5, 4.0, defaults._wideMultiplier);
-	validateRange(_stickerPanelScale, 1.0, 4.0, defaults._stickerPanelScale);
+	validateRange(_messageStickerScale, 0.5, 1.6, defaults._messageStickerScale);
+	const auto stickerPanelScale = NormalizeStickerPanelScale(
+		_stickerPanelScale.current());
+	if (_stickerPanelScale.current() != stickerPanelScale) {
+		_stickerPanelScale = stickerPanelScale;
+		modified = true;
+	}
 	validateRange(_recentStickersCount, 1, 200, defaults._recentStickersCount);
 	validateRange(_avatarCorners, 0, AyuUiSettings::kMaxAvatarCorners, defaults._avatarCorners);
 
@@ -532,6 +625,12 @@ void AyuSettings::setFiltersEnabled(bool val) {
 void AyuSettings::setFiltersEnabledInChats(bool val) {
 	if (_filtersEnabledInChats.current() == val) return;
 	_filtersEnabledInChats = val;
+	save();
+}
+
+void AyuSettings::setExactSearchIntersection(bool val) {
+	if (_exactSearchIntersection.current() == val) return;
+	_exactSearchIntersection = val;
 	save();
 }
 
@@ -618,9 +717,16 @@ void AyuSettings::setUnlimitedRightColumnWidth(bool val) {
 	save();
 }
 
+void AyuSettings::setMessageStickerScale(double val) {
+	if (_messageStickerScale.current() == val) return;
+	_messageStickerScale = val;
+	save();
+}
+
 void AyuSettings::setStickerPanelScale(double val) {
-	if (_stickerPanelScale.current() == val) return;
-	_stickerPanelScale = val;
+	const auto normalized = NormalizeStickerPanelScale(val);
+	if (_stickerPanelScale.current() == normalized) return;
+	_stickerPanelScale = normalized;
 	save();
 }
 
@@ -962,6 +1068,24 @@ void AyuSettings::setQuickAdminShortcuts(bool val) {
 	save();
 }
 
+void AyuSettings::setDisableGreetingSticker(bool val) {
+	if (_disableGreetingSticker.current() == val) return;
+	_disableGreetingSticker = val;
+	save();
+}
+
+void AyuSettings::setUseQuickForwardMenu(bool val) {
+	if (_useQuickForwardMenu.current() == val) return;
+	_useQuickForwardMenu = val;
+	save();
+}
+
+void AyuSettings::setSendForwardFirst(bool val) {
+	if (_sendForwardFirst.current() == val) return;
+	_sendForwardFirst = val;
+	save();
+}
+
 void AyuSettings::setShowPeerId(PeerIdDisplay val) {
 	if (_showPeerId.current() == val) return;
 	_showPeerId = val;
@@ -971,6 +1095,12 @@ void AyuSettings::setShowPeerId(PeerIdDisplay val) {
 void AyuSettings::setShowMessageSeconds(bool val) {
 	if (_showMessageSeconds.current() == val) return;
 	_showMessageSeconds = val;
+	save();
+}
+
+void AyuSettings::setShowMessageId(bool val) {
+	if (_showMessageId.current() == val) return;
+	_showMessageId = val;
 	save();
 }
 
@@ -1001,6 +1131,12 @@ void AyuSettings::setGifConfirmation(bool val) {
 void AyuSettings::setVoiceConfirmation(bool val) {
 	if (_voiceConfirmation.current() == val) return;
 	_voiceConfirmation = val;
+	save();
+}
+
+void AyuSettings::setRoundConfirmation(bool val) {
+	if (_roundConfirmation.current() == val) return;
+	_roundConfirmation = val;
 	save();
 }
 
@@ -1049,10 +1185,17 @@ void AyuSettings::setSingleCornerRadius(bool val) {
 	save();
 }
 
+void AyuSettings::setStreamerMode(bool val) {
+	if (_streamerMode.current() == val) return;
+	_streamerMode = val;
+	AyuFeatures::StreamerMode::apply(val);
+	save();
+}
+
 void to_json(nlohmann::json &j, const AyuSettings &s) {
-	std::map<std::string, GhostModeAccountSettings> ghostAccounts;
+	auto ghostAccounts = nlohmann::json::object();
 	for (const auto &[key, value] : s._ghostAccounts) {
-		ghostAccounts[std::to_string(key)] = std::move(*value);
+		ghostAccounts[std::to_string(key)] = *value;
 	}
 
 	j = nlohmann::json{
@@ -1064,11 +1207,13 @@ void to_json(nlohmann::json &j, const AyuSettings &s) {
 		{"shadowBanIds", s._shadowBanIds},
 		{"filtersEnabled", s._filtersEnabled.current()},
 		{"filtersEnabledInChats", s._filtersEnabledInChats.current()},
+		{"exactSearchIntersection", s._exactSearchIntersection.current()},
 		{"hideFromBlocked", s._hideFromBlocked.current()},
 		{"semiTransparentDeletedMessages", s._semiTransparentDeletedMessages.current()},
 		{"disableAds", s._disableAds.current()},
 		{"disableStories", s._disableStories.current()},
 		{"disableCustomBackgrounds", s._disableCustomBackgrounds.current()},
+		{"hidePremiumStatuses", s._hidePremiumStatuses.current()},
 		{"showOnlyAddedEmojisAndStickers", s._showOnlyAddedEmojisAndStickers.current()},
 		{"collapseSimilarChannels", s._collapseSimilarChannels.current()},
 		{"hideSimilarChannels", s._hideSimilarChannels.current()},
@@ -1077,6 +1222,7 @@ void to_json(nlohmann::json &j, const AyuSettings &s) {
 		{"wideMultiplier", s._wideMultiplier.current()},
 		{"wideScreenMessagesLeftAligned", s._wideScreenMessagesLeftAligned.current()},
 		{"unlimitedRightColumnWidth", s._unlimitedRightColumnWidth.current()},
+		{"messageStickerScale", s._messageStickerScale.current()},
 		{"stickerPanelScale", s._stickerPanelScale.current()},
 		{"showMediaMetadata", s._showMediaMetadata.current()},
 		{"spoofWebviewAsAndroid", s._spoofWebviewAsAndroid.current()},
@@ -1132,19 +1278,25 @@ void to_json(nlohmann::json &j, const AyuSettings &s) {
 		{"hideAllChatsFolder", s._hideAllChatsFolder.current()},
 		{"channelBottomButton", s._channelBottomButton.current()},
 		{"quickAdminShortcuts", s._quickAdminShortcuts.current()},
+		{"disableGreetingSticker", s._disableGreetingSticker.current()},
+		{"useQuickForwardMenu", s._useQuickForwardMenu.current()},
+		{"sendForwardFirst", s._sendForwardFirst.current()},
 		{"showPeerId", s._showPeerId.current()},
 		{"showMessageSeconds", s._showMessageSeconds.current()},
+		{"showMessageId", s._showMessageId.current()},
 		{"showMessageShot", s._showMessageShot.current()},
 		{"filterZalgo", s._filterZalgo.current()},
 		{"stickerConfirmation", s._stickerConfirmation.current()},
 		{"gifConfirmation", s._gifConfirmation.current()},
 		{"voiceConfirmation", s._voiceConfirmation.current()},
+		{"roundConfirmation", s._roundConfirmation.current()},
 		{"translationProvider", s._translationProvider.current()},
 		{"adaptiveCoverColor", s._adaptiveCoverColor.current()},
 		{"improveLinkPreviews", s._improveLinkPreviews.current()},
 		{"crashReporting", s._crashReporting.current()},
 		{"avatarCorners", s._avatarCorners.current()},
 		{"singleCornerRadius", s._singleCornerRadius.current()},
+		{"streamerMode", s._streamerMode.current()},
 		{"messageShotSettings", s._messageShotSettings}
 	};
 }
@@ -1168,21 +1320,42 @@ void from_json(const nlohmann::json &j, AyuSettings &s) {
 	s._shadowBanIds = j.value("shadowBanIds", defaults._shadowBanIds);
 	s._filtersEnabled = j.value("filtersEnabled", defaults._filtersEnabled.current());
 	s._filtersEnabledInChats = j.value("filtersEnabledInChats", defaults._filtersEnabledInChats.current());
+	s._exactSearchIntersection = ReadBooleanPreference(
+		j,
+		"exactSearchIntersection",
+		defaults._exactSearchIntersection.current());
 	s._hideFromBlocked = j.value("hideFromBlocked", defaults._hideFromBlocked.current());
 	s._semiTransparentDeletedMessages = j.value("semiTransparentDeletedMessages", defaults._semiTransparentDeletedMessages.current());
 	s._disableAds = j.value("disableAds", defaults._disableAds.current());
 	s._disableStories = j.value("disableStories", defaults._disableStories.current());
 	s._disableCustomBackgrounds = j.value("disableCustomBackgrounds", defaults._disableCustomBackgrounds.current());
+	s._hidePremiumStatuses = j.value("hidePremiumStatuses", defaults._hidePremiumStatuses.current());
 	s._showOnlyAddedEmojisAndStickers = j.value("showOnlyAddedEmojisAndStickers", defaults._showOnlyAddedEmojisAndStickers.current());
 	s._collapseSimilarChannels = j.value("collapseSimilarChannels", defaults._collapseSimilarChannels.current());
 	s._hideSimilarChannels = j.value("hideSimilarChannels", defaults._hideSimilarChannels.current());
 	s._messageBubbleRadius = j.value("messageBubbleRadius", defaults._messageBubbleRadius.current());
 	s._disableOpenLinkWarning = j.value("disableOpenLinkWarning", defaults._disableOpenLinkWarning.current());
 	s._wideMultiplier = j.value("wideMultiplier", defaults._wideMultiplier.current());
-	s._wideScreenMessagesLeftAligned = j.value("wideScreenMessagesLeftAligned", defaults._wideScreenMessagesLeftAligned.current());
-	s._unlimitedRightColumnWidth = j.value("unlimitedRightColumnWidth", defaults._unlimitedRightColumnWidth.current());
-	s._stickerPanelScale = j.value("stickerPanelScale", defaults._stickerPanelScale.current());
-	s._showMediaMetadata = j.value("showMediaMetadata", defaults._showMediaMetadata.current());
+	s._wideScreenMessagesLeftAligned = ReadBooleanPreference(
+		j,
+		"wideScreenMessagesLeftAligned",
+		defaults._wideScreenMessagesLeftAligned.current());
+	s._unlimitedRightColumnWidth = ReadBooleanPreference(
+		j,
+		"unlimitedRightColumnWidth",
+		defaults._unlimitedRightColumnWidth.current());
+	s._messageStickerScale = ReadNumericPreference(
+		j,
+		"messageStickerScale",
+		defaults._messageStickerScale.current());
+	s._stickerPanelScale = ReadNumericPreference(
+		j,
+		"stickerPanelScale",
+		defaults._stickerPanelScale.current());
+	s._showMediaMetadata = ReadBooleanPreference(
+		j,
+		"showMediaMetadata",
+		defaults._showMediaMetadata.current());
 	s._spoofWebviewAsAndroid = j.value("spoofWebviewAsAndroid", defaults._spoofWebviewAsAndroid.current());
 	s._increaseWebviewHeight = j.value("increaseWebviewHeight", defaults._increaseWebviewHeight.current());
 	s._increaseWebviewWidth = j.value("increaseWebviewWidth", defaults._increaseWebviewWidth.current());
@@ -1236,19 +1409,25 @@ void from_json(const nlohmann::json &j, AyuSettings &s) {
 	s._hideAllChatsFolder = j.value("hideAllChatsFolder", defaults._hideAllChatsFolder.current());
 	s._channelBottomButton = j.value("channelBottomButton", defaults._channelBottomButton.current());
 	s._quickAdminShortcuts = j.value("quickAdminShortcuts", defaults._quickAdminShortcuts.current());
+	s._disableGreetingSticker = j.value("disableGreetingSticker", defaults._disableGreetingSticker.current());
+	s._useQuickForwardMenu = j.value("useQuickForwardMenu", defaults._useQuickForwardMenu.current());
+	s._sendForwardFirst = j.value("sendForwardFirst", defaults._sendForwardFirst.current());
 	s._showPeerId = j.value("showPeerId", defaults._showPeerId.current());
 	s._showMessageSeconds = j.value("showMessageSeconds", defaults._showMessageSeconds.current());
+	s._showMessageId = j.value("showMessageId", defaults._showMessageId.current());
 	s._showMessageShot = j.value("showMessageShot", defaults._showMessageShot.current());
 	s._filterZalgo = j.value("filterZalgo", defaults._filterZalgo.current());
 	s._stickerConfirmation = j.value("stickerConfirmation", defaults._stickerConfirmation.current());
 	s._gifConfirmation = j.value("gifConfirmation", defaults._gifConfirmation.current());
 	s._voiceConfirmation = j.value("voiceConfirmation", defaults._voiceConfirmation.current());
+	s._roundConfirmation = j.value("roundConfirmation", defaults._roundConfirmation.current());
 	s._translationProvider = j.value("translationProvider", defaults._translationProvider.current());
 	s._adaptiveCoverColor = j.value("adaptiveCoverColor", defaults._adaptiveCoverColor.current());
 	s._improveLinkPreviews = j.value("improveLinkPreviews", defaults._improveLinkPreviews.current());
 	s._crashReporting = j.value("crashReporting", defaults._crashReporting.current());
 	s._avatarCorners = j.value("avatarCorners", defaults._avatarCorners.current());
 	s._singleCornerRadius = j.value("singleCornerRadius", defaults._singleCornerRadius.current());
+	s._streamerMode = j.value("streamerMode", defaults._streamerMode.current());
 
 	if (j.contains("messageShotSettings") && j["messageShotSettings"].is_object()) {
 		j["messageShotSettings"].get_to(s._messageShotSettings);

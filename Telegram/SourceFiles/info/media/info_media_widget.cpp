@@ -7,26 +7,63 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "info/media/info_media_widget.h"
 
-#include "history/history.h"
-#include "info/media/info_media_inner_widget.h"
-#include "info/info_controller.h"
+#include "data/data_channel.h"
+#include "data/data_chat.h"
+#include "data/data_forum_topic.h"
+#include "data/data_peer.h"
+#include "data/data_saved_sublist.h"
 #include "data/data_session.h"
+#include "data/data_user.h"
+#include "history/history.h"
+#include "history/history_item.h"
+#include "info/media/info_media_inner_widget.h"
+#include "info/polls/info_polls_list_widget.h"
+#include "info/profile/tabs/adapters/info_profile_tab_media.h"
+#include "info/info_controller.h"
+#include "info/info_memento.h"
+#include "lang/lang_keys.h"
 #include "main/main_session.h"
 #include "ui/widgets/menu/menu_add_action_callback.h"
 #include "ui/widgets/scroll_area.h"
 #include "ui/search_field_controller.h"
 #include "ui/ui_utility.h"
-#include "data/data_peer.h"
-#include "data/data_user.h"
-#include "data/data_channel.h"
-#include "data/data_forum_topic.h"
-#include "data/data_saved_sublist.h"
-#include "lang/lang_keys.h"
 #include "window/window_session_controller.h"
-#include "styles/style_info.h"
 #include "styles/style_menu_icons.h"
 
 namespace Info::Media {
+namespace {
+
+constexpr auto kSharedMediaJumpIdsLimit = 40;
+
+std::optional<Type> TypeForItem(not_null<HistoryItem*> item) {
+	if (!item->isRegular() || item->isService() || item->isSponsored()) {
+		return std::nullopt;
+	}
+	const auto types = item->sharedMediaTypes();
+	if (types.test(Type::Photo) || types.test(Type::Video)) {
+		if (!Info::Profile::MediaTabsExpanded()) {
+			return Type::PhotoVideo;
+		}
+		return types.test(Type::Photo) ? Type::Photo : Type::Video;
+	} else if (types.test(Type::File)) {
+		return Type::File;
+	} else if (types.test(Type::MusicFile)) {
+		return Type::MusicFile;
+	} else if (types.test(Type::VoiceFile)
+		|| types.test(Type::RoundVoiceFile)
+		|| types.test(Type::RoundFile)) {
+		return Type::RoundVoiceFile;
+	} else if (types.test(Type::GIF)) {
+		return Type::GIF;
+	} else if (types.test(Type::Poll)) {
+		return Type::Poll;
+	} else if (types.test(Type::Link)) {
+		return Type::Link;
+	}
+	return std::nullopt;
+}
+
+} // namespace
 
 std::optional<int> TypeToTabIndex(Type type) {
 	switch (type) {
@@ -48,6 +85,8 @@ Type TabIndexToType(int index) {
 
 tr::phrase<> SharedMediaTitle(Type type) {
 	switch (type) {
+	case Type::PhotoVideo:
+		return tr::lng_media_type_media;
 	case Type::Photo:
 		return tr::lng_media_type_photos;
 	case Type::GIF:
@@ -68,6 +107,57 @@ tr::phrase<> SharedMediaTitle(Type type) {
 		return tr::lng_media_type_polls;
 	}
 	Unexpected("Bad media type in Info::TitleValue()");
+}
+
+std::shared_ptr<Info::Memento> MementoForItem(
+		not_null<HistoryItem*> item) {
+	const auto type = TypeForItem(item);
+	if (!type) {
+		return nullptr;
+	}
+	if (*type == Type::Poll) {
+		auto polls = [&] {
+			if (const auto topic = item->topic()) {
+				return std::make_shared<Info::Polls::ListMemento>(topic);
+			} else if (const auto sublist = item->savedSublist()) {
+				return std::make_shared<Info::Polls::ListMemento>(sublist);
+			}
+			auto peer = item->history()->peer;
+			if (const auto migratedTo = peer->migrateTo()) {
+				peer = migratedTo;
+			}
+			const auto migratedFrom = peer->migrateFrom();
+			return std::make_shared<Info::Polls::ListMemento>(
+				peer,
+				migratedFrom ? migratedFrom->id : PeerId());
+		}();
+		polls->setExactJumpId(item->fullId());
+		auto stack = std::vector<std::shared_ptr<ContentMemento>>();
+		stack.push_back(std::move(polls));
+		return std::make_shared<Info::Memento>(std::move(stack));
+	}
+	auto media = [&] {
+		if (const auto topic = item->topic()) {
+			return std::make_shared<Memento>(topic, *type);
+		} else if (const auto sublist = item->savedSublist()) {
+			return std::make_shared<Memento>(sublist, *type);
+		}
+		auto peer = item->history()->peer;
+		if (const auto migratedTo = peer->migrateTo()) {
+			peer = migratedTo;
+		}
+		const auto migratedFrom = peer->migrateFrom();
+		return std::make_shared<Memento>(
+			peer,
+			migratedFrom ? migratedFrom->id : PeerId(),
+			*type);
+	}();
+	media->setAroundId(item->fullId());
+	media->setIdsLimit(kSharedMediaJumpIdsLimit);
+	media->setExactJumpId(item->fullId());
+	auto stack = std::vector<std::shared_ptr<ContentMemento>>();
+	stack.push_back(std::move(media));
+	return std::make_shared<Info::Memento>(std::move(stack));
 }
 
 Memento::Memento(not_null<Controller*> controller)
@@ -148,6 +238,11 @@ Widget::Widget(QWidget *parent, not_null<Controller*> controller)
 	) | rpl::on_next([this](Ui::ScrollToRequest request) {
 		scrollTo(request);
 	}, _inner->lifetime());
+
+	scroll()->setCustomWheelProcess([this](not_null<QWheelEvent*> e) {
+		return (e->modifiers() & Qt::ControlModifier)
+			&& _inner->processZoomWheel(e);
+	});
 }
 
 rpl::producer<SelectedItems> Widget::selectedListValue() const {
@@ -160,8 +255,20 @@ void Widget::selectionAction(SelectionAction action) {
 
 void Widget::fillTopBarMenu(const Ui::Menu::MenuCallback &addAction) {
 	const auto type = controller()->section().mediaType();
-	if (type != Type::Photo && type != Type::Video) {
+	if (type != Type::Photo
+		&& type != Type::Video
+		&& type != Type::PhotoVideo) {
 		return;
+	}
+	if (_inner->canZoomIn()) {
+		addAction(tr::lng_media_zoom_in(tr::now), [=] {
+			_inner->zoomIn();
+		}, &st::menuIconZoomIn);
+	}
+	if (_inner->canZoomOut()) {
+		addAction(tr::lng_media_zoom_out(tr::now), [=] {
+			_inner->zoomOut();
+		}, &st::menuIconZoomOut);
 	}
 	addAction(tr::lng_calendar(tr::now), [=] {
 		controller()->parentController()->showCalendar({
@@ -169,14 +276,29 @@ void Widget::fillTopBarMenu(const Ui::Menu::MenuCallback &addAction) {
 				controller()->session().data().history(
 					controller()->key().peer())),
 			.date = QDate::currentDate(),
-			.mediaPhoto = (type == Type::Photo),
-			.mediaVideo = (type == Type::Video),
-			.customJump = [=](MsgId msgId, Fn<void()> close) {
-				_inner->jumpToMessage(msgId);
+			.mediaPhoto = (type != Type::Video),
+			.mediaVideo = (type != Type::Photo),
+			.customJump = [=](FullMsgId id, Fn<void()> close) {
+				_inner->jumpToMessage(id);
 				close();
 			},
 		});
 	}, &st::menuIconSchedule);
+}
+
+bool Widget::processZoomKey(not_null<QKeyEvent*> e) {
+	if (!(e->modifiers() & Qt::ControlModifier)) {
+		return false;
+	}
+	const auto key = e->key();
+	if (key == Qt::Key_Plus || key == Qt::Key_Equal) {
+		_inner->zoomIn();
+		return true;
+	} else if (key == Qt::Key_Minus || key == Qt::Key_Underscore) {
+		_inner->zoomOut();
+		return true;
+	}
+	return false;
 }
 
 rpl::producer<QString> Widget::title() {
@@ -223,6 +345,9 @@ void Widget::saveState(not_null<Memento*> memento) {
 
 void Widget::restoreState(not_null<Memento*> memento) {
 	_inner->restoreState(memento);
+	if (const auto id = memento->takeExactJumpId()) {
+		_inner->jumpToMessage(id);
+	}
 }
 
 } // namespace Info::Media

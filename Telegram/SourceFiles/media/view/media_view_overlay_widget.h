@@ -19,7 +19,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "media/stories/media_stories_delegate.h"
 #include "media/view/media_view_playback_controls.h"
 #include "media/view/media_view_open_common.h"
+#include "media/view/media_view_recognition_selection.h"
 #include "media/media_common.h"
+#include "media/system_media_controls_video.h"
 #include "platform/platform_text_recognition.h"
 
 class History;
@@ -47,6 +49,7 @@ class LinkButton;
 class RoundButton;
 class RpWindow;
 class LayerManager;
+class ImportantTooltip;
 } // namespace Ui
 
 namespace Ui::GL {
@@ -93,10 +96,13 @@ class Pip;
 class OverlayWidget final
 	: public ClickHandlerHost
 	, private PlaybackControls::Delegate
-	, private Stories::Delegate {
+	, private Stories::Delegate
+	, private Media::SystemMediaControlsVideoDelegate {
 public:
 	OverlayWidget();
 	~OverlayWidget();
+
+	void setSystemMediaControls(SystemMediaControlsVideoSink *sink);
 
 	enum class TouchBarItemType {
 		Photo,
@@ -139,9 +145,11 @@ private:
 	struct PipWrap;
 	struct ItemContext;
 	struct StoriesContext;
+	struct InstantViewMedia;
 	class Renderer;
 	class RendererSW;
 	class RendererGL;
+	class RendererRhi;
 	class SponsoredButton;
 
 	// If changing, see paintControls()!
@@ -174,6 +182,8 @@ private:
 		MsgId topicRootId = 0;
 		PeerId monoforumPeerId = 0;
 	};
+	using InstantViewItem = std::variant<PhotoData*, DocumentData*>;
+	using InstantViewItems = std::vector<InstantViewItem>;
 	enum class SavePhotoVideo {
 		None,
 		QuickSave,
@@ -222,7 +232,10 @@ private:
 	bool handleDoubleClick(QPoint position, Qt::MouseButton button);
 	bool handleTouchEvent(not_null<QTouchEvent*> e);
 	void handleWheelEvent(not_null<QWheelEvent*> e);
+	bool handleNativeGesture(not_null<QNativeGestureEvent*> e);
+	void setupSwipeNavigation();
 	void handleKeyPress(not_null<QKeyEvent*> e);
+	void handleKeyRelease(not_null<QKeyEvent*> e);
 
 	void toggleApplicationEventFilter(bool install);
 	bool filterApplicationEvent(
@@ -240,13 +253,22 @@ private:
 	void playbackControlsVolumeChangeFinished() override;
 	void playbackControlsSpeedChanged(float64 speed) override;
 	float64 playbackControlsCurrentSpeed(bool lastNonDefault) override;
-	std::vector<int> playbackControlsQualities() override;
+	std::vector<VideoQuality> playbackControlsQualities() override;
 	VideoQuality playbackControlsCurrentQuality() override;
-	void playbackControlsQualityChanged(int quality) override;
+	void playbackControlsQualityChanged(VideoQuality quality) override;
 	void playbackControlsToFullScreen() override;
 	void playbackControlsFromFullScreen() override;
 	void playbackControlsToPictureInPicture() override;
 	void playbackControlsRotate() override;
+
+	void smtcPlay() override;
+	void smtcPause() override;
+	void smtcPlayPause() override;
+	void smtcStop() override;
+	void smtcNext() override;
+	void smtcPrevious() override;
+	void smtcSeek(crl::time position) override;
+
 	void playbackPauseResume();
 	void playbackToggleFullScreen();
 	void playbackPauseOnCall();
@@ -292,8 +314,13 @@ private:
 	void draw();
 	void receiveMouse();
 	void showAttachedStickers();
+
 	[[nodiscard]] auto scaledRecognitionRect(QPoint position)
 	const -> std::optional<Platform::TextRecognition::RectWithText>;
+	[[nodiscard]] bool recognitionTakesMouse(QPoint position) const;
+	void updateRecognitionSelection(QPoint position);
+	void clearRecognitionSelection();
+	bool copyRecognitionSelection();
 	void showDropdown();
 	void handleTouchTimer();
 	void handleDocumentClick();
@@ -332,7 +359,9 @@ private:
 	void checkForSaveLoaded();
 	void showPremiumDownloadPromo();
 
+	[[nodiscard]] std::optional<InstantViewItem> instantViewMediaKey() const;
 	[[nodiscard]] Entity entityForUserPhotos(int index) const;
+	[[nodiscard]] Entity entityForInstantViewMedia(int index) const;
 	[[nodiscard]] Entity entityForSharedMedia(int index) const;
 	[[nodiscard]] Entity entityForCollage(int index) const;
 	[[nodiscard]] Entity entityByIndex(int index) const;
@@ -366,6 +395,9 @@ private:
 	void validateUserPhotos();
 	void handleUserPhotosUpdate(UserPhotosSlice &&update);
 
+	bool validInstantViewMedia() const;
+	void validateInstantViewMedia();
+
 	struct Collage;
 	using CollageKey = WebPageCollage::Item;
 	[[nodiscard]] std::optional<CollageKey> collageKey() const;
@@ -389,6 +421,10 @@ private:
 	void updateControls();
 	void updateControlsGeometry();
 	void updateNavigationControlsGeometry();
+	void refreshTtlBadge(TimeId destroyAt);
+	void updateTtlBadgePosition();
+	void markTimedMediaRead();
+	void checkSingleViewMediaBurn();
 
 	void fillContextMenuActions(const Ui::Menu::MenuCallback &addAction);
 
@@ -412,12 +448,19 @@ private:
 	void findCurrent();
 
 	void updateCursor();
-	void setZoomLevel(int newZoom, bool force = false);
+	void setZoomLevel(
+		int newZoom,
+		bool force = false,
+		std::optional<QPoint> anchor = std::nullopt);
 
 	void updatePlaybackState();
+	void refreshSystemMediaControls();
+	void finishSystemMediaControls();
+	[[nodiscard]] QImage systemMediaControlsThumbnail() const;
 	void seekRelativeTime(crl::time time);
 	void restartAtProgress(float64 progress);
 	void restartAtSeekPosition(crl::time position);
+	void flushPendingFrameStep();
 
 	void refreshClipControllerGeometry();
 	void refreshCaptionGeometry();
@@ -475,10 +518,13 @@ private:
 	void waitingAnimationCallback();
 	bool updateControlsAnimation(crl::time now);
 
-	void zoomIn();
-	void zoomOut();
+	void zoomIn(std::optional<QPoint> anchor = std::nullopt);
+	void zoomOut(std::optional<QPoint> anchor = std::nullopt);
 	void zoomReset();
-	void zoomUpdate(int32 &newZoom);
+	void zoomUpdate(
+		int32 &newZoom,
+		std::optional<QPoint> anchor = std::nullopt);
+	[[nodiscard]] QPoint zoomAnchor(QPointF globalPosition) const;
 
 	void paintRadialLoading(not_null<Renderer*> renderer);
 	void paintRadialLoadingContent(
@@ -521,6 +567,13 @@ private:
 	void paintChapterContent(Painter &p, QRect outer, QRect clip);
 	[[nodiscard]] bool isChapterShown() const;
 	void updateChapter();
+
+	void startSpeedBoost();
+	void stopSpeedBoost();
+	void updateSpeedBoostRect();
+	void paintSpeedBoostContent(Painter &p, QRect outer, QRect clip);
+	[[nodiscard]] bool isSpeedBoostShown() const;
+	void updateSpeedBoost();
 
 	void updateOverRect(Over state);
 	bool updateOverState(Over newState);
@@ -568,7 +621,11 @@ private:
 
 	Window::SessionController *findWindow(bool switchTo = true) const;
 
+	void refreshScreenshotProtection();
+	[[nodiscard]] bool contentNeedsScreenshotProtection() const;
+
 	bool _opengl = false;
+	bool _screenshotProtected = false;
 	const std::unique_ptr<Ui::GL::Window> _wrap;
 	const not_null<Ui::RpWindow*> _window;
 	const std::unique_ptr<Platform::OverlayWidgetHelper> _helper;
@@ -603,6 +660,8 @@ private:
 	std::optional<SharedMediaWithLastSlice::Key> _sharedMediaDataKey;
 	std::unique_ptr<UserPhotos> _userPhotos;
 	std::optional<UserPhotosSlice> _userPhotosData;
+	std::unique_ptr<InstantViewMedia> _instantViewMedia;
+	std::optional<InstantViewItems> _instantViewMediaData;
 	std::unique_ptr<Collage> _collage;
 	std::optional<WebPageCollage> _collageData;
 
@@ -638,6 +697,8 @@ private:
 	int _groupThumbsLeft = 0;
 	int _groupThumbsTop = 0;
 	Ui::Text::String _caption;
+	Ui::Text::QuotePaintCache _captionPreCache;
+	Ui::Text::QuotePaintCache _captionBlockquoteCache;
 	QRect _captionRect;
 	ClickHandlerPtr _captionExpandLink;
 	int _captionShowMoreWidth = 0;
@@ -651,6 +712,7 @@ private:
 	int _minUsedTop = 0; // Geometry without top notch on macOS.
 	int _maxUsedHeight = 0;
 	int _x = 0, _y = 0, _w = 0, _h = 0;
+	bool _photoRedisplayQueued = false;
 	int _xStart = 0, _yStart = 0;
 	int _zoom = 0; // < 0 - out, 0 - none, > 0 - in
 	float64 _zoomToScreen = 0.; // for documents
@@ -673,6 +735,9 @@ private:
 	std::unique_ptr<PipWrap> _pip;
 	QImage _streamedQualityChangeFrame;
 	crl::time _streamedPosition = 0;
+	SystemMediaControlsVideoSink *_smtcSink = nullptr;
+	DocumentData *_smtcDocument = nullptr;
+	bool _smtcThumbnailSet = false;
 	int _streamedCreated = 0;
 	bool _streamedQualityChangeFinished = false;
 	bool _showAsPip = false;
@@ -778,6 +843,12 @@ private:
 	// _saveMsgAnimation -> _saveMsgTimer -> _saveMsgAnimation.
 	Ui::Animations::Simple _saveMsgAnimation;
 	base::Timer _saveMsgTimer;
+	base::Timer _ttlTimer;
+	std::unique_ptr<Ui::RpWidget> _ttlBadge;
+	std::unique_ptr<Ui::ImportantTooltip> _ttlTooltip;
+	FullMsgId _ttlBadgeItem;
+	TimeId _ttlBadgeDestroyAt = 0;
+	bool _ttlDeferredClose = false;
 
 	QString _chapterText;
 	QRect _chapterRect;
@@ -789,6 +860,20 @@ private:
 	};
 	std::vector<std::unique_ptr<ChapterArrow>> _chapterArrows;
 
+	bool _speedBoostActive = false;
+	bool _speedBoostFromMouse = false;
+	float64 _speedBoostSavedSpeed = 1.;
+	float64 _speedBoostSpeed = 2.;
+	float64 _speedBoostDragAccum = 0.;
+	QRect _speedBoostRect;
+	Ui::Animations::Simple _speedBoostAnimation;
+	base::Timer _speedBoostHoldTimer;
+	base::Timer _frameStepThrottle;
+	int _frameStepPending = 0;
+	Ui::Animations::Basic _speedBoostTicker;
+	float64 _speedBoostPhase = 0.;
+	crl::time _speedBoostLastFrame = 0;
+
 	base::flat_map<Over, crl::time> _animations;
 	base::flat_map<Over, anim::value> _animationOpacities;
 
@@ -797,13 +882,18 @@ private:
 	rpl::event_stream<bool> _touchbarFullscreenToggled;
 
 	int _verticalWheelDelta = 0;
+	float64 _pinchZoomAccumulated = 0.;
+	bool _zoomAtLimit = false;
+	bool _swipeNavigating = false;
 
 	Platform::TextRecognition::Result _recognitionResult;
 	uint64 _recognitionPendingSessionUniqueId = 0;
 	PhotoId _recognitionPendingPhotoId = 0;
+	DocumentId _recognitionPendingDocumentId = 0;
 	bool _recognitionRetryOnLarge = false;
 	bool _showRecognitionResults = false;
 	Ui::Animations::Simple _recognitionAnimation;
+	RecognitionSelection _recognition;
 
 	bool _themePreviewShown = false;
 	uint64 _themePreviewId = 0;

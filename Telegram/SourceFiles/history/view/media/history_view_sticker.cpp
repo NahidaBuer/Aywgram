@@ -39,6 +39,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_menu_icons.h"
 
 // AyuGram includes
+#include "ayu/ayu_settings.h"
 #include "history/view/media/history_view_media.h"
 #include "ui/chat/message_bubble.h"
 
@@ -88,6 +89,18 @@ base::options::option<int> OptionStickerSize({
 	return QColor(red, green, blue, result.alpha());
 }
 
+[[nodiscard]] QSize BaseStickerSize() {
+	const auto side = std::min(st::maxStickerSize, kMaxSizeFixed);
+	if (OptionStickerSize.value() > 0) [[unlikely]] {
+		const auto scaled = std::clamp(
+			style::ConvertScale(OptionStickerSize.value()),
+			style::ConvertScale(50),
+			side);
+		return { scaled, scaled };
+	}
+	return { side, side };
+}
+
 } // namespace
 
 Sticker::Sticker(
@@ -102,6 +115,16 @@ Sticker::Sticker(
 , _cachingTag(ChatHelpers::StickerLottieSize::MessageHistory)
 , _skipPremiumEffect(skipPremiumEffect)
 , _sensitiveBlurred(parent->data()->isMediaSensitive()) {
+	AyuSettings::getInstance().messageStickerScaleChanges(
+	) | rpl::on_next([=] {
+		if (_customSize > 0 || emojiSticker() || _diceIndex >= 0) {
+			return;
+		}
+		if (computeSize() == _size) {
+			return;
+		}
+		_parent->history()->owner().requestViewResize(_parent);
+	}, _lifetime);
 	if ((_dataMedia = _data->activeMediaView())) {
 		dataMediaCreated();
 	} else {
@@ -157,28 +180,38 @@ bool Sticker::webpagePart() const {
 	return _webpagePart;
 }
 
-void Sticker::initSize(int customSize) {
-	if (customSize > 0) {
-		const auto original = Size(_data);
-		const auto proposed = QSize{ customSize, customSize };
-		_size = original.isEmpty()
+QSize Sticker::computeSize() const {
+	if (_customSize > 0) {
+		const auto original = DownscaledSize(_data->dimensions, BaseStickerSize());
+		const auto proposed = QSize{ _customSize, _customSize };
+		return original.isEmpty()
 			? proposed
 			: DownscaledSize(original, proposed);
 	} else if (emojiSticker() || _diceIndex >= 0) {
-		_size = EmojiSize();
-		if (_diceIndex > 0) {
-			[[maybe_unused]] bool result = readyToDrawAnimationFrame();
-		}
-	} else {
-		_size = Size(_data);
+		return EmojiSize();
 	}
-	_size = DownscaledSize(_size, Size());
+	return Size(_data);
+}
+
+void Sticker::updateSize() {
+	const auto updated = computeSize();
+	if (_size == updated) {
+		return;
+	}
+	_size = updated;
+	_lastFrameCached = QImage();
+}
+
+void Sticker::initSize(int customSize) {
+	_customSize = customSize;
+	updateSize();
+	if (_diceIndex > 0) {
+		[[maybe_unused]] bool result = readyToDrawAnimationFrame();
+	}
 }
 
 QSize Sticker::countOptimalSize() {
-	if (_size.isEmpty()) {
-		initSize();
-	}
+	updateSize();
 	return _size;
 }
 
@@ -203,15 +236,17 @@ bool Sticker::readyToDrawAnimationFrame() {
 }
 
 QSize Sticker::Size() {
-	const auto side = std::min(st::maxStickerSize, kMaxSizeFixed);
-	if (OptionStickerSize.value() > 0) [[unlikely]] {
-		const auto scaled = std::clamp(
-			OptionStickerSize.value(),
-			style::ConvertScale(50),
-			side);
-		return { scaled, scaled };
-	}
-	return { side, side };
+	const auto scale = AyuSettings::getInstance().messageStickerScale();
+	const auto base = BaseStickerSize();
+	const auto width = std::clamp(
+		qRound(base.width() * scale),
+		style::ConvertScale(50),
+		kMaxSizeFixed);
+	const auto height = std::clamp(
+		qRound(base.height() * scale),
+		style::ConvertScale(50),
+		kMaxSizeFixed);
+	return { width, height };
 }
 
 QSize Sticker::Size(not_null<DocumentData*> document) {

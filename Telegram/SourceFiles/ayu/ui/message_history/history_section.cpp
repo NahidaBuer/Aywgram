@@ -428,7 +428,8 @@ void Widget::resizeEvent(QResizeEvent *e) {
 
 	auto contentWidth = width();
 
-	auto newScrollTop = _scroll->scrollTop() + topDelta();
+	const auto topDelta = takeTopDelta();
+	auto newScrollTop = _scroll->scrollTop() + topDelta;
 	_fixedBar->resizeToWidth(contentWidth);
 	_fixedBarShadow->resize(contentWidth, st::lineWidth);
 
@@ -442,7 +443,7 @@ void Widget::resizeEvent(QResizeEvent *e) {
 	}
 
 	if (!_scroll->isHidden()) {
-		if (topDelta()) {
+		if (topDelta) {
 			_scroll->scrollToY(newScrollTop);
 		}
 		auto scrollTop = _scroll->scrollTop();

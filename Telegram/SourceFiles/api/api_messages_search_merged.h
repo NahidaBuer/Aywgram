@@ -25,34 +25,46 @@ public:
 	using CachedRequests = base::flat_set<Request>;
 
 	MessagesSearchMerged(not_null<History*> history);
+	~MessagesSearchMerged();
 
 	void clear();
-	void search(const Request &search);
-	void searchMore();
+	[[nodiscard]] SearchGeneration search(
+		const Request &search,
+		SearchGeneration generation = 0);
+	[[nodiscard]] SearchGeneration searchMore(
+		SearchGeneration generation = 0);
 	void disableMigrated();
 
+	[[nodiscard]] SearchGeneration generation() const;
 	[[nodiscard]] const FoundMessages &messages() const;
 	[[nodiscard]] const Request &request() const;
 
-	[[nodiscard]] rpl::producer<> newFounds() const;
-	[[nodiscard]] rpl::producer<> nextFounds() const;
+	[[nodiscard]] rpl::producer<SearchOutcome> firstOutcomes() const;
+	[[nodiscard]] rpl::producer<SearchOutcome> nextOutcomes() const;
 
 private:
-	void addFound(const FoundMessages &data);
+	void childOutcome(SearchBranch branch, const SearchOutcome &outcome);
+	void cancelChildren(SearchCancelMask cancel);
+	void publishOutcome(SearchOutcome outcome);
+	void timeout();
+	void abandon();
 
 	MessagesSearch _apiSearch;
 	Request _request;
 
 	std::optional<MessagesSearch> _migratedSearch;
-	FoundMessages _migratedFirstFound;
+	std::optional<FoundMessages> _activeFirstFound;
+	std::optional<FoundMessages> _migratedFirstFound;
 
-	FoundMessages _concatedFound;
+	SearchCriteria _criteria;
+	SearchMergedState _state;
+	SearchCombinedMessages _combined;
+	base::Timer _watchdog;
 
-	bool _waitingForTotal = false;
-	bool _isFull = false;
+	bool _paginationClosed = true;
 
-	rpl::event_stream<> _newFounds;
-	rpl::event_stream<> _nextFounds;
+	rpl::event_stream<SearchOutcome> _firstOutcomes;
+	rpl::event_stream<SearchOutcome> _nextOutcomes;
 
 	rpl::lifetime _lifetime;
 

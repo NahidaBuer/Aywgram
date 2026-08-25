@@ -11,6 +11,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_premium.h"
 #include "api/api_sending.h"
 #include "apiwrap.h"
+#include "ayu/ayu_settings.h"
 #include "base/random.h"
 #include "base/unixtime.h"
 #include "ui/effects/premium_stars.h"
@@ -56,6 +57,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_chat.h"
 #include "styles/style_chat_helpers.h" // GroupCallUserpics
 #include "styles/style_credits.h"
+#include "styles/style_history_view_about_view.h"
 #include "styles/style_menu_icons.h"
 
 namespace HistoryView {
@@ -268,6 +270,7 @@ auto GenerateChatIntro(
 				st::defaultTextStyle,
 				links));
 		};
+		const auto disableGreeting = AyuSettings::getInstance().disableGreetingSticker();
 		const auto title = data.customPhrases()
 			? data.title
 			: tr::lng_chat_intro_default_title(tr::now);
@@ -275,37 +278,41 @@ auto GenerateChatIntro(
 			? data.description
 			: tr::lng_chat_intro_default_message(tr::now);
 		pushText(tr::bold(title), st::chatIntroTitleMargin);
-		pushText({ description }, title.isEmpty()
-			? st::chatIntroTitleMargin
-			: st::chatIntroMargin);
-		const auto sticker = [=] {
-			using Tag = ChatHelpers::StickerLottieSize;
-			auto sticker = data.sticker;
-			if (!sticker) {
-				const auto api = &parent->history()->session().api();
-				const auto &list = api->premium().helloStickers();
-				if (!list.empty()) {
-					sticker = list[base::RandomIndex(list.size())];
-					if (helloChosen) {
-						helloChosen(sticker);
+		if (!disableGreeting || data.customPhrases()) {
+			pushText({ description }, title.isEmpty()
+				? st::chatIntroTitleMargin
+				: st::chatIntroMargin);
+		}
+		if (!disableGreeting || data.sticker) {
+			const auto sticker = [=] {
+				using Tag = ChatHelpers::StickerLottieSize;
+				auto sticker = data.sticker;
+				if (!sticker && !disableGreeting) {
+					const auto api = &parent->history()->session().api();
+					const auto &list = api->premium().helloStickers();
+					if (!list.empty()) {
+						sticker = list[base::RandomIndex(list.size())];
+						if (helloChosen) {
+							helloChosen(sticker);
+						}
 					}
 				}
-			}
-			const auto send = [=] {
-				sendIntroSticker(sticker);
+				const auto send = [=] {
+					sendIntroSticker(sticker);
+				};
+				return StickerInBubblePart::Data{
+					.sticker = sticker,
+					.size = st::chatIntroStickerSize,
+					.cacheTag = Tag::ChatIntroHelloSticker,
+					.link = std::make_shared<LambdaClickHandler>(send),
+				};
 			};
-			return StickerInBubblePart::Data{
-				.sticker = sticker,
-				.size = st::chatIntroStickerSize,
-				.cacheTag = Tag::ChatIntroHelloSticker,
-				.link = std::make_shared<LambdaClickHandler>(send),
-			};
-		};
-		push(std::make_unique<StickerInBubblePart>(
-			parent,
-			replacing,
-			sticker,
-			st::chatIntroStickerPadding));
+			push(std::make_unique<StickerInBubblePart>(
+				parent,
+				replacing,
+				sticker,
+				st::chatIntroStickerPadding));
+		}
 	};
 }
 
@@ -348,6 +355,7 @@ auto GenerateNewBotThread(
 					const auto x = (outerWidth - icon.width()) / 2;
 					const auto y = (size - icon.height()) / 2
 						+ st::newThreadAboutIconSkip;
+					auto hq = PainterHighQualityEnabler(p);
 					p.setPen(Qt::NoPen);
 					p.setBrush(context.st->msgServiceBgSelected());
 					p.drawEllipse(
@@ -717,6 +725,16 @@ bool AboutView::aboveHistory() const {
 		&& (!_history->isEmpty() || _history->lastMessage()));
 }
 
+void AboutView::setDisplayedEmptyOverride(Fn<bool()> value) {
+	_displayedEmptyOverride = std::move(value);
+}
+
+bool AboutView::displayedEmpty() const {
+	return _displayedEmptyOverride
+		? _displayedEmptyOverride()
+		: _history->isDisplayedEmpty();
+}
+
 bool AboutView::refresh() {
 	if (_history->peer->isVerifyCodes()) {
 		if (_item) {
@@ -740,7 +758,7 @@ bool AboutView::refresh() {
 			loadCommonGroups();
 			setItem(makeNewPeerInfo(user), nullptr);
 			return true;
-		} else if (user && !user->isSelf() && _history->isDisplayedEmpty()) {
+		} else if (user && !user->isSelf() && displayedEmpty()) {
 			if (_item) {
 				return false;
 			} else if (user->requiresPremiumToWrite()
@@ -752,11 +770,11 @@ bool AboutView::refresh() {
 				makeIntro(user);
 			} else if (const auto stars = user->starsPerMessageChecked()) {
 				setItem(makeStarsPerMessage(stars), nullptr);
-			} else {
+			} else if (!AyuSettings::getInstance().disableGreetingSticker()) {
 				makeIntro(user);
 			}
 			return true;
-		} else if (monoforum && _history->isDisplayedEmpty()) {
+		} else if (monoforum && displayedEmpty()) {
 			if (_item) {
 				return false;
 			}

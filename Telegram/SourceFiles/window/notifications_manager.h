@@ -77,21 +77,11 @@ struct custom_is_fast_copy_type<Window::Notifications::ChangeType> : std::true_t
 
 } // namespace base
 
-namespace base::options {
-
-template <typename Type>
-class option;
-
-using toggle = option<bool>;
-
-} // namespace base::options
-
 namespace Window::Notifications {
 
 extern const char kOptionCustomNotification[];
 extern const char kOptionGNotification[];
-extern base::options::toggle OptionGNotification;
-
+extern const char kOptionMacModernNotifications[];
 extern const char kOptionHideReplyButton[];
 
 class Manager;
@@ -319,6 +309,9 @@ public:
 		NotificationId id,
 		ActivateOptions &&options = {});
 	void notificationReplied(NotificationId id, const TextWithTags &reply);
+	void notificationActionActivated(
+		NotificationId id,
+		const QString &actionId);
 
 	struct DisplayOptions {
 		bool hideNameAndPhoto : 1 = false;
@@ -407,6 +400,10 @@ public:
 	}
 
 	using NotificationSound = Media::Audio::LocalSound;
+	struct NotificationAction {
+		QString id;
+		QString text;
+	};
 	struct NotificationInfo {
 		not_null<PeerData*> peer;
 		MsgId topicRootId = 0;
@@ -417,6 +414,7 @@ public:
 		QString message;
 		Fn<NotificationSound()> sound;
 		DisplayOptions options;
+		std::vector<NotificationAction> actions;
 	};
 
 protected:

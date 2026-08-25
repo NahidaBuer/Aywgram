@@ -115,7 +115,8 @@ public:
 		not_null<History*> history,
 		MessageIdsList msgIds,
 		std::optional<TimeId> videoTimestamp = {},
-		bool no_quote = false,
+		bool noQuote = false,
+		bool noCaption = false,
 		FnMut<void()>&& successCallback = nullptr);
 
 	struct Descriptor {

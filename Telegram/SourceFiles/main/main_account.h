@@ -52,6 +52,9 @@ public:
 	void createSession(
 		const MTPUser &user,
 		std::unique_ptr<SessionSettings> settings = nullptr);
+	void applyImportedAuthorization(
+		MTP::Instance::Fields &&fields,
+		const MTPUser &user);
 	void createSession(
 		UserId id,
 		QByteArray serialized,

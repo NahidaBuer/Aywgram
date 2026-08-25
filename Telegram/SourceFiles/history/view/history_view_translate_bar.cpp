@@ -35,7 +35,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/painter.h"
 #include "window/window_session_controller.h"
 #include "styles/style_chat.h"
-#include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
 
 #include <QtGui/QtEvents>
@@ -495,8 +494,8 @@ void TranslateBar::showMenu(base::unique_qptr<Ui::PopupMenu> menu) {
 		_menu->addSeparator();
 		const auto cocoon = ChatHelpers::GenerateLocalTgsSticker(
 			&_history->session(),
-			u"cocoon"_q);
-		cocoon->overrideEmojiUsesTextColor(true);
+			u"cocoon"_q,
+		true);
 		auto item = base::make_unique_q<Ui::Menu::MultilineAction>(
 			_menu->menu(),
 			st::defaultMenu,

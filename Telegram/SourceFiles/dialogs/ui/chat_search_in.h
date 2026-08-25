@@ -24,6 +24,8 @@ enum class ChatSearchTab : uchar {
 	ThisTopic,
 	ThisPeer,
 	PublicPosts,
+	Archive,
+	ThisCommunity,
 };
 
 enum class ChatSearchPeerTabType : uchar {
@@ -46,11 +48,15 @@ public:
 		ChatSearchTab active,
 		ChatSearchPeerTabType peerTabType,
 		std::shared_ptr<Ui::DynamicImage> fromUserpic,
-		QString fromName);
+		QString fromName,
+		std::shared_ptr<Ui::DynamicImage> filterIcon,
+		QString filterName);
 
 	[[nodiscard]] rpl::producer<> cancelInRequests() const;
 	[[nodiscard]] rpl::producer<> cancelFromRequests() const;
 	[[nodiscard]] rpl::producer<> changeFromRequests() const;
+	[[nodiscard]] rpl::producer<> cancelFilterRequests() const;
+	[[nodiscard]] rpl::producer<> changeFilterRequests() const;
 	[[nodiscard]] rpl::producer<ChatSearchTab> tabChanges() const;
 
 private:
@@ -78,6 +84,7 @@ private:
 
 	Section _in;
 	Section _from;
+	Section _filter;
 	rpl::variable<ChatSearchTab> _active;
 
 	base::unique_qptr<Ui::PopupMenu> _menu;

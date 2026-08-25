@@ -28,7 +28,6 @@
 #include "ui/widgets/labels.h"
 #include "ui/wrap/vertical_layout.h"
 #include "window/window_session_controller.h"
-#include "window/window_session_controller_link_info.h"
 
 #include <QDesktopServices>
 
@@ -70,7 +69,7 @@ void BuildVersionInfo(SectionBuilder &builder) {
 			.widget = object_ptr<Ui::FlatLabel>(
 				ctx.container,
 				rpl::single(
-					QString("AyuGram Desktop v")
+					QString("AywGram Desktop v")
 					+ QString::fromLatin1(AppVersionStr)),
 				st::boxTitle),
 			.align = style::al_top,
@@ -101,7 +100,7 @@ void BuildCategories(SectionBuilder &builder) {
 	builder.addSubsectionTitle(tr::ayu_CategoriesHeader());
 
 	builder.addSectionButton({
-		.title = rpl::single(QString("AyuGram")),
+		.title = rpl::single(QString("AywGram")),
 		.targetSection = AyuGhost::Id(),
 		.icon = { &st::menuIconGroupReactions },
 	});
@@ -139,28 +138,24 @@ void BuildLinks(SectionBuilder &builder) {
 
 	builder.addSubsectionTitle(tr::ayu_LinksHeader());
 
-	const auto controller = builder.controller();
-
 	builder.addButton({
-		.id = u"ayu/channel"_q,
+		.id = u"ayu/repository"_q,
 		.title = tr::ayu_LinksChannel(),
 		.icon = { &st::menuIconChannel },
-		.label = rpl::single(QString("@ayugram")),
+		.label = rpl::single(QString("GitHub")),
 		.onClick = [=] {
-			controller->showPeerByLink(Window::PeerByLinkInfo{
-				.usernameOrId = QString("ayugram"),
-			});
+			QDesktopServices::openUrl(
+				QString("https://github.com/NahidaBuer/AywGram"));
 		},
 	});
 	builder.addButton({
-		.id = u"ayu/chat"_q,
+		.id = u"ayu/issues"_q,
 		.title = tr::ayu_LinksChats(),
 		.icon = { &st::menuIconChats },
-		.label = rpl::single(QString("@ayugramchat")),
+		.label = rpl::single(QString("GitHub Issues")),
 		.onClick = [=] {
-			controller->showPeerByLink(Window::PeerByLinkInfo{
-				.usernameOrId = QString("ayugramchat"),
-			});
+			QDesktopServices::openUrl(
+				QString("https://github.com/NahidaBuer/AywGram/issues"));
 		},
 	});
 	builder.addButton({

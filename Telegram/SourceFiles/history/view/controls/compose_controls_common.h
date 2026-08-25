@@ -23,11 +23,14 @@ class History;
 
 namespace HistoryView::Controls {
 
+extern const char kOptionMacCmdReplyImmediately[];
+
 struct MessageToEdit {
 	FullMsgId fullId;
 	Api::SendOptions options;
 	TextWithTags textWithTags;
 	bool spoilered = false;
+	Api::VideoCoverEdit videoCover;
 };
 struct VoiceToSend {
 	QByteArray bytes;
@@ -76,6 +79,7 @@ struct SetHistoryArgs {
 	MsgId topicRootId = 0;
 	PeerId monoforumPeerId = 0;
 	Fn<bool()> showSlowmodeError;
+	Fn<bool()> showScheduleSendError;
 	Fn<Api::SendAction()> sendActionFactory;
 	Fn<void(TextWithEntities, Api::SendOptions, Fn<void()>)> sendWithText;
 	rpl::producer<int> slowmodeSecondsLeft;
@@ -83,6 +87,7 @@ struct SetHistoryArgs {
 	rpl::producer<bool> liked;
 	rpl::producer<int> minStarsCount;
 	rpl::producer<WriteRestriction> writeRestriction;
+	rpl::producer<bool> canSendTexts;
 };
 
 struct ReplyNextRequest {

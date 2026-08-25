@@ -7,11 +7,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
+#include "api/api_messages_search.h"
 #include "base/qt/qt_compare.h"
 #include "data/data_message_reaction_id.h"
 
 class History;
 class PeerData;
+class ChannelData;
 
 namespace Data {
 class Thread;
@@ -115,6 +117,7 @@ struct EntryState {
 		ContextMenu,
 		SubsectionTabsMenu,
 		ShortcutMessages,
+		WelcomeMessages,
 	};
 
 	Key key;
@@ -141,9 +144,12 @@ enum class ChatTypeFilter : uchar {
 struct SearchState {
 	Key inChat;
 	PeerData *fromPeer = nullptr;
+	Api::SearchFilter messageFilter = Api::SearchFilter::NoFilter;
+	ChannelData *community = nullptr;
 	std::vector<Data::ReactionId> tags;
 	ChatSearchTab tab = {};
 	ChatTypeFilter filter = ChatTypeFilter::All;
+	bool fromArchive = true;
 	QString query;
 
 	[[nodiscard]] bool empty() const;

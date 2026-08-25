@@ -26,6 +26,7 @@ enum RenderPart
 {
 	Date,
 	Reactions,
+	HeaderDecorations,
 };
 
 void setShotConfig(ShotConfig &config);
@@ -34,7 +35,6 @@ ShotConfig getShotConfig();
 
 bool ignoreRender(RenderPart part);
 bool isTakingShot();
-bool showHeaderDecorations();
 
 bool isChoosingTheme();
 bool setChoosingTheme(bool val);

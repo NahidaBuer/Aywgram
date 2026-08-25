@@ -6,45 +6,79 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "ui/chat/chat_style_radius.h"
-#include "ui/chat/chat_style.h"
+
 #include "base/options.h"
 
-#include "ui/chat/chat_theme.h"
-#include "ui/painter.h"
-#include "ui/ui_utility.h"
+#include <algorithm>
+
 #include "styles/style_chat.h"
 
 namespace Ui {
 namespace {
 
-constexpr auto kBubbleRadiusSliderMax = 16;
+constexpr auto kNoBubbleRadiusOverride = -1;
+constexpr auto kZeroBubbleRadius = 0;
+constexpr auto kOptionUseSmallMsgBubbleRadius
+	= "use-small-msg-bubble-radius";
 
-int AppliedBubbleRadius = 16;
-int BubbleRadiusOverride = -1;
+auto AppliedBubbleRadius = kBubbleRadiusSliderMax;
+thread_local auto BubbleRadiusOverrideValue = kNoBubbleRadiusOverride;
 
 [[nodiscard]] int ClampBubbleRadiusValue(int value) {
-	return (value < 0)
-		? 0
+	return (value < kBubbleRadiusSliderMin)
+		? kBubbleRadiusSliderMin
 		: (value > kBubbleRadiusSliderMax)
 		? kBubbleRadiusSliderMax
 		: value;
 }
 
 [[nodiscard]] int EffectiveBubbleRadiusValue() {
-	return (BubbleRadiusOverride >= 0)
-		? BubbleRadiusOverride
+	return (BubbleRadiusOverrideValue != kNoBubbleRadiusOverride)
+		? BubbleRadiusOverrideValue
 		: AppliedBubbleRadius;
 }
 
-[[nodiscard]] int MapBubbleRadius(int sliderValue, int maximum) {
-	if (sliderValue <= 0 || maximum <= 0) {
-		return 0;
+[[nodiscard]] constexpr int InterpolateBubbleRadius(
+		int sliderValue,
+		int sliderFrom,
+		int sliderTill,
+		int radiusFrom,
+		int radiusTill) {
+	const auto sliderDistance = sliderTill - sliderFrom;
+	const auto radiusDistance = radiusTill - radiusFrom;
+	const auto progress = sliderValue - sliderFrom;
+	return radiusFrom
+		+ ((progress * radiusDistance + (sliderDistance / 2))
+			/ sliderDistance);
+}
+
+[[nodiscard]] constexpr int MapBubbleRadius(
+		int sliderValue,
+		int midpointRadius,
+		int maximum) {
+	if (sliderValue <= kBubbleRadiusSliderMin
+		|| maximum <= kZeroBubbleRadius) {
+		return kZeroBubbleRadius;
 	} else if (sliderValue >= kBubbleRadiusSliderMax) {
 		return maximum;
 	}
-	const auto result = (sliderValue * maximum + (kBubbleRadiusSliderMax / 2))
-		/ kBubbleRadiusSliderMax;
-	return (result < 0) ? 0 : (result > maximum) ? maximum : result;
+	const auto midpoint = std::clamp(
+		midpointRadius,
+		kBubbleRadiusSliderMin,
+		maximum);
+	return (sliderValue <= kBubbleRadiusSliderMidpoint)
+		? InterpolateBubbleRadius(
+			sliderValue,
+			kBubbleRadiusSliderMin,
+			kBubbleRadiusSliderMidpoint,
+			kZeroBubbleRadius,
+			midpoint)
+		: InterpolateBubbleRadius(
+			sliderValue,
+			kBubbleRadiusSliderMidpoint,
+			kBubbleRadiusSliderMax,
+			midpoint,
+			maximum);
 }
 
 base::options::toggle UseSmallMsgBubbleRadius({
@@ -56,62 +90,53 @@ base::options::toggle UseSmallMsgBubbleRadius({
 
 } // namespace
 
-const char kOptionUseSmallMsgBubbleRadius[] = "use-small-msg-bubble-radius";
+BubbleRadiusOverride::BubbleRadiusOverride(int value)
+: _previous(BubbleRadiusOverrideValue) {
+	BubbleRadiusOverrideValue = ClampBubbleRadiusValue(value);
+}
+
+BubbleRadiusOverride::~BubbleRadiusOverride() {
+	BubbleRadiusOverrideValue = _previous;
+}
 
 void SetAppliedBubbleRadius(int value) {
 	AppliedBubbleRadius = ClampBubbleRadiusValue(value);
 }
 
-void SetBubbleRadiusOverride(int value) {
-	BubbleRadiusOverride = ClampBubbleRadiusValue(value);
-}
-
-void ClearBubbleRadiusOverride() {
-	BubbleRadiusOverride = -1;
-}
-
 int BubbleRadiusSmall() {
-	static auto cachedValue = -1;
-	static auto cachedRadius = st::bubbleRadiusSmall;
-	const auto value = EffectiveBubbleRadiusValue();
-	if (cachedValue != value) {
-		cachedValue = value;
-		cachedRadius = MapBubbleRadius(value, st::bubbleRadiusSmall);
-	}
-	return cachedRadius;
+	return MapBubbleRadius(
+		EffectiveBubbleRadiusValue(),
+		st::bubbleRadiusSmall,
+		st::bubbleRadiusSmall);
 }
 
 int BubbleRadiusLarge() {
-	static auto cachedValue = -1;
-	static auto cachedRadius = st::bubbleRadiusLarge;
-	const auto value = EffectiveBubbleRadiusValue();
-	if (cachedValue != value) {
-		cachedValue = value;
-		cachedRadius = MapBubbleRadius(value, st::bubbleRadiusLarge);
-	}
-	return cachedRadius;
+	return MapBubbleRadius(
+		EffectiveBubbleRadiusValue(),
+		st::bubbleRadiusSmall,
+		st::bubbleRadiusLarge);
 }
 
 int MsgFileThumbRadiusSmall() {
-	static auto cachedValue = -1;
-	static auto cachedRadius = st::msgFileThumbRadiusSmall;
-	const auto value = EffectiveBubbleRadiusValue();
-	if (cachedValue != value) {
-		cachedValue = value;
-		cachedRadius = MapBubbleRadius(value, st::msgFileThumbRadiusSmall);
-	}
-	return cachedRadius;
+	return MapBubbleRadius(
+		EffectiveBubbleRadiusValue(),
+		st::msgFileThumbRadiusSmall,
+		st::msgFileThumbRadiusSmall);
 }
 
 int MsgFileThumbRadiusLarge() {
-	static auto cachedValue = -1;
-	static auto cachedRadius = st::msgFileThumbRadiusLarge;
-	const auto value = EffectiveBubbleRadiusValue();
-	if (cachedValue != value) {
-		cachedValue = value;
-		cachedRadius = MapBubbleRadius(value, st::msgFileThumbRadiusLarge);
-	}
-	return cachedRadius;
+	return MapBubbleRadius(
+		EffectiveBubbleRadiusValue(),
+		st::msgFileThumbRadiusSmall,
+		st::msgFileThumbRadiusLarge);
 }
 
+bool TakeLegacySmallBubbleRadius() {
+	const auto result = UseSmallMsgBubbleRadius.value();
+	if (result) {
+		UseSmallMsgBubbleRadius.set(false);
+	}
+	return result;
 }
+
+} // namespace Ui

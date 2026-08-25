@@ -16,6 +16,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/crash_reports.h"
 #include "core/update_checker.h"
 #include "core/sandbox.h"
+#include "core/version.h"
 #include "base/concurrent_timer.h"
 #include "base/options.h"
 
@@ -35,7 +36,7 @@ base::options::toggle OptionHighDpiDownscale({
 		" (another approach, likely better quality).",
 	.scope = [] {
 		return !Platform::IsMac()
-			&& QLibraryInfo::version() >= QVersionNumber(6, 4);
+			&& QLibraryInfo::version() >= QVersionNumber(6, 8);
 	},
 	.restartRequired = true,
 });
@@ -119,7 +120,7 @@ void ComputeDebugMode() {
 	auto file = QFile(debugModeSettingPath);
 	if (file.exists() && file.open(QIODevice::ReadOnly)) {
 		Logs::SetDebugEnabled(file.read(1) != "0");
-#if defined _DEBUG
+#if defined _DEBUG && !defined Q_OS_MAC
 	} else {
 		Logs::SetDebugEnabled(true);
 #endif
@@ -335,7 +336,7 @@ void Launcher::init() {
 	prepareSettings();
 	initQtMessageLogging();
 
-	QApplication::setApplicationName(u"AyuGramDesktop"_q);
+	QApplication::setApplicationName(u"AywGramDesktop"_q);
 
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 	// fallback session management is useless for tdesktop since it doesn't have
@@ -361,8 +362,8 @@ void Launcher::initHighDpi() {
 
 	if (OptionHighDpiDownscale.value()) {
 		qputenv("QT_WIDGETS_HIGHDPI_DOWNSCALE", "1");
-		qputenv("QT_WIDGETS_RHI", "1");
-		qputenv("QT_WIDGETS_RHI_BACKEND", "opengl");
+	} else {
+		qunsetenv("QT_WIDGETS_HIGHDPI_DOWNSCALE");
 	}
 
 	if (OptionFractionalScalingEnabled.value()
@@ -549,6 +550,7 @@ void Launcher::processArguments() {
 	};
 	auto parseMap = std::map<QByteArray, KeyFormat> {
 		{ "-debug"          , KeyFormat::NoValues },
+		{ "-testagent"      , KeyFormat::NoValues },
 		{ "-key"            , KeyFormat::OneValue },
 		{ "-autostart"      , KeyFormat::NoValues },
 		{ "-fixprevious"    , KeyFormat::NoValues },
@@ -592,7 +594,8 @@ void Launcher::processArguments() {
 	}
 
 	static const auto RegExp = QRegularExpression("[^a-z0-9\\-_]");
-	gDebugMode = parseResult.contains("-debug");
+	gTestAgent = parseResult.contains("-testagent");
+	gDebugMode = parseResult.contains("-debug") || gTestAgent;
 	gKeyFile = parseResult
 		.value("-key", {})
 		.join(QString())

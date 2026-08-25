@@ -6,322 +6,349 @@
 // Copyright @Radolyn, 2026
 #include "ayu/features/forward/ayu_sync.h"
 
-#include "apiwrap.h"
-#include "api/api_sending.h"
-#include "ayu/utils/telegram_helpers.h"
 #include "core/application.h"
 #include "core/core_settings.h"
 #include "core/file_utilities.h"
 #include "data/data_document.h"
+#include "data/data_file_origin.h"
 #include "data/data_photo.h"
 #include "data/data_photo_media.h"
 #include "data/data_session.h"
-#include "history/history.h"
 #include "history/history_item.h"
 #include "main/main_session.h"
-#include "storage/file_download_mtproto.h"
-#include "storage/localimageloader.h"
+#include "storage/file_download.h"
+#include "storage/storage_account.h"
 
 namespace AyuSync {
+namespace {
+
+template <typename Value>
+using SharedCompletion = std::shared_ptr<FnMut<void(Value)>>;
+
+template <typename Value>
+void Complete(const SharedCompletion<Value> &completion, Value value) {
+	if (completion && *completion) {
+		auto callback = std::move(*completion);
+		callback(std::move(value));
+	}
+}
+
+QString PhotoFilePath(
+		not_null<Main::Session*> session,
+		not_null<PhotoData*> photo) {
+	return pathForSave(session)
+		+ QString::number(photo->getDC())
+		+ u"_"_q
+		+ QString::number(photo->id)
+		+ u".jpg"_q;
+}
+
+QString DocumentFilePath(
+		not_null<Main::Session*> session,
+		not_null<DocumentData*> document) {
+	const auto path = document->filepath(true);
+	if (!path.isEmpty()) {
+		return path;
+	}
+	const auto prefix = pathForSave(session);
+	if (!document->filename().isEmpty()) {
+		return prefix + document->filename();
+	} else if (document->isVoiceMessage()) {
+		return prefix
+			+ u"audio_"_q
+			+ QString::number(document->getDC())
+			+ u"_"_q
+			+ QString::number(document->id)
+			+ u".ogg"_q;
+	} else if (document->isVideoMessage()) {
+		return prefix
+			+ u"round_"_q
+			+ QString::number(document->getDC())
+			+ u"_"_q
+			+ QString::number(document->id)
+			+ u".mp4"_q;
+	} else if (document->isGifv()) {
+		return prefix
+			+ u"gif_"_q
+			+ QString::number(document->getDC())
+			+ u"_"_q
+			+ QString::number(document->id)
+			+ u".gif"_q;
+	} else if (document->isVideoFile()) {
+		return prefix
+			+ u"video_"_q
+			+ QString::number(document->getDC())
+			+ u"_"_q
+			+ QString::number(document->id)
+			+ u".mp4"_q;
+	}
+	return prefix
+		+ u"document_"_q
+		+ QString::number(document->getDC())
+		+ u"_"_q
+		+ QString::number(document->id);
+}
+
+QString FilePath(
+		not_null<Main::Session*> session,
+		not_null<HistoryItem*> item) {
+	const auto media = item->media();
+	if (!media) {
+		return {};
+	}
+	if (const auto document = media->document()) {
+		return DocumentFilePath(session, document);
+	} else if (const auto photo = media->photo()) {
+		return PhotoFilePath(session, photo);
+	}
+	return {};
+}
+
+bool FileExistsNonEmpty(const QString &path) {
+	const auto info = QFileInfo(path);
+	return info.isFile() && info.size() > 0;
+}
+
+bool FileHasExactSize(const QString &path, int64 expected) {
+	const auto info = QFileInfo(path);
+	return info.isFile()
+		&& info.size() > 0
+		&& (!expected || info.size() == expected);
+}
+
+std::optional<bool> CheckDocument(
+		not_null<DocumentData*> document,
+		const QString &path) {
+	if (document->status == FileDownloadFailed) {
+		return false;
+	}
+	return FileHasExactSize(path, document->size)
+		? std::optional<bool>(true)
+		: std::nullopt;
+}
+
+std::optional<bool> CheckDocument(
+		not_null<Main::Session*> session,
+		FullMsgId itemId) {
+	const auto item = session->data().message(itemId);
+	const auto media = item ? item->media() : nullptr;
+	const auto document = media ? media->document() : nullptr;
+	if (!document) {
+		return false;
+	}
+	return CheckDocument(document, FilePath(session, item));
+}
+
+std::optional<bool> CheckPhoto(
+		not_null<PhotoData*> photo,
+		const QString &path) {
+	if (FileHasExactSize(
+			path,
+			photo->imageByteSize(Data::PhotoSize::Large))
+		|| FileExistsNonEmpty(path)) {
+		return true;
+	} else if (photo->failed(Data::PhotoSize::Large)) {
+		return false;
+	}
+	const auto view = photo->createMediaView();
+	if (view && view->loaded()) {
+		if (!view->saveToFile(path)) {
+			return false;
+		}
+		return FileExistsNonEmpty(path);
+	}
+	return std::nullopt;
+}
+
+std::optional<bool> CheckPhoto(
+		not_null<Main::Session*> session,
+		FullMsgId itemId) {
+	const auto item = session->data().message(itemId);
+	const auto media = item ? item->media() : nullptr;
+	const auto photo = media ? media->photo() : nullptr;
+	if (!photo) {
+		return false;
+	}
+	return CheckPhoto(photo, FilePath(session, item));
+}
+
+} // namespace
 
 QString pathForSave(not_null<Main::Session*> session) {
 	auto path = Core::App().settings().downloadPath();
 	if (path.isEmpty()) {
-		return File::DefaultDownloadPath(session);
+		path = File::DefaultDownloadPath(session);
+	} else if (path == FileDialog::Tmp()) {
+		path = session->local().tempDirectory();
 	}
-	if (path == FileDialog::Tmp()) {
-		return session->local().tempDirectory();
+	if (!path.isEmpty() && !path.endsWith('/')) {
+		path += '/';
 	}
+	QDir().mkpath(path);
 	return path;
 }
 
-QString filePath(not_null<Main::Session*> session, const Data::Media *media) {
-	if (!media) {
-		return {};
-	}
-
-	if (const auto document = media->document()) {
-		if (!document->filename().isEmpty()) {
-			return pathForSave(session) + media->document()->filename();
-		}
-		if (const auto name = document->filepath(true); !name.isEmpty()) {
-			return name;
-		}
-		if (document->isVoiceMessage()) {
-			return pathForSave(session) + "audio_" + QString::number(document->getDC()) + "_" +
-				QString::number(document->id) + ".ogg";
-		}
-		if (document->isVideoMessage()) {
-			return pathForSave(session) + "round_" + QString::number(document->getDC()) + "_" +
-				QString::number(document->id) + ".mp4";
-		}
-
-		// media without any file name
-		if (document->isGifv()) {
-			return pathForSave(session) + "gif_" + QString::number(document->getDC()) + "_" +
-				QString::number(document->id) + ".gif";
-		}
-		if (document->isVideoFile()) {
-			return pathForSave(session) + "video_" + QString::number(document->getDC()) + "_" +
-				QString::number(document->id) + ".mp4";
-		}
-	} else if (const auto photo = media->photo()) {
-		return pathForSave(session) + QString::number(photo->getDC()) + "_" + QString::number(photo->id) + ".jpg";
-	}
-
-	return {};
+QString filePath(
+		not_null<Main::Session*> session,
+		FullMsgId itemId) {
+	const auto item = session->data().message(itemId);
+	return item ? FilePath(session, item) : QString();
 }
 
-qint64 fileSize(not_null<HistoryItem*> item) {
-	if (const auto path = filePath(&item->history()->session(), item->media()); !path.isEmpty()) {
-		QFile file(path);
-		if (file.exists()) {
-			auto size = file.size();
-			return size;
-		}
-	}
-	return 0;
+QString filePath(
+		not_null<Main::Session*> session,
+		not_null<PhotoData*> photo) {
+	return PhotoFilePath(session, photo);
 }
 
-void loadDocuments(not_null<Main::Session*> session, const std::vector<not_null<HistoryItem*>> &items) {
-	for (const auto &item : items) {
-		if (const auto data = item->media()->document()) {
-			const auto size = fileSize(item);
-
-			if (size == data->size) {
-				continue;
-			}
-			if (size && size < data->size) {
-				// in case there some unfinished file
-				QFile file(filePath(session, item->media()));
-				file.remove();
-			}
-
-			loadDocumentSync(session, data, item);
-		} else if (auto photo = item->media()->photo()) {
-			if (fileSize(item) == photo->imageByteSize(Data::PhotoSize::Large)) {
-				continue;
-			}
-
-			loadPhotoSync(session, std::pair(photo, item->fullId()));
-		}
-	}
-}
-
-void loadDocumentSync(not_null<Main::Session*> session, DocumentData *data, not_null<HistoryItem*> item) {
-	auto latch = std::make_shared<TimedCountDownLatch>(1);
-	auto lifetime = std::make_shared<rpl::lifetime>();
-
-	auto path = filePath(session, item->media());
+void loadPhoto(
+		not_null<Main::Session*> session,
+		not_null<PhotoData*> photo,
+		Data::FileOrigin origin,
+		rpl::lifetime &lifetime,
+		FnMut<void(QString)> completion) {
+	const auto path = PhotoFilePath(session, photo);
+	const auto shared = std::make_shared<FnMut<void(QString)>>(
+		std::move(completion));
 	if (path.isEmpty()) {
+		Complete(shared, QString());
 		return;
 	}
-	crl::on_main([=]
-	{
-		data->save(Data::FileOriginMessage(item->fullId()), path);
-
-		session->downloaderTaskFinished() | rpl::filter([=]
-		{
-			return !data || data->status == FileDownloadFailed || fileSize(item) == data->size;
-		}) | rpl::on_next([=]() mutable
-								  {
-									  latch->countDown();
-								  },
-								  *lifetime);
-	});
-
-	constexpr auto overall = std::chrono::minutes(15);
-	const auto startTime = std::chrono::steady_clock::now();
-
-	while (std::chrono::steady_clock::now() - startTime < overall) {
-		if (latch->await(std::chrono::minutes(5))) {
-			break;
-		}
-
-		if (!data || !data->loading()) {
-			break;
-		}
+	if (const auto result = CheckPhoto(photo, path)) {
+		Complete(shared, *result ? path : QString());
+		return;
 	}
-
-	base::take(lifetime)->destroy();
+	photo->load(Data::PhotoSize::Large, origin);
+	const auto weak = base::make_weak(session.get());
+	session->downloaderTaskFinished(
+	) | rpl::on_next([weak, photo, path, shared] {
+		if (!weak) {
+			Complete(shared, QString());
+			return;
+		}
+		if (const auto result = CheckPhoto(photo, path)) {
+			Complete(shared, *result ? path : QString());
+		}
+	}, lifetime);
+	if (const auto result = CheckPhoto(photo, path)) {
+		Complete(shared, *result ? path : QString());
+	} else if (!photo->loading(Data::PhotoSize::Large)) {
+		Complete(shared, QString());
+	}
 }
 
-void forwardMessagesSync(not_null<Main::Session*> session,
-						 const std::vector<not_null<HistoryItem*>> &items,
-						 const ApiWrap::SendAction &action,
-						 Data::ForwardOptions options) {
-	auto latch = std::make_shared<TimedCountDownLatch>(1);
-
-	crl::on_main([=]
-	{
-		session->api().forwardMessages(Data::ResolvedForwardDraft(items, options),
-									   action,
-									   [=]
-									   {
-										   latch->countDown();
-									   });
-	});
-
-
-	latch->await(std::chrono::minutes(1));
-}
-
-void loadPhotoSync(not_null<Main::Session*> session, const std::pair<not_null<PhotoData*>, FullMsgId> &photo) {
-	const auto folderPath = pathForSave(session);
-	const auto downloadPath = folderPath.isEmpty() ? Core::App().settings().downloadPath() : folderPath;
-
-	const auto path = downloadPath.isEmpty()
-						  ? File::DefaultDownloadPath(session)
-						  : downloadPath == FileDialog::Tmp()
-								? session->local().tempDirectory()
-								: downloadPath;
+void loadDocument(
+		not_null<Main::Session*> session,
+		not_null<DocumentData*> document,
+		Data::FileOrigin origin,
+		rpl::lifetime &lifetime,
+		FnMut<void(QString)> completion) {
+	const auto path = DocumentFilePath(session, document);
+	const auto shared = std::make_shared<FnMut<void(QString)>>(
+		std::move(completion));
 	if (path.isEmpty()) {
+		Complete(shared, QString());
 		return;
 	}
-	if (!QDir().mkpath(path)) {
+	if (const auto result = CheckDocument(document, path)) {
+		Complete(shared, *result ? path : QString());
 		return;
 	}
+	const auto info = QFileInfo(path);
+	if (info.isFile()) {
+		QFile::remove(path);
+	}
+	document->save(origin, path);
+	const auto weak = base::make_weak(session.get());
+	session->downloaderTaskFinished(
+	) | rpl::on_next([weak, document, path, shared] {
+		if (!weak) {
+			Complete(shared, QString());
+			return;
+		}
+		if (const auto result = CheckDocument(document, path)) {
+			Complete(shared, *result ? path : QString());
+		}
+	}, lifetime);
+	if (const auto result = CheckDocument(document, path)) {
+		Complete(shared, *result ? path : QString());
+	} else if (!document->loading()) {
+		Complete(shared, QString());
+	}
+}
 
-	const auto view = photo.first->createMediaView();
-	if (!view) {
+void loadMedia(
+		not_null<Main::Session*> session,
+		FullMsgId itemId,
+		rpl::lifetime &lifetime,
+		FnMut<void(bool)> completion) {
+	const auto item = session->data().message(itemId);
+	const auto media = item ? item->media() : nullptr;
+	const auto document = media ? media->document() : nullptr;
+	const auto photo = media ? media->photo() : nullptr;
+	const auto shared = std::make_shared<FnMut<void(bool)>>(
+		std::move(completion));
+	if (!document && !photo) {
+		Complete(shared, false);
 		return;
 	}
-	view->wanted(Data::PhotoSize::Large, photo.second);
-
-	const auto finalCheck = [=]
-	{
-		return !photo.first->loading();
-	};
-
-	const auto saveToFiles = [=]
-	{
-		QDir directory(path);
-		const auto dir = directory.absolutePath();
-		const auto nameBase = dir.endsWith('/') ? dir : dir + '/';
-		const auto fullPath = nameBase + QString::number(photo.first->getDC()) + "_" + QString::number(photo.first->id)
-			+ ".jpg";
-		view->saveToFile(fullPath);
-	};
-
-	auto latch = std::make_shared<TimedCountDownLatch>(1);
-	auto lifetime = std::make_shared<rpl::lifetime>();
-
-	if (finalCheck()) {
-		saveToFiles();
+	const auto path = FilePath(session, item);
+	if (path.isEmpty()) {
+		Complete(shared, false);
+		return;
+	}
+	const auto weak = base::make_weak(session.get());
+	if (document) {
+		if (const auto result = CheckDocument(session, itemId)) {
+			Complete(shared, *result);
+			return;
+		}
+		const auto info = QFileInfo(path);
+		if (info.isFile()) {
+			QFile::remove(path);
+		}
+		document->save(Data::FileOriginMessage(itemId), path);
+		session->downloaderTaskFinished(
+		) | rpl::on_next([weak, itemId, shared] {
+			const auto session = weak.get();
+			if (!session) {
+				Complete(shared, false);
+				return;
+			}
+			if (const auto result = CheckDocument(session, itemId)) {
+				Complete(shared, *result);
+			}
+		}, lifetime);
+		if (const auto result = CheckDocument(session, itemId)) {
+			Complete(shared, *result);
+		} else if (!document->loading()) {
+			Complete(shared, false);
+		}
 	} else {
-		crl::on_main([=]
-		{
-			session->downloaderTaskFinished() | rpl::filter([=]
-			{
-				return finalCheck();
-			}) | rpl::on_next([=]() mutable
-									  {
-										  saveToFiles();
-										  latch->countDown();
-									  },
-									  *lifetime);
-		});
-		latch->await(std::chrono::minutes(5));
-		base::take(lifetime)->destroy();
-	}
-}
-
-void sendMessageSync(not_null<Main::Session*> session, Api::MessageToSend &message) {
-	crl::on_main([=, &message]
-	{
-		// we cannot send events to objects
-		// owned by a different thread
-		// because sendMessage updates UI too
-
-		session->api().sendMessage(std::move(message));
-	});
-
-
-	waitForMsgSync(session, message.action);
-}
-
-void waitForMsgSync(not_null<Main::Session*> session, const Api::SendAction &action) {
-	auto latch = std::make_shared<TimedCountDownLatch>(1);
-	auto lifetime = std::make_shared<rpl::lifetime>();
-
-	crl::on_main([=]
-	{
-		session->data().itemIdChanged()
-			| rpl::filter([=](const Data::Session::IdChange &update)
-			{
-				return action.history->peer->id == update.newId.peer;
-			}) | rpl::on_next([=]
-									  {
-										  latch->countDown();
-									  },
-									  *lifetime);
-	});
-
-	latch->await(std::chrono::minutes(5));
-	base::take(lifetime)->destroy();
-}
-
-void sendDocumentSync(not_null<Main::Session*> session,
-					  Ui::PreparedGroup &group,
-					  SendMediaType type,
-					  TextWithTags &&caption,
-					  const Api::SendAction &action) {
-	auto groupId = std::make_shared<SendingAlbum>();
-	groupId->groupId = base::RandomValue<uint64>();
-
-	crl::on_main([=, lst = std::move(group.list), caption = std::move(caption)]() mutable
-	{
-		auto size = lst.files.size();
-		if (!lst.files.empty()) {
-			lst.files.front().caption = std::move(caption);
+		if (const auto result = CheckPhoto(session, itemId)) {
+			Complete(shared, *result);
+			return;
 		}
-		session->api().sendFiles(
-			std::move(lst),
-			type,
-			size > 1 ? groupId : nullptr,
-			action);
-	});
-
-	waitForMsgSync(session, action);
-}
-
-void sendStickerSync(not_null<Main::Session*> session,
-					 Api::MessageToSend &message,
-					 not_null<DocumentData*> document) {
-	auto &action = message.action;
-	crl::on_main([&]
-	{
-		Api::SendExistingDocument(std::move(message), document, std::nullopt);
-	});
-
-	waitForMsgSync(session, action);
-}
-
-void sendVoiceSync(not_null<Main::Session*> session,
-				   const QByteArray &data,
-				   int64_t duration,
-				   bool video,
-				   Api::MessageToSend &&message) {
-	const auto action = message.action;
-
-	crl::on_main([=]
-	{
-		const auto to = FileLoadTo(
-			action.history->peer->id,
-			action.options,
-			action.replyTo,
-			action.replaceMediaOf);
-		session->api().fileLoader()->addTask(std::make_unique<FileLoadTask>(FileLoadTask::VoiceArgs{
-			.session = session,
-			.voice = data,
-			.duration = duration,
-			.waveform = QVector<signed char>(),
-			.video = video,
-			.to = to,
-			.caption = message.textWithTags
-		}));
-	});
-	waitForMsgSync(session, action);
+		photo->load(
+			Data::PhotoSize::Large,
+			Data::FileOriginMessage(itemId));
+		session->downloaderTaskFinished(
+		) | rpl::on_next([weak, itemId, shared] {
+			const auto session = weak.get();
+			if (!session) {
+				Complete(shared, false);
+				return;
+			}
+			if (const auto result = CheckPhoto(session, itemId)) {
+				Complete(shared, *result);
+			}
+		}, lifetime);
+		if (const auto result = CheckPhoto(session, itemId)) {
+			Complete(shared, *result);
+		} else if (!photo->loading(Data::PhotoSize::Large)) {
+			Complete(shared, false);
+		}
+	}
 }
 
 } // namespace AyuSync

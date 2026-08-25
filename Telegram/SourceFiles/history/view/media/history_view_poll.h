@@ -95,17 +95,30 @@ private:
 	QSize countCurrentSize(int newWidth) override;
 
 	[[nodiscard]] bool showVotes() const;
+	[[nodiscard]] PollData::VoteRestriction knownVoteRestriction() const;
+	[[nodiscard]] bool voteRestricted() const;
+	void showVoteRestrictionToast() const;
 	[[nodiscard]] bool canVote() const;
 	[[nodiscard]] bool canSendVotes() const;
 	[[nodiscard]] bool isAuthorNotVoted() const;
 	void updateTexts();
 	void updateVotes();
 	bool showVotersCount() const;
+	[[nodiscard]] bool canShowAuthorResults() const;
 	bool inlineFooter() const;
 
 	[[nodiscard]] bool canAddOption() const;
+	void refreshWebpageSubscriptions();
+	[[nodiscard]] bool webpagesUpdated() const;
+
+	struct RegisteredWebpage {
+		not_null<WebPageData*> page;
+		PhotoData *photo = nullptr;
+		TimeId pendingTill = 0;
+	};
 
 	not_null<PollData*> _poll;
+	std::vector<RegisteredWebpage> _registeredWebpages;
 	int _pollVersion = 0;
 	int _totalVotes = 0;
 	bool _voted = false;

@@ -11,6 +11,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "intro/intro_code.h"
 #include "intro/intro_email.h"
 #include "intro/intro_qr.h"
+#include "ayu/ui/boxes/session_transfer_box.h"
 #include "styles/style_intro.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/labels.h"
@@ -97,6 +98,7 @@ PhoneWidget::PhoneWidget(
 	}, lifetime());
 	setErrorCentered(true);
 	setupQrLogin();
+	setupSessionImport();
 
 	if (!_country->chooseCountry(getData()->country)) {
 		_country->chooseCountry(u"US"_q);
@@ -126,7 +128,29 @@ void PhoneWidget::setupQrLogin() {
 	}, qrLogin->lifetime());
 
 	qrLogin->setClickedCallback([=] {
-		goReplace<QrWidget>(Animate::Forward);
+		goNextOrBack<QrWidget>();
+	});
+}
+
+void PhoneWidget::setupSessionImport() {
+	const auto sessionImport = Ui::CreateChild<Ui::LinkButton>(
+		this,
+		tr::ayu_SessionTransferLoginLink(tr::now));
+	sessionImport->show();
+	rpl::combine(
+		sizeValue(),
+		sessionImport->widthValue()
+	) | rpl::on_next([=](QSize size, int linkWidth) {
+		sessionImport->moveToLeft(
+			(size.width() - linkWidth) / 2,
+			contentTop() + st::introSessionImportLinkTop);
+	}, sessionImport->lifetime());
+	sessionImport->setClickedCallback([=] {
+		stopCheck();
+		api().request(base::take(_sentRequest)).cancel();
+		Ayu::SessionTransfer::ShowImportBox(
+			getData()->controller->uiShow(),
+			&account());
 	});
 }
 
@@ -274,17 +298,15 @@ void PhoneWidget::phoneSubmitFail(const MTP::Error &error) {
 
 	stopCheck();
 	_sentRequest = 0;
-	auto &err = error.type();
+	const auto &err = error.type();
 	if (err == u"PHONE_NUMBER_FLOOD"_q) {
 		Ui::show(Ui::MakeInformBox(tr::lng_error_phone_flood()));
 	} else if (err == u"PHONE_NUMBER_INVALID"_q) { // show error
 		showPhoneError(tr::lng_bad_phone());
 	} else if (err == u"PHONE_NUMBER_BANNED"_q) {
 		Ui::ShowPhoneBannedError(getData()->controller, _sentPhone);
-	} else if (Logs::DebugEnabled()) { // internal server error
-		showPhoneError(rpl::single(err + ": " + error.description()));
-	} else {
-		showPhoneError(rpl::single(Lang::Hard::ServerError()));
+	} else if (!MTP::IgnoreError(error)) {
+		showPhoneError(rpl::single(err));
 	}
 }
 

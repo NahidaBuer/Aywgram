@@ -1,0 +1,4 @@
+interface:
+  display_name: "AyuGram Upstream Sync"
+  short_description: "Audit and integrate AyuGram upstreams safely"
+  default_prompt: "Use $ayugram-upstream-sync to audit this fork and prepare the next safe upstream integration."

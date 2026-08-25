@@ -17,14 +17,14 @@
 struct ApplyChanges
 {
 	std::vector<RegexFilter> newFilters;
-	std::vector<QString> removeFiltersById;
+	std::vector<std::vector<char>> removeFiltersById;
 
 	std::vector<RegexFilter> filtersOverrides;
 
 	std::vector<RegexFilterGlobalExclusion> newExclusions;
 	std::vector<RegexFilterGlobalExclusion> removeExclusions;
 
-	std::map<long long, QString> peersToBeResolved;
+	std::vector<QString> peersToBeResolved;
 
 	bool operator==(const ApplyChanges &) const = default;
 };
@@ -45,7 +45,7 @@ public:
 	FilterUtils &operator=(FilterUtils &&) = delete;
 
 	void importFromLink(const QString &link);
-	bool importFromJson(const QByteArray &json);
+	void importFromJson(const QByteArray &json);
 
 	void publishFilters();
 	static QString exportFilters();
@@ -57,14 +57,11 @@ private:
 		: _manager(std::make_unique<QNetworkAccessManager>()) {
 	}
 
-	bool handleResponse(const QByteArray &response);
+	void handleResponse(const QByteArray &response);
 	void gotFailure(const QNetworkReply::NetworkError &error);
 
 	ApplyChanges prepareChanges(const QJsonObject &response);
 	void applyChanges(const ApplyChanges &changes);
 
-	QTimer *_timer = nullptr;
-
 	std::unique_ptr<QNetworkAccessManager> _manager = nullptr;
-	QNetworkReply *_reply = nullptr;
 };

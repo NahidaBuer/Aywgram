@@ -80,7 +80,6 @@ mediaviewPipButton: IconButton(mediaviewControlsButton) {
 	iconPosition: point(4px, 4px);
 }
 
-mediaviewPipMargins: callShadowExtend;
 mediaviewPipShadow: callShadow;
 
 mediaviewFullScreenButtonSkip: 4px;
@@ -204,6 +203,9 @@ mediaviewPopupMenu: PopupMenu(defaultPopupMenu) {
 	menu: mediaviewMenu;
 	animation: mediaviewPanelAnimation;
 }
+mediaviewSponsorInfoMenu: PopupMenu(mediaviewPopupMenu) {
+	maxHeight: 420px;
+}
 mediaviewDropdownMenu: DropdownMenu(defaultDropdownMenu) {
 	menu: mediaviewMenu;
 	wrap: InnerDropdown(defaultInnerDropdown) {
@@ -236,13 +238,26 @@ mediaviewChapterArrowSlide: 350;
 mediaviewChapterArrowPause: 1500;
 mediaviewChapterArrowFade: 300;
 
+mediaviewSpeedBoostPadding: margins(12px, 6px, 12px, 6px);
+mediaviewSpeedBoostFont: font(16px semibold);
+mediaviewSpeedBoostShowing: 150;
+mediaviewSpeedBoostHiding: 200;
+mediaviewSpeedBoostArrowHeight: 9px;
+mediaviewSpeedBoostArrowWidth: 7px;
+mediaviewSpeedBoostArrowGap: 2px;
+mediaviewSpeedBoostArrowOverlap: 2px;
+mediaviewSpeedBoostTextRight: 8px;
+mediaviewSpeedBoostTop: 12px;
+mediaviewSpeedBoostHoldDelay: 200;
+mediaviewSpeedBoostDragPerUnit: 300px;
+
 mediaviewTextPalette: TextPalette(defaultTextPalette) {
 	linkFg: mediaviewTextLinkFg;
 	monoFg: mediaviewCaptionFg;
 	spoilerFg: mediaviewCaptionFg;
 }
 
-mediaviewCaptionStyle: defaultTextStyle;
+mediaviewCaptionStyle: historyTextStyle;
 
 mediaviewThickFont: semiboldFont;
 mediaviewFont: normalFont;
@@ -257,6 +272,9 @@ mediaviewTextTop: 26px;
 mediaviewControlSize: 90px;
 mediaviewIconSize: size(46px, 54px);
 mediaviewIconOver: 36px;
+
+mediaviewTtlSkip: 16px;
+mediaviewTtlTooltipSkip: 8px;
 
 mediaviewWaitHide: 1100;
 mediaviewHideDuration: 600;
@@ -457,8 +475,6 @@ pipVolumeIcon1Over: icon {{ "player/player_volume_small", mediaviewPipControlsFg
 pipVolumeIcon2: icon {{ "player/player_volume_on", mediaviewPipControlsFg }};
 pipVolumeIcon2Over: icon {{ "player/player_volume_on", mediaviewPipControlsFgOver }};
 
-speedSliderDividerSize: size(2px, 8px);
-
 storiesMaxSize: size(540px, 960px);
 storiesSiblingWidthMin: 200px; // Try making sibling not less than this.
 storiesMaxNameFontSize: 17px;
@@ -575,6 +591,10 @@ storiesPopupMenuWithIcons: PopupMenu(storiesPopupMenu) {
 	scrollPadding: margins(0px, 5px, 0px, 5px);
 	menu: storiesMenuWithIcons;
 }
+storiesMenuWithIconsAttention: Menu(storiesMenuWithIcons) {
+	itemFg: attentionButtonFg;
+	itemFgOver: attentionButtonFgOver;
+}
 
 storiesBoxLabel: FlatLabel(boxLabel) {
 	textFg: groupCallMembersFg;
@@ -642,7 +662,9 @@ storiesEmojiPan: EmojiPan(defaultEmojiPan) {
 	fadeLeft: icon {{ "fade_horizontal-flip_horizontal", storiesComposeBg }};
 	fadeRight: icon {{ "fade_horizontal", storiesComposeBg }};
 	menu: storiesPopupMenuWithIcons;
+	menuAttention: storiesMenuWithIconsAttention;
 	expandedSeparator: mediaviewWideMenuSeparator;
+	searchPackRipple: storiesComposeRippleLight;
 	tabs: SettingsSlider(emojiTabs) {
 		barFgActive: storiesComposeBlue;
 		labelFg: storiesComposeGrayText;
@@ -685,6 +707,14 @@ storiesEmojiPan: EmojiPan(defaultEmojiPan) {
 		menuRecentRemove: icon {{ "menu/delete", storiesComposeWhiteText }};
 		menuGifAdd: icon {{ "menu/gif", storiesComposeWhiteText }};
 		menuGifRemove: icon {{ "menu/delete", storiesComposeWhiteText }};
+		menuGifCaption: icon {{ "menu/edit", storiesComposeWhiteText }};
+		menuSetAdd: icon {{ "menu/add", storiesComposeWhiteText }};
+		menuSetShare: icon {{ "menu/share", storiesComposeWhiteText }};
+		menuSetCopyLink: icon {{ "menu/link", storiesComposeWhiteText }};
+		menuSetRemove: icon {{ "menu/delete", storiesComposeWhiteText }};
+		menuEmojiCopy: icon {{ "menu/copy", storiesComposeWhiteText }};
+		menuEmojiViewPack: icon {{ "menu/all_media", storiesComposeWhiteText }};
+		menuEmojiRemoveRecent: icon {{ "menu/cancel", storiesComposeWhiteText }};
 		menuMute: icon {{ "menu/mute", storiesComposeWhiteText }};
 		menuUnmute: icon {{ "menu/unmute", storiesComposeWhiteText }};
 		menuSchedule: icon {{ "menu/calendar", storiesComposeWhiteText }};
@@ -693,6 +723,8 @@ storiesEmojiPan: EmojiPan(defaultEmojiPan) {
 		menuBelow: icon {{ "menu/link_below", storiesComposeWhiteText }};
 		menuAbove: icon {{ "menu/link_above", storiesComposeWhiteText }};
 		menuQualityHigh: icon {{ "menu/quality_hd", storiesComposeWhiteText }};
+		menuCover: icon {{ "menu/edit", storiesComposeWhiteText }};
+		menuCoverRemove: icon {{ "menu/cancel", storiesComposeWhiteText }};
 		menuPrice: icon {{ "menu/earn", storiesComposeWhiteText }};
 		menuEditStars: icon {{ "chat/input_paid", storiesComposeWhiteText, point(-8px, -8px) }};
 
@@ -734,9 +766,10 @@ storiesChooseSendAs: ChooseSendAs(defaultChooseSendAs) {
 storiesCommentSentAt: Menu(storiesMenu, whoSentItem) {
 	itemFgDisabled: groupCallMembersFg;
 }
+storiesComposeRadius: 21px;
 storiesComposeControls: ComposeControls(defaultComposeControls) {
 	bg: storiesComposeBg;
-	radius: 21px;
+	radius: storiesComposeRadius;
 	padding: margins(1px, 8px, 1px, 6px);
 	field: InputField(historyComposeField) {
 		textMargins: margins(2px, 0px, 2px, 0px);
@@ -809,7 +842,7 @@ storiesComposeControls: ComposeControls(defaultComposeControls) {
 	record: RecordBar(defaultRecordBar) {
 		bg: storiesComposeBg;
 		durationFg: storiesComposeWhiteText;
-		radius: storiesRadius;
+		radius: storiesComposeRadius;
 		cancel: storiesComposeGrayText;
 		cancelActive: storiesComposeBlue;
 		cancelRipple: storiesComposeRippleLight;
@@ -929,6 +962,27 @@ storiesWhoViewed: WhoRead(defaultWhoRead) {
 		align: align(left);
 	}
 }
+mediaviewEmojiPan: EmojiPan(storiesEmojiPan) {
+	showAnimation: PanelAnimation(emojiPanAnimation) {
+		fadeBg: groupCallMenuBg;
+	}
+	bg: groupCallMenuBg;
+	overBg: groupCallMenuBgOver;
+	pathBg: groupCallMenuBgRipple;
+	pathFg: groupCallMenuBgOver;
+	categoriesBg: groupCallMenuBg;
+	categoriesBgOver: groupCallMenuBgOver;
+	fadeLeft: icon {{ "fade_horizontal-flip_horizontal", groupCallMenuBg }};
+	fadeRight: icon {{ "fade_horizontal", groupCallMenuBg }};
+	tabs: SettingsSlider(emojiTabs) {
+		barFgActive: storiesComposeBlue;
+		labelFg: storiesComposeGrayText;
+		labelFgActive: storiesComposeBlue;
+		rippleBg: groupCallMenuBgOver;
+		rippleBgActive: groupCallMenuBgOver;
+	}
+}
+
 storiesReactionsPan: EmojiPan(storiesEmojiPan) {
 	margin: margins(reactStripSkip, 0px, reactStripSkip, 0px);
 	padding: margins(reactStripSkip, 0px, reactStripSkip, reactStripSkip);

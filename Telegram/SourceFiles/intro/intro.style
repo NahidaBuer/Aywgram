@@ -121,7 +121,8 @@ introPhone: InputField(introCountry) {
 	width: 225px;
 }
 introQrLoginLinkTop: 368px;
-introCode: introCountry;
+introSessionImportLinkTop: 400px;
+introSessionTransferInputHeight: 120px;
 introName: introCountry;
 introPassword: introCountry;
 introPasswordTop: 74px;
@@ -199,5 +200,6 @@ introQrStep: FlatLabel(defaultFlatLabel) {
 introQrStepsTop: 232px;
 introQrStepMargins: margins(20px, 8px, 0px, 0px);
 introQrSkipTop: 360px;
+introQrSessionImportLinkTop: 420px;
 introQrCenterSize: 44px;
 introQrPlane: icon {{ "intro_qr_plane", activeButtonFg }};

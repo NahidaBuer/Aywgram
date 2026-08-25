@@ -18,6 +18,12 @@
         <file alias="art/ayu/extera2/app_icon.ico">../../art/ayu/extera2/app_icon.ico</file>
         <file alias="art/ayu/nothing/app.svg">../../art/ayu/nothing/app.svg</file>
         <file alias="art/ayu/nothing/app_icon.ico">../../art/ayu/nothing/app_icon.ico</file>
+        <file alias="art/ayu/nahida/app.png">../../art/ayu/nahida/app.png</file>
+        <file alias="art/ayu/nahida/app_icon.ico">../../art/ayu/nahida/app_icon.ico</file>
+        <file alias="art/ayu/nahida2/app.png">../../art/ayu/nahida2/app.png</file>
+        <file alias="art/ayu/nahida2/app_icon.ico">../../art/ayu/nahida2/app_icon.ico</file>
+        <file alias="art/ayu/rossi/app.png">../../art/ayu/rossi/app.png</file>
+        <file alias="art/ayu/rossi/app_icon.ico">../../art/ayu/rossi/app_icon.ico</file>
         <file alias="art/ayu/spotify/app.svg">../../art/ayu/spotify/app.svg</file>
         <file alias="art/ayu/spotify/app_icon.ico">../../art/ayu/spotify/app_icon.ico</file>
         <file alias="art/ayu/win95/app.png">../../art/ayu/win95/app.png</file>
@@ -32,5 +38,6 @@
         <file alias="icons/ayu/donates/solana.svg">../../icons/ayu/donates/solana.svg</file>
         <file alias="icons/ayu/donates/tron.svg">../../icons/ayu/donates/tron.svg</file>
         <file alias="icons/ayu/donates/support_logo.svg">../../icons/ayu/donates/support_logo.svg</file>
+        <file alias="langs/zh-hans.lproj/zh-hans.json">../../langs/zh-hans.lproj/zh-hans.json</file>
     </qresource>
 </RCC>

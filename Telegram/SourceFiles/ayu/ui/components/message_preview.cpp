@@ -9,25 +9,25 @@
 #include "ayu/ayu_settings.h"
 #include "base/unixtime.h"
 #include "data/data_session.h"
+#include "history/admin_log/history_admin_log_item.h"
+#include "history/view/history_view_element.h"
+#include "history/view/history_view_fake_items.h"
 #include "history/history.h"
 #include "history/history_item.h"
 #include "history/history_item_components.h"
 #include "history/history_item_edition.h"
-#include "history/admin_log/history_admin_log_item.h"
-#include "history/view/history_view_element.h"
-#include "history/view/history_view_fake_items.h"
 #include "main/main_session.h"
-#include "styles/style_chat.h"
-#include "styles/style_settings.h"
-#include "ui/painter.h"
-#include "ui/chat/chat_style_radius.h"
 #include "ui/chat/chat_style.h"
 #include "ui/chat/chat_style_radius.h"
 #include "ui/chat/chat_theme.h"
 #include "ui/effects/animations.h"
+#include "ui/painter.h"
+#include "window/themes/window_theme.h"
 #include "window/section_widget.h"
 #include "window/window_session_controller.h"
-#include "window/themes/window_theme.h"
+
+#include "styles/style_chat.h"
+#include "styles/style_settings.h"
 
 class MessagePreview::PreviewDelegate final
 	: public HistoryView::SimpleElementDelegate {
@@ -47,7 +47,7 @@ struct MessagePreview::State {
 	Ui::Animations::Simple heightAnimation;
 	std::unique_ptr<Ui::ChatTheme> theme;
 	int currentHeight = 0;
-	int bubbleRadius = 16;
+	int bubbleRadius = Ui::kBubbleRadiusSliderMax;
 };
 
 MessagePreview::MessagePreview(
@@ -86,11 +86,12 @@ MessagePreview::MessagePreview(
 		.replyTo = FullReplyTo{
 			.messageId = _state->reply->data()->fullId(),
 		},
-		.date = base::unixtime::now(),
-	}, TextWithEntities{ u"You need to touch some grass."_q },
+		.date = base::unixtime::now() - 3600,
+	}, TextWithEntities{ u"You need to go outside and touch some grass..."_q },
 	MTP_messageMediaEmpty());
 
 	messageItem->setDeleted();
+	messageItem->markDeletedAnimated();
 
 	_state->item = AdminLog::OwnedItem(
 		_state->delegate.get(),
@@ -99,7 +100,7 @@ MessagePreview::MessagePreview(
 	auto edition = HistoryMessageEdition();
 	edition.editDate = base::unixtime::now();
 	edition.textWithEntities = TextWithEntities{
-		u"You need to touch some grass."_q,
+		u"You need to go outside and touch some grass..."_q,
 	};
 	edition.useSameViews = true;
 	edition.useSameForwards = true;
@@ -119,14 +120,17 @@ MessagePreview::MessagePreview(
 		updateWidgetSize(w);
 	}, lifetime());
 
+	AyuSettings::getInstance().messageBubbleRadiusChanges(
+	) | rpl::on_next([=](int radius) {
+		setBubbleRadius(radius);
+	}, lifetime());
+
 	rpl::merge(
 		AyuSettings::getInstance().replaceBottomInfoWithIconsChanges()
 			| rpl::to_empty,
 		AyuSettings::getInstance().deletedMarkChanges()
 			| rpl::to_empty,
 		AyuSettings::getInstance().editedMarkChanges()
-			| rpl::to_empty,
-		AyuSettings::getInstance().messageBubbleRadiusChanges()
 			| rpl::to_empty,
 		AyuSettings::getInstance().removeMessageTailChanges()
 			| rpl::to_empty,
@@ -168,9 +172,11 @@ void MessagePreview::paintEvent(QPaintEvent *e) {
 
 	const auto padding = st::settingsForwardPrivacyPadding;
 	p.translate(padding / 2, padding + view->marginBottom());
-	Ui::SetBubbleRadiusOverride(_state->bubbleRadius);
-	view->draw(p, context);
-	Ui::ClearBubbleRadiusOverride();
+	{
+		const auto radiusOverride = Ui::BubbleRadiusOverride(
+			_state->bubbleRadius);
+		view->draw(p, context);
+	}
 
 	if (!AyuSettings::getInstance().hideFastShare()) {
 		const auto size = st::historyFastShareSize;
@@ -198,7 +204,7 @@ void MessagePreview::setBubbleRadius(int radius) {
 		return;
 	}
 	_state->bubbleRadius = radius;
-	refresh();
+	update();
 }
 
 void MessagePreview::updateWidgetSize(int width, bool animate) {

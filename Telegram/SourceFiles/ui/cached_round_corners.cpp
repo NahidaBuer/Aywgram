@@ -6,15 +6,19 @@ For license and copyright information please follow this link:
 https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "ui/cached_round_corners.h"
+
 #include "ui/chat/chat_style.h"
+#include "ui/image/image_prepare.h"
 #include "ui/painter.h"
 #include "ui/ui_utility.h"
-#include "ui/image/image_prepare.h"
+
+#include <map>
+
 #include "styles/style_chat.h"
-#include "styles/style_layers.h"
-#include "styles/style_overview.h"
-#include "styles/style_media_view.h"
 #include "styles/style_chat_helpers.h"
+#include "styles/style_layers.h"
+#include "styles/style_media_view.h"
+#include "styles/style_overview.h"
 
 namespace Ui {
 namespace {
@@ -25,7 +29,9 @@ std::vector<CornersPixmaps> Corners;
 QImage CornersMaskLarge[4], CornersMaskSmall[4];
 rpl::lifetime PaletteChangedLifetime;
 
-std::array<std::array<QImage, 4>, kCachedCornerRadiusCount> CachedMasks;
+std::map<
+	std::pair<CachedCornerRadius, int>,
+	std::array<QImage, 4>> CachedMasks;
 
 [[nodiscard]] std::array<QImage, 4> PrepareCorners(int32 radius, const QBrush &brush, const style::color *shadow = nullptr) {
 	if (radius <= 0) {
@@ -59,6 +65,7 @@ void PrepareCorners(CachedRoundCorners index, int32 radius, const QBrush &brush,
 	Expects(index < Corners.size());
 
 	auto images = PrepareCorners(radius, brush, shadow);
+	Corners[index].radius = radius;
 	for (int i = 0; i < 4; ++i) {
 		Corners[index].p[i] = PixmapFromImage(std::move(images[i]));
 		Corners[index].p[i].setDevicePixelRatio(style::DevicePixelRatio());
@@ -99,6 +106,7 @@ void CreatePaletteCorners() {
 
 void StartCachedCorners() {
 	Corners.resize(RoundCornersCount);
+	CachedMasks.clear();
 	CreateMaskCorners();
 	CreatePaletteCorners();
 
@@ -110,6 +118,7 @@ void StartCachedCorners() {
 
 void FinishCachedCorners() {
 	Corners.clear();
+	CachedMasks.clear();
 	PaletteChangedLifetime.destroy();
 }
 
@@ -226,6 +235,7 @@ const CornersPixmaps &CachedCornerPixmaps(CachedRoundCorners index) {
 CornersPixmaps PrepareCornerPixmaps(int radius, style::color bg, const style::color *sh) {
 	auto images = PrepareCorners(radius, bg, sh);
 	auto result = CornersPixmaps();
+	result.radius = radius;
 	for (int j = 0; j < 4; ++j) {
 		result.p[j] = PixmapFromImage(std::move(images[j]));
 		result.p[j].setDevicePixelRatio(style::DevicePixelRatio());
@@ -250,6 +260,7 @@ CornersPixmaps PrepareInvertedCornerPixmaps(int radius, style::color bg) {
 		bg);
 	circle.setDevicePixelRatio(style::DevicePixelRatio());
 	auto result = CornersPixmaps();
+	result.radius = radius;
 	const auto fill = [&](int index, int xoffset, int yoffset) {
 		result.p[index] = PixmapFromImage(
 			circle.copy(QRect(xoffset, yoffset, size, size)));
@@ -278,11 +289,16 @@ CornersPixmaps PrepareInvertedCornerPixmaps(int radius, style::color bg) {
 	const auto index = static_cast<int>(radius);
 	Assert(index >= 0 && index < kCachedCornerRadiusCount);
 
-	if (CachedMasks[index][0].isNull()) {
-		CachedMasks[index] = Images::CornersMask(
-			CachedCornerRadiusValue(CachedCornerRadius(index)));
+	const auto value = CachedCornerRadiusValue(radius);
+	const auto key = std::make_pair(radius, value);
+	if (const auto i = CachedMasks.find(key); i != end(CachedMasks)) {
+		return i->second;
 	}
-	return CachedMasks[index];
+	auto masks = std::array<QImage, 4>();
+	if (value > 0) {
+		masks = Images::CornersMask(value);
+	}
+	return CachedMasks.emplace(key, std::move(masks)).first->second;
 }
 
 } // namespace Ui

@@ -49,7 +49,13 @@ public:
 	rpl::producer<SelectedItems> selectedListValue() const;
 	void selectionAction(SelectionAction action);
 
-	void jumpToMessage(MsgId msgId);
+	void jumpToMessage(FullMsgId msgId);
+
+	bool processZoomWheel(not_null<QWheelEvent*> e);
+	void zoomIn();
+	void zoomOut();
+	[[nodiscard]] bool canZoomIn() const;
+	[[nodiscard]] bool canZoomOut() const;
 
 	~InnerWidget();
 

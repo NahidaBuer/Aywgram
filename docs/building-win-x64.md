@@ -1,83 +1,44 @@
-# Build instructions for Windows 64-bit
+# Windows x64 构建
 
-- [Prepare folder](#prepare-folder)
-- [Install third party software](#install-third-party-software)
-- [Clone source code and prepare libraries](#clone-source-code-and-prepare-libraries)
-- [Build the project](#build-the-project)
+以下步骤用于 Windows x64 构建。当前流程使用 Visual Studio 2022 与 Windows SDK
+`10.0.26100.0`；依赖和支持版本会随上游调整，请以 `Telegram/build/prepare/win.bat` 的实际
+检查结果为准。
 
-## Prepare folder
+## 准备目录与工具
 
-The build is done in **Visual Studio 2022** with **10.0.26100.0** SDK version.
+选择一个空的构建根目录，例如 `D:\TBuild`，并在其中创建 `ThirdParty` 与 `Libraries` 目录。
+除非另有说明，以下命令都应在 **x64 Native Tools Command Prompt for VS 2022** 中执行。
 
-Choose an empty folder for the future build, for example **D:\\TBuild**. It will be named ***BuildPath*** in the rest of this document. Create two folders there, ***BuildPath*\\ThirdParty** and ***BuildPath*\\Libraries**.
+安装 Git 与 Python 3.10，并确认二者已加入 `PATH`。安装 Visual Studio 时选择 C++ 桌面开发
+工作负载、最新的 C++ MFC/ATL（x86 和 x64）以及 Windows 11 SDK。
 
-All commands (if not stated otherwise) will be launched from **x64 Native Tools Command Prompt for VS 2022.bat** (should be in **Start Menu > Visual Studio 2022** menu folder). Pay attention not to use any other Command Prompt.
+## 克隆并准备依赖
 
-## Install third party software
+在构建根目录中递归克隆本仓库：
 
-* Download **Python 3.10** installer from [https://www.python.org/downloads/](https://www.python.org/downloads/) and install it with adding to PATH.
-* Download **Git** installer from [https://git-scm.com/download/win](https://git-scm.com/download/win) and install it.
-
-## Clone source code and prepare libraries
-
-Open **x64 Native Tools Command Prompt for VS 2022.bat**, go to ***BuildPath*** and run
-
-    git clone --recursive https://github.com/AyuGram/AyuGramDesktop.git tdesktop
-    tdesktop\Telegram\build\prepare\win.bat
-
-You may encounter an error saying that your IP is not allowed - simply turn on VPN.
-
-## Build the project
-
-Go to ***BuildPath*\\tdesktop\\Telegram** and run
-
-    configure.bat x64 -D TDESKTOP_API_ID=2040 -D TDESKTOP_API_HASH=b18441a1ff607e10a989891a5462e627
-
-* Open ***BuildPath*\\tdesktop\\out\\Telegram.slnx** in Visual Studio 2022
-* Select Telegram project and press Build > Build Telegram (Debug and Release configurations)
-* The result AyuGram.exe will be located in **D:\TBuild\tdesktop\out\Debug** (and **Release**)
-
-If you encounter issue like `error C1090: PDB API call failed, error code '12'` on Release build, apply the following patch in `tdesktop/cmake` folder (via pwsh or manually):
-
-```diff
-@'
-diff --git a/options_win.cmake b/options_win.cmake
-index c2d66cf..ccceb53 100644
---- a/options_win.cmake
-+++ b/options_win.cmake
-@@ -32,6 +32,7 @@ if (MSVC)
-       /utf-8
-       /W4
-       /MP     # Enable multi process build.
-+        /FS
-       /EHsc   # Catch C++ exceptions only, extern C functions never throw a C++ exception.
-       /w15038 # wrong initialization order
-       /w14265 # class has virtual functions, but destructor is not virtual
-@@ -64,7 +65,7 @@ if (MSVC)
-   INTERFACE
-       $<$<CONFIG:Debug>:/NODEFAULTLIB:LIBCMT>
-       $<$<AND:$<CONFIG:Debug>,$<BOOL:${build_win64}>>:/DEBUG:FASTLINK>
--        $<$<NOT:$<AND:$<CONFIG:Debug>,$<BOOL:${build_win64}>>>:$<IF:$<STREQUAL:$<GENEX_EVAL:
-$<TARGET_PROPERTY:MSVC_DEBUG_INFORMATION_FORMAT>>,ProgramDatabase>,/DEBUG,/DEBUG:NONE>>
-+        $<$<NOT:$<AND:$<CONFIG:Debug>,$<BOOL:${build_win64}>>>:$<IF:$<BOOL:$<GENEX_EVAL:
-$<TARGET_PROPERTY:MSVC_DEBUG_INFORMATION_FORMAT>>>,/DEBUG,/DEBUG:NONE>>
-       $<$<NOT:$<CONFIG:Debug>>:/OPT:REF>
-       /INCREMENTAL:NO
-       /DEPENDENTLOADFLAG:0x800
-diff --git a/variables.cmake b/variables.cmake
-index d6ac6c5..b2f492a 100644
---- a/variables.cmake
-+++ b/variables.cmake
-@@ -21,7 +21,9 @@ if (DESKTOP_APP_SPECIAL_TARGET STREQUAL ""
-endif()
-
-set(CMAKE_CXX_SCAN_FOR_MODULES OFF CACHE BOOL "")
--set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "ProgramDatabase" CACHE STRING "")
-+set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT
-+    "$<$<CONFIG:Debug,RelWithDebInfo>:ProgramDatabase>$<$<CONFIG:Release,MinSizeRel>:Embedded>"
-+    CACHE STRING "" FORCE)
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "")
-option(DESKTOP_APP_TEST_APPS "Build test apps, development only." OFF)
-option(DESKTOP_APP_LOTTIE_DISABLE_RECOLORING "Disable recoloring of lottie animations." OFF)
-'@ | git -C cmake apply -
+```bat
+cd /d D:\TBuild
+git clone --recursive <本仓库地址> tdesktop
+tdesktop\Telegram\build\prepare\win.bat
 ```
+
+准备脚本会下载并配置所需第三方库。它的目录假设与构建根目录有关，因此不要把仓库移动到
+准备完成后的其他位置。
+
+## 配置与构建
+
+进入 `D:\TBuild\tdesktop\Telegram`（替换为实际路径）并配置：
+
+```bat
+cd /d D:\TBuild\tdesktop\Telegram
+configure.bat x64 -D TDESKTOP_API_ID=2040 -D TDESKTOP_API_HASH=b18441a1ff607e10a989891a5462e627
+```
+
+打开根目录 `out/Telegram.slnx`，选择 `Telegram` 项目并构建 Debug 或 Release；也可在
+`Telegram` 目录执行：
+
+```bat
+cmake --build ..\out --config Debug --target Telegram
+```
+
+产物分别位于根目录的 `out/Debug/` 与 `out/Release/`。不要提交 `out/` 或依赖缓存。

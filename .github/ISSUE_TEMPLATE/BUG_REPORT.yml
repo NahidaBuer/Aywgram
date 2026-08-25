@@ -5,9 +5,10 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting issues of AyuGram Desktop!
+        Thanks for reporting an AywGram Desktop issue.
 
-        To make it easier for us to help you please enter detailed information below.
+        Do not include session strings, tdata, API credentials, proxy secrets,
+        message contents, or other authentication data.
   - type: textarea
     attributes:
       label: Steps to reproduce
@@ -39,7 +40,7 @@ body:
       required: true
   - type: input
     attributes:
-      label: Version of AyuGram Desktop
+      label: Version of AywGram Desktop
       description: >
         **Don't use 'latest'**, specify actual version.
     validations:
@@ -49,11 +50,10 @@ body:
       label: Installation source
       multiple: false
       options:
-        - Binary from GitHub / @AyuGramReleases channel
-        - Arch Linux (ayugram-desktop / ayugram-desktop-git)
-        - Arch Linux (ayugram-desktop-bin)
-        - flatpak by 0FL01
-        - Other (unofficial) source
+        - This repository's release
+        - Self-built from source
+        - Third-party package
+        - Other
     validations:
       required: true
   - type: input
@@ -66,7 +66,7 @@ body:
     attributes:
       label: Logs
       description: >
-        You can find log.txt using the `viewlogs`
-        [cheat code](https://github.com/telegramdesktop/tdesktop/wiki/Cheat-Codes).
-      placeholder: Insert log.txt here (if necessary)
+        Remove personal data, session information, proxy secrets, and message contents
+        before attaching logs.
+      placeholder: Paste sanitized excerpts only (if necessary)
       render: shell

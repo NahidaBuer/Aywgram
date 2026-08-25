@@ -8,7 +8,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 #include "boxes/star_gift_cover_box.h"
+#include "data/data_peer_id.h"
 #include "data/data_star_gift.h"
+
+class QWidget;
+class UserData;
 
 namespace Api {
 class PremiumGiftCodeOptions;
@@ -61,11 +65,30 @@ namespace Ui {
 class RpWidget;
 class PopupMenu;
 class GenericBox;
+class InputField;
 class Show;
 class VerticalLayout;
 
+[[nodiscard]] not_null<InputField*> AddStarGiftMessageField(
+	std::shared_ptr<ChatHelpers::Show> show,
+	not_null<VerticalLayout*> container,
+	not_null<QWidget*> outer,
+	rpl::producer<QString> placeholder,
+	QString current);
+
+[[nodiscard]] object_ptr<RpWidget> MakeUniqueGiftPreview(
+	not_null<QWidget*> parent,
+	not_null<PeerData*> recipient,
+	std::shared_ptr<Data::UniqueGift> gift,
+	TextWithEntities cost,
+	rpl::producer<UniqueGiftCoverMessage> message);
+
 void ChooseStarGiftRecipient(
 	not_null<Window::SessionController*> controller);
+
+[[nodiscard]] std::vector<not_null<UserData*>> CollectGiftFrequentUsers(
+	not_null<Main::Session*> session,
+	const std::vector<UserId> &exclude = {});
 
 void ShowStarGiftBox(
 	not_null<Window::SessionController*> controller,

@@ -54,6 +54,10 @@ class Widget;
 struct ResultSelected;
 } // namespace InlineBots
 
+namespace Iv {
+struct RichPage;
+} // namespace Iv
+
 namespace Support {
 class Autocomplete;
 struct Contact;
@@ -79,7 +83,7 @@ class SendFilesWay;
 class SendAsButton;
 class SpoilerAnimation;
 class ChooseThemeController;
-class ContinuousScroll;
+class ElasticScroll;
 struct ChatPaintHighlight;
 class ChatStyle;
 template <typename Widget>
@@ -114,6 +118,7 @@ class PinnedTracker;
 class TranslateBar;
 class ComposeSearch;
 class SubsectionTabs;
+class PullToNextChannel;
 struct SelectedQuote;
 class SuggestOptionsBar;
 enum class SuggestMode;
@@ -128,7 +133,9 @@ class WebpageProcessor;
 class CharactersLimitLabel;
 class PhotoEditSpoilerManager;
 class ComposeAiButton;
-class AiTooltipManager;
+class ComposeTooltipManager;
+class RichDraftPreview;
+using AiTooltipManager = ComposeTooltipManager;
 struct VoiceToSend;
 } // namespace HistoryView::Controls
 
@@ -168,10 +175,18 @@ public:
 	bool isItemCompletelyHidden(HistoryItem *item) const;
 	void updateTopBarSelection();
 	void updateTopBarChooseForReport();
+	bool handleDrawToReplyRequest(Data::DrawToReplyRequest request);
 
 	void loadMessages();
 	void loadMessagesDown();
 	void firstLoadMessages();
+
+	// Whether the top / bottom edge is a genuine boundary (nothing more to
+	// load there). Mirrors the early-return conditions in loadMessages() /
+	// loadMessagesDown(); used to disable overscroll bounce on an edge that
+	// can still page in content.
+	[[nodiscard]] bool historyLoadedAtTop() const;
+	[[nodiscard]] bool historyLoadedAtBottom() const;
 	void delayedShowAt(MsgId showAtMsgId, const Window::SectionShow &params);
 
 	bool updateReplaceMediaButton();
@@ -291,11 +306,13 @@ public:
 
 	void forwardSelected();
 	void forwardNoQuoteSelected();
+	void forwardNoCaptionSelected();
 	void confirmDeleteSelected();
 	void messageShotSelected();
 	void clearSelected();
 
-	[[nodiscard]] SendMenu::Details sendMenuDetails() const;
+	[[nodiscard]] SendMenu::Details sendMenuDetails() const override;
+	bool processChosenSticker(ChatHelpers::FileChosen &&chosen) override;
 	[[nodiscard]] SendMenu::Details saveMenuDetails() const;
 	bool sendExistingDocument(
 		not_null<DocumentData*> document,
@@ -308,6 +325,9 @@ public:
 	void showInfoTooltip(
 		const TextWithEntities &text,
 		Fn<void()> hiddenCallback);
+	void showHiddenSenderTooltip(
+		QRect globalArea,
+		const TextWithEntities &text);
 	void showPremiumStickerTooltip(
 		not_null<const HistoryView::Element*> view);
 	void showPremiumToast(not_null<DocumentData*> document);
@@ -336,6 +356,9 @@ protected:
 	void leaveEventHook(QEvent *e) override;
 	void mouseReleaseEvent(QMouseEvent *e) override;
 	void mouseMoveEvent(QMouseEvent *e) override;
+
+public:
+	void synteticScrollToY(int y);
 
 private:
 	using TabbedPanel = ChatHelpers::TabbedPanel;
@@ -395,6 +418,7 @@ private:
 	void setTabbedPanel(std::unique_ptr<TabbedPanel> panel);
 	void updateField();
 	void fieldChanged();
+	[[nodiscard]] bool suppressSendAction() const;
 	void fieldFocused();
 	void fieldResized();
 
@@ -404,6 +428,7 @@ private:
 	void saveCloudDraft();
 	void saveDraftDelayed();
 	void saveDraftWithTextNow();
+	void cancelPendingDraftSaves();
 	void showMembersDropdown();
 	void windowIsVisibleChanged();
 	void saveFieldToHistoryLocalDraft();
@@ -438,6 +463,12 @@ private:
 		bool useWebPageDraft,
 		Api::SendOptions options,
 		Fn<void()> done);
+	void sendRichDraft(
+		std::shared_ptr<const Iv::RichPage> page,
+		Api::SendOptions options);
+	void sendRichDraftWithoutFormatting(
+		std::shared_ptr<const Iv::RichPage> page,
+		Api::SendOptions options);
 	void sendVoice(const VoiceToSend &data);
 	void sendWithTextOverride(
 		TextWithEntities text,
@@ -484,11 +515,12 @@ private:
 
 	void showFinished();
 	void updateOverStates(QPoint pos);
+	void clearOverStates();
 	void chooseAttach(std::optional<bool> overrideSendImagesAsPhotos = {});
 	void sendButtonClicked();
+	void stopStreamedDraft();
 	void newItemAdded(not_null<HistoryItem*> item);
 	void maybeMarkReactionsRead(not_null<HistoryItem*> item);
-	void handleDrawToReplyRequest(Data::DrawToReplyRequest request);
 
 	bool canSendFiles(not_null<const QMimeData*> data) const;
 	bool confirmSendingFiles(
@@ -513,7 +545,13 @@ private:
 		const TextWithTags &textWithTags,
 		bool ignoreSlowmodeCountdown,
 		Fn<void(int starsApproved)> withPaymentApproved = nullptr,
-		Api::SendOptions options = {});
+		Api::SendOptions options = {},
+		bool ephemeral = false);
+	bool showSendRichDraftError(
+		bool ignoreSlowmodeCountdown,
+		Fn<void(int starsApproved)> withPaymentApproved = nullptr,
+		Api::SendOptions options = {},
+		bool ephemeral = false);
 
 	void sendingFilesConfirmed(
 		std::shared_ptr<Ui::PreparedBundle> bundle,
@@ -534,12 +572,31 @@ private:
 	void updateAiButtonVisibility();
 	void updateAiButtonGeometry();
 	void showAiComposeBox();
+	void triggerAiApplyInPlace();
+	void initSendAsFileButton();
+	void sendTextAsFile(
+		const QString &fileText,
+		TextWithTags restoreText,
+		int restorePosition,
+		int restoreAnchor);
+	void updateSendAsFileVisibility();
+	void updateSendAsFileGeometry();
+	void initExpandButton();
+	void updateExpandButtonVisibility();
+	void updateExpandButtonGeometry();
+	[[nodiscard]] bool canShowRichEditor() const;
+	void showRichEditor();
+	void initDiscardRichDraftButton();
+	void updateDiscardRichDraftVisibility();
+	void updateDiscardRichDraftGeometry();
 	[[nodiscard]] bool canSendAiComposeDirect() const;
 
 	[[nodiscard]] MsgId resolveReplyToTopicRootId();
 	[[nodiscard]] Data::ForumTopic *resolveReplyToTopic();
 	[[nodiscard]] bool canWriteMessage() const;
 	[[nodiscard]] bool hasEnoughLinesForAi() const;
+	[[nodiscard]] bool hasEnoughLinesForExpand() const;
+	[[nodiscard]] bool textExceedsMaxSize() const;
 	void orderWidgets();
 
 	[[nodiscard]] InlineBotQuery parseInlineBotQuery() const;
@@ -554,6 +611,7 @@ private:
 	void applyInlineBotQuery(UserData *bot, const QString &query);
 
 	void cancelReplyAfterMediaSend(bool lastKeyboardUsed);
+	[[nodiscard]] HistoryItem *lookupReplyNavItem(FullMsgId itemId) const;
 	bool replyToPreviousMessage();
 	bool replyToNextMessage();
 	[[nodiscard]] bool showSlowmodeError();
@@ -644,11 +702,6 @@ private:
 	int itemTopForHighlight(not_null<HistoryView::Element*> view) const;
 	void scrollToCurrentVoiceMessage(FullMsgId fromId, FullMsgId toId);
 
-	// Scroll to current y without updating the _lastUserScrolled time.
-	// Used to distinguish between user scrolls and syntetic scrolls.
-	// This one is syntetic.
-	void synteticScrollToY(int y);
-
 	void writeDrafts();
 	void writeDraftTexts();
 	void writeDraftCursors();
@@ -661,12 +714,30 @@ private:
 		FieldHistoryAction fieldHistoryAction = FieldHistoryAction::Clear);
 	[[nodiscard]] int fieldHeight() const;
 	[[nodiscard]] bool fieldOrDisabledShown() const;
+	[[nodiscard]] bool fieldHasSendText() const;
+	[[nodiscard]] bool hasSendableContent() const;
+	[[nodiscard]] bool hideExtraButtons() const;
 
 	void unregisterDraftSources();
 	void registerDraftSource();
+	void untrackThreadFieldVisibility();
+	void trackThreadFieldVisibility();
+	[[nodiscard]] Data::Draft *cloudDraft() const;
+	[[nodiscard]] std::shared_ptr<const Iv::RichPage> shownRichMessage() const;
+	[[nodiscard]] bool isComposeBoxOpen() const;
+	[[nodiscard]] bool hasEditDraft() const;
+	[[nodiscard]] bool bypassNormalDraftHandling() const;
+	[[nodiscard]] bool shouldShowRichDraftPreview() const;
+	void clearRichDraft();
+	void migrateFieldToRichEditor();
+	void migrateSupportFieldToRichEditor();
+	void offerRichPaste(not_null<const QMimeData*> data);
+	void showRichEditorWithPaste(std::shared_ptr<QMimeData> data);
+
 	void setHistory(History *history);
 	void setEditMsgId(MsgId msgId);
 
+	friend class HistoryInner;
 	HistoryItem *getItemFromHistoryOrMigrated(MsgId genericMsgId) const;
 	void animatedScrollToItem(MsgId msgId);
 	void animatedScrollToY(int scrollTo, HistoryItem *attachTo = nullptr);
@@ -698,6 +769,7 @@ private:
 	bool updateCmdStartShown();
 	void updateSendButtonType();
 	[[nodiscard]] bool showRecordButton() const;
+	[[nodiscard]] bool showStopButton() const;
 	[[nodiscard]] bool showInlineBotCancel() const;
 	void refreshSilentToggle();
 	void setupFastButtonMode();
@@ -718,6 +790,7 @@ private:
 	void injectSponsoredMessages() const;
 
 	bool kbWasHidden() const;
+	[[nodiscard]] bool forceReplyPending() const;
 
 	void switchToSearch(QString query);
 
@@ -733,6 +806,7 @@ private:
 	FullReplyTo _processingReplyTo;
 	HistoryItem *_processingReplyItem = nullptr;
 
+	std::shared_ptr<QMimeData> _pendingRichPaste;
 	MsgId _editMsgId = 0;
 	std::shared_ptr<Data::PhotoMedia> _photoEditMedia;
 	bool _canReplaceMedia = false;
@@ -759,6 +833,7 @@ private:
 	int _pinnedBarHeight = 0;
 	FullMsgId _pinnedClickedId;
 	std::optional<FullMsgId> _minPinnedId;
+	bool _pinnedBarHasCustomButton = false;
 
 	std::unique_ptr<Ui::GroupCallBar> _groupCallBar;
 	int _groupCallBarHeight = 0;
@@ -789,6 +864,7 @@ private:
 	bool _showAndMaybeSendStart = false;
 
 	int _firstLoadRequest = 0; // Not real mtpRequestId.
+	bool _firstLoadFromTheStart = false;
 	int _preloadRequest = 0; // Not real mtpRequestId.
 	int _preloadDownRequest = 0; // Not real mtpRequestId.
 
@@ -800,7 +876,7 @@ private:
 	int _supportPreloadRequest = 0; // Not real mtpRequestId.
 
 	object_ptr<HistoryView::TopBarWidget> _topBar;
-	object_ptr<Ui::ContinuousScroll> _scroll;
+	object_ptr<Ui::ElasticScroll> _scroll;
 	QPointer<HistoryInner> _list;
 	History *_migrated = nullptr;
 	History *_history = nullptr;
@@ -821,6 +897,7 @@ private:
 	Ui::Animations::Simple _scrollToAnimation;
 
 	HistoryView::CornerButtons _cornerButtons;
+	std::unique_ptr<HistoryView::PullToNextChannel> _pullToNext;
 
 	std::unique_ptr<ChatHelpers::FieldAutocomplete> _autocomplete;
 	std::unique_ptr<Ui::Emoji::SuggestionsController> _emojiSuggestions;
@@ -831,6 +908,7 @@ private:
 	bool _inlineLookingUpBot = false;
 	mtpRequestId _inlineBotResolveRequestId = 0;
 	bool _isInlineBot = false;
+	bool _threadFieldVisible = false;
 
 	Webrtc::RecordAvailability _recordAvailability = {};
 
@@ -839,7 +917,11 @@ private:
 	std::unique_ptr<HistoryView::BusinessBotStatus> _businessBotStatus;
 
 	const std::shared_ptr<Ui::SendButton> _send;
+	rpl::event_stream<bool> _sendLockBadge;
 	HistoryView::Controls::ComposeAiButton * const _aiButton = nullptr;
+	Ui::IconButton * const _sendAsFile = nullptr;
+	Ui::IconButton * const _expand = nullptr;
+	Ui::IconButton * const _discardRichDraft = nullptr;
 	object_ptr<Ui::FlatButton> _unblock;
 	object_ptr<Ui::FlatButton> _botStart;
 	object_ptr<Ui::FlatButton> _joinChannel;
@@ -873,10 +955,13 @@ private:
 	std::unique_ptr<HistoryView::SubsectionTabs> _subsectionTabs;
 	rpl::lifetime _subsectionTabsLifetime;
 	rpl::lifetime _subsectionCheckLifetime;
+	rpl::lifetime _subsectionTopicsLifetime;
 	std::unique_ptr<HistoryView::Controls::AiTooltipManager> _aiTooltipManager;
+	std::unique_ptr<HistoryView::Controls::AiTooltipManager> _sendAsFileTooltipManager;
 	std::shared_ptr<Ui::ChatStyle> _fieldChatStyle;
 	bool _cmdStartShown = false;
 	object_ptr<Ui::InputField> _field;
+	std::unique_ptr<HistoryView::Controls::RichDraftPreview> _richDraftPreview;
 	base::unique_qptr<Ui::RpWidget> _fieldDisabled;
 	std::unique_ptr<Ui::RpWidget> _sendRestriction;
 	using CharactersLimitLabel = HistoryView::Controls::CharactersLimitLabel;
@@ -920,8 +1005,10 @@ private:
 	bool _saveDraftText = false;
 	base::Timer _saveDraftTimer;
 	base::Timer _saveCloudDraftTimer;
+	rpl::lifetime _threadFieldVisibleLifetime;
 
 	HistoryView::InfoTooltip _topToast;
+	HistoryView::AnchoredTooltip _hiddenSenderTooltip;
 	std::unique_ptr<HistoryView::StickerToast> _stickerToast;
 	std::unique_ptr<HistoryView::SelfForwardsTagger> _selfForwardsTagger;
 	std::unique_ptr<ChooseMessagesForReport> _chooseForReport;
@@ -933,6 +1020,7 @@ private:
 		not_null<HistoryItem*>,
 		ItemRevealAnimation> _itemRevealAnimations;
 	int _itemsRevealHeight = 0;
+
 
 	bool _sponsoredMessagesStateKnown = false;
 	bool _justMarkingAsRead = false;

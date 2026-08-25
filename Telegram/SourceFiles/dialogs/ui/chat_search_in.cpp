@@ -79,6 +79,10 @@ private:
 		Unexpected("Type in Dialogs::TabLabel.");
 	case ChatSearchTab::PublicPosts:
 		return tr::lng_search_tab_public_posts(tr::now);
+	case ChatSearchTab::Archive:
+		return tr::lng_search_tab_archive(tr::now);
+	case ChatSearchTab::ThisCommunity:
+		return tr::lng_search_tab_this_community(tr::now);
 	}
 	Unexpected("Tab in Dialogs::TabLabel.");
 }
@@ -273,7 +277,9 @@ void ChatSearchIn::apply(
 		ChatSearchTab active,
 		ChatSearchPeerTabType peerTabType,
 		std::shared_ptr<Ui::DynamicImage> fromUserpic,
-		QString fromName) {
+		QString fromName,
+		std::shared_ptr<Ui::DynamicImage> filterIcon,
+		QString filterName) {
 	_tabs = std::move(tabs);
 	_peerTabType = peerTabType;
 	_active = active;
@@ -291,6 +297,10 @@ void ChatSearchIn::apply(
 		tr::semibold(fromName),
 		tr::marked);
 	updateSection(&_from, std::move(fromUserpic), std::move(text));
+	updateSection(
+		&_filter,
+		std::move(filterIcon),
+		tr::semibold(std::move(filterName)));
 
 	resizeToWidth(width());
 }
@@ -305,6 +315,14 @@ rpl::producer<> ChatSearchIn::cancelFromRequests() const {
 
 rpl::producer<> ChatSearchIn::changeFromRequests() const {
 	return _from.clicks.events();
+}
+
+rpl::producer<> ChatSearchIn::cancelFilterRequests() const {
+	return _filter.cancelRequests.events();
+}
+
+rpl::producer<> ChatSearchIn::changeFilterRequests() const {
+	return _filter.clicks.events();
 }
 
 rpl::producer<ChatSearchTab> ChatSearchIn::tabChanges() const {
@@ -378,6 +396,13 @@ int ChatSearchIn::resizeGetHeight(int newWidth) {
 		raw->move(0, result);
 		result += raw->height();
 		_from.shadow->setGeometry(0, result, newWidth, st::lineWidth);
+		result += st::lineWidth;
+	}
+	if (const auto raw = _filter.outer.get()) {
+		raw->resizeToWidth(newWidth);
+		raw->move(0, result);
+		result += raw->height();
+		_filter.shadow->setGeometry(0, result, newWidth, st::lineWidth);
 		result += st::lineWidth;
 	}
 	return result;

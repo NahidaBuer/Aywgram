@@ -32,6 +32,11 @@ struct NestedEntry
 
 void AddBetaBadge(not_null<Button*> parent);
 
+void SetupCopyLinkMenus(
+	not_null<Window::SessionController*> controller,
+	const HighlightRegistry &highlights,
+	rpl::lifetime &lifetime);
+
 void ShowRestartPrompt(not_null<Window::SessionController*> controller);
 
 not_null<Ui::RpWidget*> AddInnerToggle(not_null<Ui::VerticalLayout*> container,
@@ -51,9 +56,10 @@ struct CollapsibleToggleResult {
 CollapsibleToggleResult AddCollapsibleToggle(not_null<Ui::VerticalLayout*> container,
 						  rpl::producer<QString> title,
 						  std::vector<NestedEntry> checkboxes,
-						  bool toggledWhenAll);
+						  bool toggledWhenAll,
+						  QString description = QString());
 
-void AddChooseButtonWithIconAndRightTextInner(not_null<Ui::VerticalLayout*> container,
+not_null<Button*> AddChooseButtonWithIconAndRightTextInner(not_null<Ui::VerticalLayout*> container,
 											  not_null<Window::SessionController*> controller,
 											  int initialState,
 											  std::vector<QString> options,

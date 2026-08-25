@@ -19,7 +19,11 @@ static QImage LAST_LOADED_PAD;
 namespace AyuAssets {
 
 QString appIcoPath() {
-	return cWorkingDir() + u"tdata/AyuGram.ico"_q;
+	const auto &settings = AyuSettings::getInstance();
+	return cWorkingDir()
+		+ u"tdata/AyuGram-"_q
+		+ settings.appIcon()
+		+ u".ico"_q;
 }
 
 void loadAppIco() {

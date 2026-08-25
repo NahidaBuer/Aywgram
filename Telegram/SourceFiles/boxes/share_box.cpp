@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/share_box.h"
 
 #include "api/api_premium.h"
+#include "base/call_delayed.h"
 #include "base/random.h"
 #include "lang/lang_keys.h"
 #include "base/qthelp_url.h"
@@ -23,6 +24,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/wrap/slide_wrap.h"
 #include "ui/text/text_options.h"
 #include "ui/text/text_utilities.h"
+#include "ui/toast/toast.h"
 #include "ui/painter.h"
 #include "ui/ui_utility.h"
 #include "chat_helpers/message_field.h"
@@ -31,6 +33,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history.h"
 #include "history/history_item.h"
 #include "history/history_item_helpers.h"
+#include "history/view/controls/history_view_forward_panel.h"
 #include "history/view/history_view_element.h"
 #include "history/view/history_view_context_menu.h" // CopyPostLink.
 #include "settings/sections/settings_premium.h"
@@ -41,6 +44,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/business/data_shortcut_messages.h"
 #include "data/data_channel.h"
 #include "data/data_chat_filters.h"
+#include "data/data_community.h"
+#include "data/data_folder.h"
+#include "data/data_forum.h"
+#include "data/data_forum_topic.h"
 #include "data/data_game.h"
 #include "data/data_histories.h"
 #include "data/data_user.h"
@@ -56,14 +63,15 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/application.h"
 #include "core/core_settings.h"
 #include "styles/style_calls.h"
+#include "styles/style_chat_helpers.h"
 #include "styles/style_layers.h"
-#include "styles/style_boxes.h"
-#include "styles/style_menu_icons.h"
+#include "styles/style_share_box.h"
 
 #include <QtGui/QGuiApplication>
 #include <QtGui/QClipboard>
 
 // AyuGram includes
+#include "ayu/ayu_settings.h"
 #include "ayu/features/forward/ayu_forward.h"
 
 
@@ -152,6 +160,7 @@ private:
 	void changeCheckState(Chat *chat);
 	void chooseForumTopic(not_null<Data::Forum*> forum);
 	void chooseMonoforumSublist(not_null<Data::SavedMessages*> monoforum);
+	void chooseCommunityChat(not_null<Data::CommunityInfo*> community);
 	enum class ChangeStateWay {
 		Default,
 		SkipCallback,
@@ -370,7 +379,10 @@ void ShareBox::prepare() {
 				_inner->applyChatFilter(id);
 				scrollToY(0);
 			},
-			Window::GifPauseReason::Layer);
+			Window::GifPauseReason::Layer,
+			nullptr,
+			false,
+			true);
 		chatsFilters->lower();
 		chatsFilters->heightValue() | rpl::on_next([this](int h) {
 			updateScrollSkips();
@@ -425,6 +437,7 @@ bool ShareBox::searchByUsername(bool searchCache) {
 			_peopleQuery = query;
 			_peopleFull = false;
 			_peopleRequest = _api.request(MTPcontacts_Search(
+				MTP_flags(0),
 				MTP_string(_peopleQuery),
 				MTP_int(SearchPeopleLimit)
 			)).done([=](const MTPcontacts_Found &result, mtpRequestId requestId) {
@@ -746,8 +759,10 @@ void ShareBox::submit(Api::SendOptions options) {
 		return true;
 	};
 	if (const auto onstack = _descriptor.submitCallback) {
-		const auto forwardOptions = (_forwardOptions.captionsCount
-			&& _forwardOptions.dropCaptions)
+		const auto forwardOptions = !_descriptor.forwardOptions.show
+			? Data::ForwardOptions::PreserveInfo
+			: (_forwardOptions.captionsCount
+				&& _forwardOptions.dropCaptions)
 			? Data::ForwardOptions::NoNamesAndCaptions
 			: _forwardOptions.dropNames
 			? Data::ForwardOptions::NoSenderNames
@@ -849,6 +864,7 @@ ShareBox::Inner::Inner(
 			if (const auto history = row->history()) {
 				if (!history->peer->isSelf()
 					&& (history->asForum()
+						|| JoinedCommunityChats(history->peer)
 						|| _descriptor.filterCallback(history))) {
 					_defaultChatsIndexed->addToEnd(history);
 				}
@@ -1223,9 +1239,14 @@ ShareBox::Inner::Chat::Chat(
 	st.checkbox,
 	updateCallback,
 	PaintUserpicCallback(peer, true),
-	[=](int size) { return (peer->isForum() || peer->isMonoforum())
-		? int(size * Ui::ForumUserpicRadiusMultiplier())
-		: std::optional<int>(); })
+	[=](int size) {
+		const auto channel = peer->asChannel();
+		return (peer->isForum()
+			|| peer->isMonoforum()
+			|| (channel && channel->isCommunity()))
+			? int(size * Ui::ForumUserpicRadiusMultiplier())
+			: std::optional<int>();
+	})
 , name(st.checkbox.imageRadius * 2) {
 }
 
@@ -1371,12 +1392,15 @@ void ShareBox::Inner::changeCheckState(Chat *chat) {
 	const auto checked = chat->checkbox.checked();
 	const auto forum = chat->peer->forum();
 	const auto monoforum = chat->peer->monoforum();
-	if (checked || (!forum && !monoforum)) {
+	const auto community = JoinedCommunityChats(chat->peer);
+	if (checked || (!forum && !monoforum && !community)) {
 		changePeerCheckState(chat, !checked);
 	} else if (forum) {
 		chooseForumTopic(forum);
 	} else if (monoforum) {
 		chooseMonoforumSublist(monoforum);
+	} else if (community) {
+		chooseCommunityChat(community);
 	}
 }
 
@@ -1470,6 +1494,66 @@ void ShareBox::Inner::chooseMonoforumSublist(
 	auto box = Box<PeerListBox>(
 		std::make_unique<ChooseSublistBoxController>(
 			monoforum,
+			std::move(chosen),
+			std::move(filter)),
+		std::move(initBox));
+	*weak = box.data();
+	_show->showBox(std::move(box));
+}
+
+void ShareBox::Inner::chooseCommunityChat(
+		not_null<Data::CommunityInfo*> community) {
+	const auto guard = base::make_weak(this);
+	const auto weak = std::make_shared<base::weak_qptr<Ui::BoxContent>>();
+	auto chosen = [=](not_null<Data::Thread*> thread) {
+		if (const auto strong = *weak) {
+			strong->closeBox();
+		}
+		if (!guard) {
+			return;
+		}
+		const auto history = thread->owningHistory();
+		auto row = _chatsIndexed->getRow(history);
+		if (!row) {
+			row = _chatsIndexed->addToEnd(history).main;
+		}
+		const auto chat = getChat(row);
+		if (chat->checkbox.checked()) {
+			changePeerCheckState(chat, false);
+		}
+		_chatsIndexed->moveToTop(history);
+		refresh();
+		if (const auto topic = thread->asTopic()) {
+			chat->topic = topic;
+			chat->topic->destroyed(
+			) | rpl::on_next([=] {
+				changePeerCheckState(chat, false);
+			}, chat->topicLifetime);
+		}
+		updateChatName(chat);
+		changePeerCheckState(chat, true);
+	};
+	auto initBox = [=](not_null<PeerListBox*> box) {
+		box->addButton(tr::lng_cancel(), [=] {
+			box->closeBox();
+		});
+
+		community->channel()->flagsValue(
+		) | rpl::filter([=](const ChannelData::Flags::Change &update) {
+			using Flag = ChannelData::Flag;
+			return (update.diff & Flag::Community)
+				&& !(update.value & Flag::Community);
+		}) | rpl::on_next([=] {
+			box->closeBox();
+		}, box->lifetime());
+	};
+	auto filter = [=](not_null<Data::Thread*> thread) {
+		return guard
+			&& (thread->asForum() || _descriptor.filterCallback(thread));
+	};
+	auto box = Box<PeerListBox>(
+		std::make_unique<ChooseCommunityChatBoxController>(
+			community,
 			std::move(chosen),
 			std::move(filter)),
 		std::move(initBox));
@@ -1573,6 +1657,7 @@ void ShareBox::Inner::applyChatFilter(FilterId id) {
 			for (const auto &row : list->all()) {
 				if (const auto history = row->history()) {
 					if (history->asForum()
+							|| JoinedCommunityChats(history->peer)
 							|| _descriptor.filterCallback(history)) {
 						_customChatsIndexed->addToEnd(history);
 					}
@@ -1603,6 +1688,7 @@ void ShareBox::Inner::peopleReceived(
 				const auto history = _descriptor.session->data().history(
 					peer);
 				if (!history->asForum()
+					&& !JoinedCommunityChats(peer)
 					&& !_descriptor.filterCallback(history)) {
 					continue;
 				} else if (history && _chatsIndexed->getRow(history)) {
@@ -1671,6 +1757,29 @@ ChatHelpers::ForwardedMessagePhraseArgs CreateForwardedMessagePhraseArgs(
 	};
 }
 
+void ShowForwardedMessageToast(
+		std::shared_ptr<Ui::Show> show,
+		not_null<Main::Session*> session,
+		ChatHelpers::ForwardedMessagePhraseArgs args) {
+	const auto phrase = rpl::variable<TextWithEntities>(
+		ChatHelpers::ForwardedMessagePhrase(args)).current();
+	if (phrase.empty()) {
+		return;
+	}
+	const auto icon = ChatHelpers::ForwardedMessagePhraseIcon(args);
+	base::call_delayed(st::boxDuration, session, [=] {
+		if (!show->valid()) {
+			return;
+		}
+		show->showToast({
+			.text = phrase,
+			.filter = ChatHelpers::ForwardedToSavedMessagesFilter(session),
+			.iconLottie = icon,
+			.iconLottieSize = st::toastLottieIconSize,
+		});
+	});
+}
+
 ShareBox::CountMessagesCallback ShareBox::DefaultForwardCountMessages(
 		not_null<History*> history,
 		MessageIdsList msgIds) {
@@ -1680,38 +1789,506 @@ ShareBox::CountMessagesCallback ShareBox::DefaultForwardCountMessages(
 	};
 }
 
+namespace {
+
+struct ForwardTargetSnapshot {
+	PeerId peerId;
+	MsgId topicRootId = 0;
+	PeerId monoforumPeerId;
+	Api::SendOptions forwardOptions;
+	Api::SendOptions commentOptions;
+	PeerId sendAsId;
+};
+
+class ForwardSubmission final
+	: public std::enable_shared_from_this<ForwardSubmission> {
+public:
+	ForwardSubmission(
+		not_null<Main::Session*> session,
+		std::shared_ptr<Ui::Show> show,
+		PeerId sourcePeerId,
+		MessageIdsList itemIds,
+		std::vector<ForwardTargetSnapshot> targets,
+		TextWithTags comment,
+		Data::ForwardOptions forwardOptions,
+		std::optional<TimeId> videoTimestamp,
+		bool noQuote,
+		bool noCaption,
+		bool ayuForward,
+		bool fullAyuForward,
+		bool sendForwardFirst,
+		FnMut<void()> submitCallback);
+
+	void start();
+
+private:
+	[[nodiscard]] Main::Session *session() const;
+	[[nodiscard]] Api::SendOptions resolveOptions(
+		const ForwardTargetSnapshot &target,
+		Api::SendOptions options) const;
+	[[nodiscard]] Api::SendAction action(
+		const ForwardTargetSnapshot &target,
+		Api::SendOptions options) const;
+	[[nodiscard]] std::vector<not_null<HistoryItem*>> resolveItems() const;
+	void startTarget();
+	void sendComment(bool beforeForward);
+	void commentFinished(bool beforeForward, bool success);
+	void sendForward();
+	void sendAyuForward();
+	void sendNormalForward();
+	void forwardFinished(bool success);
+	void finish(bool success);
+
+	base::weak_ptr<Main::Session> _session;
+	std::shared_ptr<Ui::Show> _show;
+	PeerId _sourcePeerId;
+	MessageIdsList _itemIds;
+	std::vector<ForwardTargetSnapshot> _targets;
+	TextWithTags _comment;
+	Data::ForwardOptions _forwardOptions = Data::ForwardOptions::PreserveInfo;
+	std::optional<TimeId> _videoTimestamp;
+	FnMut<void()> _submitCallback;
+	int _targetIndex = 0;
+	bool _noQuote = false;
+	bool _noCaption = false;
+	bool _ayuForward = false;
+	bool _fullAyuForward = false;
+	bool _sendForwardFirst = false;
+	bool _finished = false;
+
+};
+
+ForwardTargetSnapshot ResolveForwardTarget(
+		not_null<Data::Thread*> thread,
+		Api::SendOptions forwardOptions,
+		Api::SendOptions commentOptions) {
+	const auto history = thread->owningHistory();
+	const auto forum = history->asForum();
+	const auto needNewTopic = forum
+		&& forum->bot()
+		&& Data::IsBotUserCreatesTopics(thread->peer())
+		&& !thread->asTopic();
+	const auto effective = [&]() -> not_null<Data::Thread*> {
+		if (!needNewTopic) {
+			return thread;
+		}
+		const auto topic = forum->reserveNewBotTopic();
+		Assert(topic != nullptr);
+		return topic;
+	}();
+	const auto sendAsId = forwardOptions.sendAs
+		? forwardOptions.sendAs->id
+		: PeerId();
+	forwardOptions.sendAs = nullptr;
+	commentOptions.sendAs = nullptr;
+	return {
+		.peerId = effective->peer()->id,
+		.topicRootId = effective->topicRootId(),
+		.monoforumPeerId = needNewTopic
+			? PeerId()
+			: (thread->maybeSublistPeer()
+				? thread->maybeSublistPeer()->id
+				: PeerId()),
+		.forwardOptions = std::move(forwardOptions),
+		.commentOptions = std::move(commentOptions),
+		.sendAsId = sendAsId,
+	};
+}
+
+ForwardSubmission::ForwardSubmission(
+	not_null<Main::Session*> session,
+	std::shared_ptr<Ui::Show> show,
+	PeerId sourcePeerId,
+	MessageIdsList itemIds,
+	std::vector<ForwardTargetSnapshot> targets,
+	TextWithTags comment,
+	Data::ForwardOptions forwardOptions,
+	std::optional<TimeId> videoTimestamp,
+	bool noQuote,
+	bool noCaption,
+	bool ayuForward,
+	bool fullAyuForward,
+	bool sendForwardFirst,
+	FnMut<void()> submitCallback)
+: _session(base::make_weak(session.get()))
+, _show(std::move(show))
+, _sourcePeerId(sourcePeerId)
+, _itemIds(std::move(itemIds))
+, _targets(std::move(targets))
+, _comment(std::move(comment))
+, _forwardOptions(forwardOptions)
+, _videoTimestamp(videoTimestamp)
+, _submitCallback(std::move(submitCallback))
+, _noQuote(noQuote)
+, _noCaption(noCaption)
+, _ayuForward(ayuForward)
+, _fullAyuForward(fullAyuForward)
+, _sendForwardFirst(sendForwardFirst) {
+}
+
+Main::Session *ForwardSubmission::session() const {
+	return _session.get();
+}
+
+Api::SendOptions ForwardSubmission::resolveOptions(
+		const ForwardTargetSnapshot &target,
+		Api::SendOptions options) const {
+	const auto current = session();
+	options.sendAs = (current && target.sendAsId)
+		? current->data().peer(target.sendAsId).get()
+		: nullptr;
+	return options;
+}
+
+Api::SendAction ForwardSubmission::action(
+		const ForwardTargetSnapshot &target,
+		Api::SendOptions options) const {
+	const auto current = session();
+	Assert(current != nullptr);
+	auto result = Api::SendAction(
+		current->data().history(target.peerId),
+		resolveOptions(target, std::move(options)));
+	result.replyTo.topicRootId = target.topicRootId;
+	result.replyTo.monoforumPeerId = target.monoforumPeerId;
+	result.clearDraft = false;
+	return result;
+}
+
+std::vector<not_null<HistoryItem*>> ForwardSubmission::resolveItems() const {
+	auto result = std::vector<not_null<HistoryItem*>>();
+	const auto current = session();
+	if (!current) {
+		return result;
+	}
+	result.reserve(_itemIds.size());
+	for (const auto itemId : _itemIds) {
+		const auto item = current->data().message(itemId);
+		if (!item) {
+			return {};
+		}
+		result.push_back(item);
+	}
+	return result;
+}
+
+void ForwardSubmission::start() {
+	const auto current = session();
+	if (!current || _targets.empty()) {
+		finish(false);
+		return;
+	}
+	const auto weak = weak_from_this();
+	current->lifetime().add([weak] {
+		if (const auto submission = weak.lock()) {
+			submission->finish(false);
+		}
+	});
+	startTarget();
+}
+
+void ForwardSubmission::startTarget() {
+	if (_finished) {
+		return;
+	} else if (_targetIndex == int(_targets.size())) {
+		finish(true);
+		return;
+	}
+	if (!_comment.text.isEmpty() && !_sendForwardFirst) {
+		sendComment(true);
+	} else {
+		sendForward();
+	}
+}
+
+void ForwardSubmission::sendComment(bool beforeForward) {
+	const auto current = session();
+	if (!current) {
+		finish(false);
+		return;
+	}
+	const auto &target = _targets[_targetIndex];
+	auto message = Api::MessageToSend(action(
+		target,
+		target.commentOptions));
+	message.textWithTags = _comment;
+	const auto self = shared_from_this();
+	message.completion = Api::MakeSendCompletion(
+		[self, beforeForward](bool success) {
+			self->commentFinished(beforeForward, success);
+		});
+	current->api().sendMessage(std::move(message));
+}
+
+void ForwardSubmission::commentFinished(
+		bool beforeForward,
+		bool success) {
+	if (!success) {
+		finish(false);
+	} else if (beforeForward) {
+		sendForward();
+	} else {
+		++_targetIndex;
+		startTarget();
+	}
+}
+
+void ForwardSubmission::sendForward() {
+	if (_ayuForward) {
+		sendAyuForward();
+	} else {
+		sendNormalForward();
+	}
+}
+
+void ForwardSubmission::sendAyuForward() {
+	const auto current = session();
+	const auto items = resolveItems();
+	if (!current || items.size() != _itemIds.size()) {
+		finish(false);
+		return;
+	}
+	const auto &target = _targets[_targetIndex];
+	const auto sendAction = action(target, target.forwardOptions);
+	const auto draft = Data::ResolvedForwardDraft(items, _forwardOptions);
+	const auto self = shared_from_this();
+	auto completion = [self](AyuForward::Result result) {
+		self->forwardFinished(result == AyuForward::Result::Success);
+	};
+	if (_fullAyuForward) {
+		AyuForward::forwardMessages(
+			current,
+			sendAction,
+			false,
+			draft,
+			std::move(completion));
+	} else {
+		AyuForward::intelligentForward(
+			current,
+			sendAction,
+			draft,
+			std::move(completion));
+	}
+}
+
+void ForwardSubmission::sendNormalForward() {
+	const auto current = session();
+	const auto items = resolveItems();
+	if (!current || items.size() != _itemIds.size()) {
+		finish(false);
+		return;
+	}
+	const auto &target = _targets[_targetIndex];
+	if (!_videoTimestamp) {
+		const auto self = shared_from_this();
+		current->api().forwardMessages(
+			Data::ResolvedForwardDraft(items, _forwardOptions),
+			action(target, target.forwardOptions),
+			[self](bool success) {
+				self->forwardFinished(success);
+			});
+		return;
+	}
+	const auto targetHistory = current->data().history(target.peerId);
+	const auto sourcePeer = current->data().peer(_sourcePeerId);
+	const auto targetPeer = targetHistory->peer;
+	auto options = resolveOptions(target, target.forwardOptions);
+	const auto sendAs = options.sendAs;
+	options.sendAs = nullptr;
+	using Flag = MTPmessages_ForwardMessages::Flag;
+	auto flags = Flag(0) | Flag::f_with_my_score
+		| (options.scheduled ? Flag::f_schedule_date : Flag(0))
+		| (options.scheduleRepeatPeriod
+			? Flag::f_schedule_repeat_period
+			: Flag(0))
+		| ((_noQuote || _noCaption
+			|| _forwardOptions != Data::ForwardOptions::PreserveInfo)
+			? Flag::f_drop_author
+			: Flag(0))
+		| ((_noCaption
+			|| _forwardOptions == Data::ForwardOptions::NoNamesAndCaptions)
+			? Flag::f_drop_media_captions
+			: Flag(0))
+		| (_videoTimestamp.has_value()
+			? Flag::f_video_timestamp
+			: Flag(0))
+		| (ShouldSendSilent(targetPeer, options)
+			? Flag::f_silent
+			: Flag(0))
+		| (options.shortcutId
+			? Flag::f_quick_reply_shortcut
+			: Flag(0))
+		| (options.effectId ? Flag::f_effect : Flag(0))
+		| (options.suggest ? Flag::f_suggested_post : Flag(0))
+		| (sendAs ? Flag::f_send_as : Flag(0));
+	const auto topMsgId = (target.topicRootId
+		== Data::ForumTopic::kGeneralId)
+		? MsgId(0)
+		: target.topicRootId;
+	if (topMsgId) {
+		flags |= Flag::f_top_msg_id;
+	}
+	if (target.monoforumPeerId || (options.suggest && topMsgId)) {
+		flags |= Flag::f_reply_to;
+	}
+	const auto starsPaid = std::min(
+		options.starsApproved,
+		int(items.size() * targetPeer->starsPerMessageChecked()));
+	if (starsPaid) {
+		flags |= Flag::f_allow_paid_stars;
+	}
+	auto ids = QVector<MTPint>();
+	auto randomIds = QVector<MTPlong>();
+	ids.reserve(items.size());
+	randomIds.reserve(items.size());
+	for (const auto item : items) {
+		ids.push_back(MTP_int(item->id));
+		randomIds.push_back(MTP_long(base::RandomValue<uint64>()));
+	}
+	const auto sourceInput = sourcePeer->input();
+	const auto targetInput = targetPeer->input();
+	const auto sendAsInput = sendAs
+		? sendAs->input()
+		: MTP_inputPeerEmpty();
+	const auto monoforumInput = target.monoforumPeerId
+		? current->data().peer(target.monoforumPeerId)->input()
+		: MTPInputPeer();
+	const auto replyTo = FullReplyTo{
+		.topicRootId = target.topicRootId,
+		.monoforumPeerId = target.monoforumPeerId,
+	};
+	const auto videoTimestamp = _videoTimestamp;
+	auto buildMessage = [=](
+			not_null<History*> history,
+			FullReplyTo resolvedReplyTo)
+		-> Data::Histories::PreparedMessage {
+		const auto realTopMsgId = (resolvedReplyTo.topicRootId
+			== Data::ForumTopic::kGeneralId)
+			? MsgId(0)
+			: resolvedReplyTo.topicRootId;
+		auto requestFlags = flags;
+		if (realTopMsgId) {
+			requestFlags |= Flag::f_top_msg_id;
+		} else {
+			requestFlags &= ~Flag::f_top_msg_id;
+		}
+		return MTPmessages_ForwardMessages(
+			MTP_flags(requestFlags),
+			sourceInput,
+			MTP_vector<MTPint>(ids),
+			MTP_vector<MTPlong>(randomIds),
+			targetInput,
+			MTP_int(realTopMsgId),
+			(target.monoforumPeerId
+				? MTP_inputReplyToMonoForum(monoforumInput)
+				: options.suggest
+				? Data::ReplyToForMTP(history, resolvedReplyTo)
+				: MTPInputReplyTo()),
+			MTP_int(options.scheduled),
+			MTP_int(options.scheduleRepeatPeriod),
+			sendAsInput,
+			Data::ShortcutIdToMTP(
+				&history->session(),
+				options.shortcutId),
+			MTP_long(options.effectId),
+			MTP_int(videoTimestamp.value_or(0)),
+			MTP_long(starsPaid),
+			Api::SuggestToMTP(options.suggest));
+	};
+	const auto self = shared_from_this();
+	targetHistory->owner().histories().sendPreparedMessage(
+		targetHistory,
+		replyTo,
+		uint64(0),
+		std::move(buildMessage),
+		[self](const MTPUpdates &updates, const MTP::Response &) {
+			const auto current = self->session();
+			if (current
+				&& self->_targets.size() == 1
+				&& self->_targets.front().peerId == current->user()->id
+				&& current->premium()) {
+				ApiWrap::ProcessRecentSelfForwards(
+					current,
+					updates,
+					self->_targets.front().peerId,
+					self->_sourcePeerId);
+			}
+			self->forwardFinished(true);
+		},
+		[self](const MTP::Error &, const MTP::Response &) {
+			self->forwardFinished(false);
+		});
+}
+
+void ForwardSubmission::forwardFinished(bool success) {
+	if (!success) {
+		finish(false);
+	} else if (!_comment.text.isEmpty() && _sendForwardFirst) {
+		sendComment(false);
+	} else {
+		++_targetIndex;
+		startTarget();
+	}
+}
+
+void ForwardSubmission::finish(bool success) {
+	if (_finished) {
+		return;
+	}
+	_finished = true;
+	const auto current = session();
+	if (success && current && _show->valid()) {
+		auto peers = std::vector<not_null<PeerData*>>();
+		peers.reserve(_targets.size());
+		for (const auto &target : _targets) {
+			peers.push_back(current->data().peer(target.peerId));
+		}
+		const auto count = peers.size();
+		ShowForwardedMessageToast(
+			_show,
+			current,
+			{
+				.toCount = count,
+				.singleMessage = (_itemIds.size() <= 1),
+				.to1 = (count > 0) ? peers[0].get() : nullptr,
+				.to2 = (count > 1) ? peers[1].get() : nullptr,
+			});
+	}
+	if (success && _submitCallback) {
+		base::take(_submitCallback)();
+	}
+}
+
+} // namespace
+
 ShareBox::SubmitCallback ShareBox::DefaultForwardCallback(
 		std::shared_ptr<Ui::Show> show,
 		not_null<History*> history,
 		MessageIdsList msgIds,
 		std::optional<TimeId> videoTimestamp,
-		bool no_quote,
+		bool noQuote,
+		bool noCaption,
 		FnMut<void()>&& successCallback) {
-	struct State final {
-		State(FnMut<void()>&& callback)
-		: submitCallback(std::move(callback)) {
-		}
-		base::flat_set<mtpRequestId> requests;
-		FnMut<void()> submitCallback;
-		mtpRequestId nextRequestKey = 0;
+	struct State {
+		bool submitted = false;
+		FnMut<void()> callback;
 	};
-	const auto state = std::make_shared<State>(std::move(successCallback));
+	const auto state = std::make_shared<State>(State{
+		.callback = std::move(successCallback),
+	});
 	return [=](
 			std::vector<not_null<Data::Thread*>> &&result,
 			Fn<bool()> checkPaid,
 			TextWithTags comment,
 			Api::SendOptions options,
-			Data::ForwardOptions forwardOptions) {
-		if (!state->requests.empty()) {
-			return; // Share clicked already.
+			Data::ForwardOptions forwardOptions) mutable {
+		if (state->submitted) {
+			return;
 		}
-
 		const auto items = history->owner().idsToItems(msgIds);
 		const auto existingIds = history->owner().itemsToIds(items);
 		if (existingIds.empty() || result.empty()) {
 			return;
 		}
-
 		const auto error = GetErrorForSending(
 			result,
 			{ .forward = &items, .text = &comment });
@@ -1721,247 +2298,64 @@ ShareBox::SubmitCallback ShareBox::DefaultForwardCallback(
 		} else if (!checkPaid()) {
 			return;
 		}
-
-		using Flag = MTPmessages_ForwardMessages::Flag;
-		auto commonSendFlags = MTPmessages_ForwardMessages::Flags(0);
-		if (no_quote) {
-			commonSendFlags = (options.scheduled ? Flag::f_schedule_date : Flag(0)) | Flag::f_drop_author;
-		} else {
-			commonSendFlags = Flag(0)
-			| Flag::f_with_my_score
-			| (options.scheduled ? Flag::f_schedule_date : Flag(0))
-			| ((options.scheduled && options.scheduleRepeatPeriod)
-				? Flag::f_schedule_repeat_period
-				: Flag(0))
-			| ((forwardOptions != Data::ForwardOptions::PreserveInfo)
-				? Flag::f_drop_author
-				: Flag(0))
-			| ((forwardOptions == Data::ForwardOptions::NoNamesAndCaptions)
-				? Flag::f_drop_media_captions
-				: Flag(0))
-			| (videoTimestamp.has_value()
-				? Flag::f_video_timestamp
-				: Flag(0));
+		state->submitted = true;
+		const auto normalized = HistoryView::Controls::NormalizeForwardOptions(
+			&history->session(),
+			items,
+			forwardOptions);
+		const auto effective = noCaption
+			? Data::ForwardOptions::NoNamesAndCaptions
+			: noQuote
+			? Data::ForwardOptions::NoSenderNames
+			: normalized;
+		const auto fullAyuForward = ranges::any_of(
+			items,
+			&AyuForward::isFullAyuForwardNeeded);
+		const auto ayuForward = fullAyuForward
+			|| AyuForward::isAyuForwardNeeded(items);
+		auto remainingStars = options.starsApproved;
+		auto targets = std::vector<ForwardTargetSnapshot>();
+		targets.reserve(result.size());
+		for (const auto thread : result) {
+			const auto price = thread->peer()->starsPerMessageChecked();
+			const auto targetBudget = std::min(
+				remainingStars,
+				price * (int(items.size())
+					+ (comment.text.isEmpty() ? 0 : 1)));
+			remainingStars -= targetBudget;
+			const auto commentBudget = comment.text.isEmpty()
+				? 0
+				: std::min(price, targetBudget);
+			auto forwardTargetOptions = options;
+			auto commentTargetOptions = options;
+			forwardTargetOptions.starsApproved = targetBudget - commentBudget;
+			commentTargetOptions.starsApproved = commentBudget;
+			targets.push_back(ResolveForwardTarget(
+				thread,
+				std::move(forwardTargetOptions),
+				std::move(commentTargetOptions)));
 		}
-		auto mtpMsgIds = QVector<MTPint>();
-		mtpMsgIds.reserve(existingIds.size());
-		for (const auto &fullId : existingIds) {
-			mtpMsgIds.push_back(MTP_int(fullId.msg));
+		const auto sendForwardFirst = !comment.text.isEmpty()
+			&& AyuSettings::getInstance().sendForwardFirst();
+		const auto submission = std::make_shared<ForwardSubmission>(
+			&history->session(),
+			show,
+			history->peer->id,
+			existingIds,
+			std::move(targets),
+			std::move(comment),
+			effective,
+			videoTimestamp,
+			noQuote,
+			noCaption,
+			ayuForward,
+			fullAyuForward,
+			sendForwardFirst,
+			std::move(state->callback));
+		if (show->valid()) {
+			show->hideLayer();
 		}
-		auto &api = history->session().api();
-		auto &histories = history->owner().histories();
-		const auto donePhraseArgs = CreateForwardedMessagePhraseArgs(
-			result,
-			msgIds);
-		const auto showRecentForwardsToSelf = result.size() == 1
-			&& result.front()->peer()->isSelf()
-			&& history->session().premium();
-
-		// AyuGram-changed
-		const auto dismiss = [=]
-		{
-			if (show->valid()) {
-				show->hideLayer();
-			}
-		};
-
-		if (AyuForward::isFullAyuForwardNeeded(items.front())) {
-			crl::async([=]{
-				for (const auto thread : result) {
-					AyuForward::forwardMessages(
-					&history->owner().session(),
-					Api::SendAction(thread, options),
-					false,
-					Data::ResolvedForwardDraft(items, forwardOptions));
-				}
-			});
-
-			dismiss();
-			return;
-		} else if (AyuForward::isAyuForwardNeeded(items)) {
-			crl::async([=]
-			{
-				for (const auto thread : result) {
-					AyuForward::intelligentForward(
-						&history->owner().session(),
-						Api::SendAction(thread, options),
-						Data::ResolvedForwardDraft(items, forwardOptions));
-				}
-			});
-
-			dismiss();
-			return;
-		}
-		// AyuGram-changed
-
-		for (const auto &thread : result) {
-			const auto peer = thread->peer();
-			const auto threadHistory = thread->owningHistory();
-			const auto forum = threadHistory->asForum();
-			const auto needNewTopic = forum
-				&& forum->bot()
-				&& Data::IsBotUserCreatesTopics(peer)
-				&& !thread->asTopic();
-			const auto effectiveThread = [&]() -> not_null<Data::Thread*> {
-				if (needNewTopic) {
-					const auto topic = forum->reserveNewBotTopic();
-					Assert(topic != nullptr);
-					return topic;
-				}
-				return thread;
-			}();
-
-			if (!comment.text.isEmpty()) {
-				auto message = Api::MessageToSend(
-					Api::SendAction(effectiveThread, options));
-				message.textWithTags = comment;
-				message.action.clearDraft = false;
-				api.sendMessage(std::move(message));
-			}
-
-			const auto topicRootId = effectiveThread->topicRootId();
-			const auto sublistPeer = needNewTopic
-				? nullptr
-				: thread->maybeSublistPeer();
-			const auto fromPeer = history->peer;
-			const auto msgCount = int(existingIds.size());
-			const auto starsPaid = std::min(
-				peer->starsPerMessageChecked(),
-				options.starsApproved);
-			if (starsPaid) {
-				options.starsApproved -= starsPaid;
-			}
-			const auto sendFlags = commonSendFlags
-				| (ShouldSendSilent(peer, options)
-					? Flag::f_silent
-					: Flag(0))
-				| (options.shortcutId
-					? Flag::f_quick_reply_shortcut
-					: Flag(0))
-				| (starsPaid ? Flag::f_allow_paid_stars : Flag())
-				| (sublistPeer ? Flag::f_reply_to : Flag())
-				| (options.suggest ? Flag::f_suggested_post : Flag())
-				| (options.effectId ? Flag::f_effect : Flag());
-			auto buildMessage = [=](
-					not_null<History*> history,
-					FullReplyTo replyTo)
-				-> Data::Histories::PreparedMessage {
-				const auto kGeneralId
-					= Data::ForumTopic::kGeneralId;
-				const auto realTopMsgId
-					= (replyTo.topicRootId == kGeneralId)
-					? MsgId(0)
-					: replyTo.topicRootId;
-				auto flags = sendFlags;
-				if (realTopMsgId) {
-					flags |= Flag::f_top_msg_id;
-				} else {
-					flags &= ~Flag::f_top_msg_id;
-				}
-				auto randoms = QVector<MTPlong>(msgCount);
-				for (auto &value : randoms) {
-					value = base::RandomValue<MTPlong>();
-				}
-				return MTPmessages_ForwardMessages(
-					MTP_flags(flags),
-					fromPeer->input(),
-					MTP_vector<MTPint>(mtpMsgIds),
-					MTP_vector<MTPlong>(randoms),
-					history->peer->input(),
-					MTP_int(realTopMsgId),
-					(sublistPeer
-						? MTP_inputReplyToMonoForum(
-							sublistPeer->input())
-						: MTPInputReplyTo()),
-					MTP_int(options.scheduled),
-					MTP_int(options.scheduleRepeatPeriod),
-					MTP_inputPeerEmpty(),
-					Data::ShortcutIdToMTP(
-						&history->session(),
-						options.shortcutId),
-					MTP_long(options.effectId),
-					MTP_int(videoTimestamp.value_or(0)),
-					MTP_long(starsPaid),
-					Api::SuggestToMTP(options.suggest));
-			};
-			const auto requestDone = [=](
-					const MTPUpdates &updates,
-					mtpRequestId requestKey) {
-				if (showRecentForwardsToSelf) {
-					ApiWrap::ProcessRecentSelfForwards(
-						&threadHistory->session(),
-						updates,
-						peer->id,
-						history->peer->id);
-				}
-				state->requests.remove(requestKey);
-				if (state->requests.empty()) {
-					if (show->valid()) {
-						auto phrase = rpl::variable<
-							TextWithEntities>(
-							ChatHelpers::ForwardedMessagePhrase(
-								donePhraseArgs)).current();
-						if (!phrase.empty()) {
-							show->showToast(std::move(phrase));
-						}
-						show->hideLayer();
-					}
-				}
-			};
-			const auto requestFail = [=](
-					const MTP::Error &error,
-					mtpRequestId requestKey) {
-				const auto type = error.type();
-				if (type.startsWith(
-						u"ALLOW_PAYMENT_REQUIRED_"_q)) {
-					show->showToast(
-						u"Payment requirements changed. "
-						"Please, try again."_q);
-				} else if (type
-					== u"VOICE_MESSAGES_FORBIDDEN"_q) {
-					show->showToast(
-						tr::lng_restricted_send_voice_messages(
-							tr::now,
-							lt_user,
-							peer->name()));
-				}
-				state->requests.remove(requestKey);
-				if (state->requests.empty()) {
-					if (show->valid()) {
-						show->hideLayer();
-					}
-				}
-			};
-			const auto requestKey = ++state->nextRequestKey;
-			state->requests.insert(requestKey);
-			histories.sendPreparedMessage(
-				threadHistory,
-				FullReplyTo{ .topicRootId = topicRootId },
-				uint64(0),
-				std::move(buildMessage),
-				[=](const MTPUpdates &updates,
-						const MTP::Response &) {
-					requestDone(updates, requestKey);
-				},
-				[=](const MTP::Error &error,
-						const MTP::Response &) {
-					requestFail(error, requestKey);
-				});
-		}
-		if (state->requests.empty()) {
-			if (show->valid()) {
-				auto phrase = rpl::variable<TextWithEntities>(
-					ChatHelpers::ForwardedMessagePhrase(
-						donePhraseArgs)).current();
-				if (!phrase.empty()) {
-					show->showToast(std::move(phrase));
-				}
-				show->hideLayer();
-			}
-		}
-		if (state->submitCallback) {
-			state->submitCallback();
-		}
+		submission->start();
 	};
 }
 
@@ -2017,6 +2411,9 @@ void FastShareMessage(
 		: ranges::all_of(items, [](auto item) {
 			return item->media() && item->media()->forceForwardedInfo();
 		});
+	const auto canShowRichForwardOptions
+		= !HistoryView::Controls::HasRichPage(items)
+		|| HistoryView::Controls::CanHideForwardAuthor(session, items);
 
 	auto copyCallback = [=] {
 		const auto item = owner->message(msgIds[0]);
@@ -2034,8 +2431,13 @@ void FastShareMessage(
 
 					QGuiApplication::clipboard()->setText(link);
 
-					show->showToast(
-						tr::lng_share_game_link_copied(tr::now));
+					show->showToast({
+						.text = {
+							tr::lng_share_game_link_copied(tr::now),
+						},
+						.iconLottie = u"toast/voip_invite"_q,
+						.iconLottieSize = st::toastLottieIconSize,
+					});
 				}
 			}
 		}
@@ -2066,14 +2468,14 @@ void FastShareMessage(
 		.submitCallback = ShareBox::DefaultForwardCallback(
 			show,
 			history,
-			msgIds,
-			false),
+			msgIds),
 		.filterCallback = std::move(filterCallback),
 		.st = st,
 		.forwardOptions = {
 			.sendersCount = ItemsForwardSendersCount(items),
 			.captionsCount = ItemsForwardCaptionsCount(items),
-			.show = !hasOnlyForcedForwardedInfo,
+			.show = !hasOnlyForcedForwardedInfo
+				&& canShowRichForwardOptions,
 		},
 		.moneyRestrictionError = ShareMessageMoneyRestrictionError(),
 	}), Ui::LayerOption::CloseOther);
@@ -2083,23 +2485,35 @@ void FastShareMessageToSelf(
 		std::shared_ptr<Main::SessionShow> show,
 		not_null<HistoryItem*> item) {
 	const auto self = show->session().user();
+	auto &owner = self->owner();
+	const auto items = owner.idsToItems(owner.itemOrItsGroup(item));
 	const auto donePhraseArgs = ChatHelpers::ForwardedMessagePhraseArgs{
 		.toCount = 1,
-		.singleMessage = true,
+		.singleMessage = (items.size() == 1),
 		.to1 = self,
 		.to2 = nullptr,
 	};
-	auto sendAction = Api::SendAction(self->owner().history(self));
+	auto sendAction = Api::SendAction(owner.history(self));
 	sendAction.clearDraft = false;
 	show->session().api().forwardMessages(
-		Data::ResolvedForwardDraft{ .items = {item} },
+		Data::ResolvedForwardDraft{ .items = items },
 		std::move(sendAction),
-		[=] {
+		[=](bool success) {
+			if (!success) {
+				return;
+			}
 			auto phrase = rpl::variable<TextWithEntities>(
 				ChatHelpers::ForwardedMessagePhrase(
 					donePhraseArgs)).current();
 			if (!phrase.empty()) {
-				show->showToast(std::move(phrase));
+				show->showToast({
+					.text = std::move(phrase),
+					.filter = ChatHelpers::ForwardedToSavedMessagesFilter(
+						&show->session()),
+					.iconLottie = ChatHelpers::ForwardedMessagePhraseIcon(
+						donePhraseArgs),
+					.iconLottieSize = st::toastLottieIconSize,
+				});
 			}
 		});
 }
@@ -2126,7 +2540,11 @@ void FastShareLink(
 	const auto sending = std::make_shared<bool>();
 	auto copyCallback = [=] {
 		QGuiApplication::clipboard()->setText(url);
-		show->showToast(tr::lng_background_link_copied(tr::now));
+		show->showToast({
+			.text = { tr::lng_background_link_copied(tr::now) },
+			.iconLottie = u"toast/voip_invite"_q,
+			.iconLottieSize = st::toastLottieIconSize,
+		});
 	};
 	auto countMessagesCallback = [=](const TextWithTags &comment) {
 		return 1;

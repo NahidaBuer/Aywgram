@@ -58,7 +58,6 @@ inline void psCheckLocalSocket(const QString &) {
 }
 
 QString psAppDataPath();
-QString psAppDataPathOld();
 void psSendToMenu(bool send, bool silent = false);
 
 int psCleanup();

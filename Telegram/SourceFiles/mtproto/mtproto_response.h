@@ -9,6 +9,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "base/flat_set.h"
 
+#include <optional>
+
 class QDebug;
 
 namespace MTP {
@@ -57,6 +59,19 @@ inline bool IsDefaultHandledError(const Error &error) {
 	return IsTemporaryError(error);
 }
 
+inline bool IgnoreError(const Error &error) {
+	return error.code() == 406;
+}
+
+[[nodiscard]] std::optional<int> MigrateDcId(const Error &error);
+
+template <typename ShowPtr>
+void ShowErrorFallback(const ShowPtr &show, const Error &error) {
+	if (!IgnoreError(error)) {
+		show->showToast(error.type());
+	}
+}
+
 struct Response {
 	mtpBuffer reply;
 	mtpMsgId outerMsgId = 0;
@@ -69,6 +84,7 @@ using FailHandler = Fn<bool(const Error&, const Response&)>;
 struct ResponseHandler {
 	DoneHandler done;
 	FailHandler fail;
+	bool handleMigrateErrors = false;
 };
 
 [[nodiscard]] QDebug operator<<(QDebug debug, const Error &error);

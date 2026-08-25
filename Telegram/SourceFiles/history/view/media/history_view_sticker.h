@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/media/history_view_media_unwrapped.h"
 #include "history/view/media/history_view_sticker_player_abstract.h"
 #include "base/weak_ptr.h"
+#include "rpl/lifetime.h"
 
 namespace Main {
 class Session;
@@ -104,6 +105,8 @@ private:
 	[[nodiscard]] bool customEmojiPart() const;
 	[[nodiscard]] bool emojiSticker() const;
 	[[nodiscard]] bool webpagePart() const;
+	[[nodiscard]] QSize computeSize() const;
+	void updateSize();
 	void paintAnimationFrame(
 		Painter &p,
 		const PaintContext &context,
@@ -136,7 +139,9 @@ private:
 	QSize _size;
 	QImage _lastFrameCached;
 	QString _diceEmoji;
+	int _customSize = 0;
 	int _diceIndex = -1;
+	rpl::lifetime _lifetime;
 	mutable int _frameIndex = -1;
 	mutable int _framesCount = -1;
 	ChatHelpers::StickerLottieSize _cachingTag = {};

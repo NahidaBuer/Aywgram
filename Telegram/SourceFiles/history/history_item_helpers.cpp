@@ -11,6 +11,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_text_entities.h"
 #include "boxes/premium_preview_box.h"
 #include "calls/calls_instance.h"
+#include "data/components/ephemeral_messages.h"
 #include "data/components/sponsored_messages.h"
 #include "data/stickers/data_custom_emoji.h"
 #include "data/notify/data_notify_settings.h"
@@ -22,12 +23,15 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_forum.h"
 #include "data/data_forum_topic.h"
 #include "data/data_message_reactions.h"
+#include "data/data_messages.h"
 #include "data/data_poll.h"
+#include "data/data_premium_limits.h"
 #include "data/data_session.h"
 #include "data/data_stories.h"
 #include "data/data_user.h"
 #include "history/view/controls/history_view_suggest_options.h"
 #include "history/history.h"
+#include "history/history_item.h"
 #include "history/history_item_components.h"
 #include "main/main_account.h"
 #include "main/main_domain.h"
@@ -52,10 +56,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/item_text_options.h"
 #include "lang/lang_keys.h"
 
-// AyuGram includes
 #include "ayu/ayu_settings.h"
 #include "ayu/utils/telegram_helpers.h"
-
+#include "styles/style_layers.h"
 
 namespace {
 
@@ -76,7 +79,9 @@ int ComputeSendingMessagesCount(
 		not_null<History*> history,
 		const SendingErrorRequest &request) {
 	auto result = 0;
-	if (request.text && !request.text->empty()) {
+	if (request.richMessage) {
+		++result;
+	} else if (request.text && !request.text->empty()) {
 		auto sending = TextWithEntities();
 		auto left = TextWithEntities{
 			request.text->text,
@@ -85,9 +90,12 @@ int ComputeSendingMessagesCount(
 		auto prepareFlags = Ui::ItemTextOptions(
 			history,
 			history->session().user()).flags;
+		const auto messageLengthLimit = Data::PremiumLimits(
+			&history->session()
+		).messageLengthCurrent();
 		TextUtilities::PrepareForSending(left, prepareFlags);
 
-		while (TextUtilities::CutPart(sending, left, MaxMessageSize)) {
+		while (TextUtilities::CutPart(sending, left, messageLengthLimit)) {
 			++result;
 		}
 		if (!result) {
@@ -109,6 +117,9 @@ Data::SendError GetErrorForSending(
 	const auto thread = topic
 		? not_null<Data::Thread*>(topic)
 		: peer->owner().history(peer);
+	const auto messageLengthLimit = Data::PremiumLimits(
+		&thread->owningHistory()->session()
+	).messageLengthCurrent();
 	if (request.story) {
 		if (const auto error = request.story->errorTextForForward(thread)) {
 			return error;
@@ -121,8 +132,9 @@ Data::SendError GetErrorForSending(
 			}
 		}
 	}
-	const auto hasText = (request.text && !request.text->empty());
-	if (hasText) {
+	const auto hasText = request.richMessage
+		|| (request.text && !request.text->empty());
+	if (hasText && !request.ignoreRestrictions) {
 		const auto error = Data::RestrictionError(
 			peer,
 			ChatRestriction::SendOther);
@@ -132,7 +144,7 @@ Data::SendError GetErrorForSending(
 			return tr::lng_forward_cant(tr::now);
 		}
 	}
-	if (peer->slowmodeApplied()) {
+	if (peer->slowmodeApplied() && !request.ignoreRestrictions) {
 		const auto count = request.messagesCount
 			? request.messagesCount
 			: ComputeSendingMessagesCount(thread->owningHistory(), request);
@@ -143,7 +155,7 @@ Data::SendError GetErrorForSending(
 				return tr::lng_slowmode_no_many(tr::now);
 			}
 		}
-		if (request.text && request.text->text.size() > MaxMessageSize) {
+		if (request.text && request.text->text.size() > messageLengthLimit) {
 			return tr::lng_slowmode_too_long(tr::now);
 		} else if ((hasText || request.story) && count > 1) {
 			return tr::lng_slowmode_no_many(tr::now);
@@ -166,7 +178,7 @@ Data::SendError GetErrorForSending(
 		}
 	}
 	if (const auto left = peer->slowmodeSecondsLeft()) {
-		if (!request.ignoreSlowmodeCountdown) {
+		if (!request.ignoreSlowmodeCountdown && !request.ignoreRestrictions) {
 			return tr::lng_slowmode_enabled(
 				tr::now,
 				lt_left,
@@ -614,7 +626,7 @@ bool ShouldSendSilent(
 		not_null<PeerData*> peer,
 		const Api::SendOptions &options) {
 	const auto &ghost = AyuSettings::ghost(&peer->session());
-	if (ghost.sendWithoutSound()) {
+	if (ghost.shouldSendWithoutSound()) {
 		return !options.silent;
 	}
 
@@ -648,6 +660,104 @@ bool LookupReplyIsTopicPost(HistoryItem *replyTo) {
 		&& (replyTo->topicRootId() != Data::ForumTopic::kGeneralId);
 }
 
+bool CanReplyToEphemeral(not_null<const HistoryItem*> item) {
+	const auto &session = item->history()->session();
+	return session.ephemeralMessages().replyBot(item) != nullptr;
+}
+
+bool IsAnchoredEphemeral(not_null<const HistoryItem*> item) {
+	const auto &session = item->history()->session();
+	return session.ephemeralMessages().anchored(item);
+}
+
+std::vector<ForwardRange> CollectForwardRanges(
+		const std::vector<not_null<HistoryItem*>> &items) {
+	auto ordered = items;
+	ranges::sort(ordered, ranges::less(), &HistoryItem::position);
+	auto result = std::vector<ForwardRange>();
+	for (const auto &item : ordered) {
+		const auto fromEphemeral = item->isEphemeral();
+		if (fromEphemeral
+			&& !item->history()->session().ephemeralMessages().lookupId(
+				item)) {
+			continue;
+		}
+		if (result.empty()
+			|| result.back().fromEphemeral != fromEphemeral) {
+			result.push_back({ .fromEphemeral = fromEphemeral });
+		}
+		result.back().items.push_back(item);
+	}
+	return result;
+}
+
+QVector<MTPint> ForwardRangeIds(
+		not_null<Main::Session*> session,
+		const ForwardRange &range) {
+	auto result = QVector<MTPint>();
+	result.reserve(int(range.items.size()));
+	for (const auto &item : range.items) {
+		result.push_back(range.fromEphemeral
+			? MTP_int(session->ephemeralMessages().lookupId(item))
+			: MTP_int(item->id));
+	}
+	return result;
+}
+
+bool ShowEphemeralReplyTextOnlyError(
+		std::shared_ptr<ChatHelpers::Show> show,
+		not_null<Main::Session*> session,
+		FullMsgId replyToId) {
+	const auto item = session->data().message(replyToId);
+	if (!item || !item->isEphemeral()) {
+		return false;
+	}
+	show->showToast(tr::lng_ephemeral_reply_text_only(tr::now));
+	return true;
+}
+
+void StripEphemeralReply(
+		not_null<Main::Session*> session,
+		FullReplyTo &replyTo) {
+	const auto item = session->data().message(replyTo.messageId);
+	if (item && item->isEphemeral()) {
+		replyTo.messageId = FullMsgId();
+	}
+}
+
+void ConfirmDeleteSelectedEphemeral(
+		std::shared_ptr<ChatHelpers::Show> show,
+		std::vector<not_null<HistoryItem*>> items,
+		Fn<void()> confirmed) {
+	if (items.empty()) {
+		return;
+	}
+	const auto session = &items.front()->history()->session();
+	auto ids = std::vector<FullMsgId>();
+	ids.reserve(items.size());
+	for (const auto &item : items) {
+		ids.push_back(item->fullId());
+	}
+	const auto count = int(ids.size());
+	show->show(Ui::MakeConfirmBox({
+		.text = tr::lng_selected_delete_sure(tr::now, lt_count, count),
+		.confirmed = [=](Fn<void()> &&close) {
+			close();
+			const auto owner = &session->data();
+			for (const auto &id : ids) {
+				if (const auto item = owner->message(id)) {
+					session->ephemeralMessages().deleteMessage(item);
+				}
+			}
+			if (const auto onstack = confirmed) {
+				onstack();
+			}
+		},
+		.confirmText = tr::lng_box_delete(),
+		.confirmStyle = &st::attentionBoxButton,
+	}));
+}
+
 TextWithEntities DropDisallowedCustomEmoji(
 		not_null<PeerData*> to,
 		TextWithEntities text) {
@@ -658,18 +768,25 @@ TextWithEntities DropDisallowedCustomEmoji(
 	if (to->session().premium() || to->isSelf()) {
 		return text;
 	}
+	const auto isLocalIconEmoji = [](const EntityInText &entity) {
+		return entity.data().startsWith(u"icon-emoji-"_q);
+	};
 	const auto channel = to->asMegagroup();
 	const auto allowSetId = channel ? channel->mgInfo->emojiSet.id : 0;
 	if (!allowSetId) {
+		const auto predicate = [&](const EntityInText &entity) {
+			return (entity.type() == EntityType::CustomEmoji)
+				&& !isLocalIconEmoji(entity);
+		};
 		text.entities.erase(
-			ranges::remove(
-				text.entities,
-				EntityType::CustomEmoji,
-				&EntityInText::type),
+			ranges::remove_if(text.entities, predicate),
 			text.entities.end());
 	} else {
 		const auto predicate = [&](const EntityInText &entity) {
 			if (entity.type() != EntityType::CustomEmoji) {
+				return false;
+			}
+			if (isLocalIconEmoji(entity)) {
 				return false;
 			}
 			if (const auto id = Data::ParseCustomEmojiData(entity.data())) {
@@ -716,7 +833,7 @@ QDateTime ItemDateTime(not_null<const HistoryItem*> item) {
 }
 
 QString ItemDateText(not_null<const HistoryItem*> item, bool isUntilOnline) {
-	const auto dateText = langDateForChat(ItemDateTime(item).date());
+	const auto dateText = langDayOfMonthFull(ItemDateTime(item).date());
 	return !item->isScheduled()
 		? dateText
 		: isUntilOnline
@@ -868,6 +985,9 @@ MessageFlags FlagsFromMTP(
 			: Flag())
 		| ((flags & MTP::f_summary_from_language)
 			? Flag::CanBeSummarized
+			: Flag())
+		| ((flags & MTP::f_guestchat_via_from)
+			? Flag::GuestChatViaFrom
 			: Flag());
 }
 
@@ -976,8 +1096,10 @@ MediaCheckResult CheckMessageMedia(const MTPMessageMedia &media) {
 		}
 		return photo->match([](const MTPDphoto &) {
 			return Result::Good;
-		}, [](const MTPDphotoEmpty &) {
-			return Result::Empty;
+		}, [&](const MTPDphotoEmpty &) {
+			return data.vttl_seconds()
+				? Result::HasExpiredMediaTimeToLive
+				: Result::Empty;
 		});
 	}, [](const MTPDmessageMediaDocument &data) {
 		const auto document = data.vdocument();
@@ -992,8 +1114,10 @@ MediaCheckResult CheckMessageMedia(const MTPMessageMedia &media) {
 		}
 		return document->match([](const MTPDdocument &) {
 			return Result::Good;
-		}, [](const MTPDdocumentEmpty &) {
-			return Result::Empty;
+		}, [&](const MTPDdocumentEmpty &) {
+			return data.vttl_seconds()
+				? Result::HasExpiredMediaTimeToLive
+				: Result::Empty;
 		});
 	}, [](const MTPDmessageMediaWebPage &data) {
 		return data.vwebpage().match([](const MTPDwebPage &) {
@@ -1235,11 +1359,15 @@ void CheckReactionNotificationSchedule(
 	}
 }
 
+PollData *LookupNotificationPoll(not_null<const HistoryItem*> item) {
+	const auto media = item->media();
+	return media ? media->poll() : nullptr;
+}
+
 void CheckPollVoteNotificationSchedule(
 		not_null<HistoryItem*> item,
 		const std::vector<not_null<PeerData*>> &wasRecentVoters) {
-	const auto media = item->media();
-	const auto poll = media ? media->poll() : nullptr;
+	const auto poll = LookupNotificationPoll(item);
 	if (!poll || !poll->creator()) {
 		return;
 	}
@@ -1251,7 +1379,9 @@ void CheckPollVoteNotificationSchedule(
 	for (const auto &answer : poll->answers) {
 		for (const auto &voter : answer.recentVoters) {
 			const auto user = voter->asUser();
-			if (!user || ranges::contains(wasRecentVoters, voter)) {
+			if (!user
+				|| user->isSelf()
+				|| ranges::contains(wasRecentVoters, voter)) {
 				continue;
 			}
 			if (from == Api::ReactionsNotifyFrom::Contacts
@@ -1272,6 +1402,10 @@ void CheckPollVoteNotificationSchedule(
 			return;
 		}
 	}
+}
+
+bool CanHoldItemNotification(not_null<const HistoryItem*> item) {
+	return item->isHistoryEntry() || LookupNotificationPoll(item);
 }
 
 [[nodiscard]] MessageFlags NewForwardedFlags(
@@ -1325,14 +1459,28 @@ void CheckPollVoteNotificationSchedule(
 }
 
 [[nodiscard]] TextWithEntities UnsupportedMessageText() {
-	const auto siteLink = u"https://t.me/AyuGramReleases"_q;
+	const auto siteLink = u"https://github.com/NahidaBuer/AywGram/releases"_q;
 	auto result = TextWithEntities{
-		tr::lng_message_unsupported(tr::now, lt_link, siteLink).replace("Telegram", "AyuGram")
+		tr::lng_message_unsupported(tr::now, lt_link, siteLink).replace("Telegram", "AywGram")
 	};
 	TextUtilities::ParseEntities(result, Ui::ItemTextNoMonoOptions().flags);
 	result.entities.push_front(
 		EntityInText(EntityType::Italic, 0, result.text.size()));
 	return result;
+}
+
+HistoryMessageMarkupData UnsupportedMessageMarkup() {
+	using Button = HistoryMessageMarkupButton;
+	auto markup = HistoryMessageMarkupData();
+	markup.flags = ReplyMarkupFlag::Inline;
+	auto row = std::vector<Button>();
+	row.emplace_back(
+		Button::Type::Url,
+		tr::lng_update_telegram(tr::now).replace("Telegram", "AywGram"),
+		Button::Visual(),
+		QByteArray("https://github.com/NahidaBuer/AywGram/releases"));
+	markup.rows.push_back(std::move(row));
+	return markup;
 }
 
 void ShowTrialTranscribesToast(int left, TimeId until) {

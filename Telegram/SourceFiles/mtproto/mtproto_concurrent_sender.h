@@ -68,6 +68,7 @@ class ConcurrentSender : public base::has_weak_ptr {
 		template <typename InvokeFullFail>
 		void setFailHandler(InvokeFullFail &&invoke) noexcept;
 		void setFailSkipPolicy(FailSkipPolicy policy) noexcept;
+		void setHandleMigrateErrors() noexcept;
 		void setAfter(mtpRequestId requestId) noexcept;
 
 	private:
@@ -79,6 +80,7 @@ class ConcurrentSender : public base::has_weak_ptr {
 		Handlers _handlers;
 		FailSkipPolicy _failSkipPolicy = FailSkipPolicy::Simple;
 		mtpRequestId _afterRequestId = 0;
+		bool _handleMigrateErrors = false;
 
 	};
 
@@ -127,6 +129,7 @@ public:
 
 		[[nodiscard]] SpecificRequestBuilder &handleFloodErrors() noexcept;
 		[[nodiscard]] SpecificRequestBuilder &handleAllErrors() noexcept;
+		[[nodiscard]] SpecificRequestBuilder &handleMigrateErrors() noexcept;
 		[[nodiscard]] SpecificRequestBuilder &afterRequest(
 			mtpRequestId requestId) noexcept;
 
@@ -387,6 +390,13 @@ template <typename Request>
 auto ConcurrentSender::SpecificRequestBuilder<Request>::handleAllErrors(
 ) noexcept -> SpecificRequestBuilder & {
 	setFailSkipPolicy(FailSkipPolicy::HandleAll);
+	return *this;
+}
+
+template <typename Request>
+auto ConcurrentSender::SpecificRequestBuilder<Request>::handleMigrateErrors(
+) noexcept -> SpecificRequestBuilder & {
+	setHandleMigrateErrors();
 	return *this;
 }
 

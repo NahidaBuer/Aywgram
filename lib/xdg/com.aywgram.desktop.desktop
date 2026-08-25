@@ -1,0 +1,22 @@
+[Desktop Entry]
+Name=AywGram Desktop
+Comment=Desktop version of AywGram - ToS breaking Telegram client
+TryExec=AywGram
+Exec=env DESKTOPINTEGRATION=1 AywGram -- %U
+Icon=com.aywgram.desktop
+Terminal=false
+StartupWMClass=AywGram
+Type=Application
+Categories=Chat;Network;InstantMessaging;Qt;
+MimeType=x-scheme-handler/tg;x-scheme-handler/tonsite;
+Keywords=tg;chat;im;messaging;messenger;sms;telegram;tdesktop;
+Actions=quit;
+DBusActivatable=true
+SingleMainWindow=true
+X-GNOME-UsesNotifications=true
+X-GNOME-SingleWindow=true
+
+[Desktop Action quit]
+Exec=AywGram -quit
+Name=Quit AywGram
+Icon=application-exit

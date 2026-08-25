@@ -1,164 +1,58 @@
-# AyuGram
+# AywGram Desktop
 
-![AyuGram Logo](.github/AyuGram.png) ![AyuChan](.github/AyuChan.png)
+[English](README.EN.md)
 
-[ English  |   [Русский](README-RU.md) ]
+![Logo 1](Telegram/Resources/art/ayu/nahida/app.png)
 
-## Features
+AywGram Desktop 是一个基于 [Telegram Desktop](https://github.com/telegramdesktop/tdesktop) 并集成 AyuGram 改动的非官方 Telegram 桌面客户端。本仓库提供完整源代码，供审阅、构建和改进；它不是 Telegram 官方客户端，也不代表 Telegram 或 AyuGram 项目。
 
-- Full ghost mode (flexible)
-- Messages history
-- Anti-recall
-- Font customization
-- Streamer mode
-- Local Telegram Premium
-- Translator
-- Media preview & quick reaction on force click (macOS)
-- Enhanced appearance
 
-And many more. Check out our [Documentation](https://docs.ayugram.one/desktop/).
+## 项目名称迁移说明
 
-<h3>
-  <details>
-    <summary>Preview</summary>
-    <table>
-      <tr>
-        <td><img src='.github/demos/demo1.png' width='268' alt='Preferences'></td>
-        <td><img src='.github/demos/demo2.png' width='268' alt='AyuGram Options'></td>
-        <td><img src='.github/demos/demo3.png' width='268' alt='Message Filters'></td>
-      </tr>
-      <tr>
-        <td><img src='.github/demos/demo4.png' width='268' alt='Appearance'></td>
-        <td><img src='.github/demos/demo5.png' width='268' alt='Chats'></td>
-      </tr>
-    </table>
-  </details>
-</h3>
+本项目并非全新另起炉灶，因此一些内部标识仍然沿用 AyuGram，此为故意为之。截至 7.0 初期版本，本项目的 `tdata` 应该尚可与上游相互替换，但不对后续数据兼容性做出承诺。
 
-## Downloads
+如果项目改名导致数据丢失，请手动迁移 `tdata` 目录。详见[迁移应用数据](docs/app-data-migration.md)。
 
-### Windows
+## 功能
 
-#### Official
+- 灵活的幽灵模式、消息历史与防撤回
+- 字体、外观与宽屏布局等界面自定义
+- 串流模式、本地 Premium 显示、翻译与媒体预览
+- WEB 代理：通过内置 WebView 承载的 MTProxy 传输，必要时可由用户手动打开浏览器回退
 
-You can download prebuilt Windows binary from [Releases tab](https://github.com/AyuGram/AyuGramDesktop/releases) or from
-the [Telegram channel](https://t.me/AyuGramReleases).
+一些新增的功能，包括但不限于：
 
-#### Winget
+- 强化对话设置：缩放贴纸列表、显示媒体元数据、按消息类型筛选搜索等
+- 会话迁移：与 Pyrogram 会话串及 Mithka JSON 备份互操作
+- 还在缓慢增加中...
 
-```bash
-winget install RadolynLabs.AyuGramDesktop
-```
+~~AywGram 是我的个人项目~~
 
-#### Scoop
+功能会随上游同步和本仓库的维护策略变化。请只从本仓库的
+[Releases](../../releases) 获取与本源码对应的发行包；第三方打包渠道不由本仓库维护。
 
-```bash
-scoop bucket add extras
-scoop install ayugram
-```
+## 构建与文档
 
-#### Self-built
+- [构建说明索引](docs/README.md)
+- [Windows x64 构建](docs/building-win-x64.md)
+- [macOS 构建](docs/building-mac.md)
+- [Linux 构建](docs/building-linux.md)
+- [迁移应用数据](docs/app-data-migration.md)
+- [会话迁移与安全提示](docs/session-backup.md)
+- [贡献指南](.github/CONTRIBUTING.md)
 
-Follow [official guide](https://github.com/AyuGram/AyuGramDesktop/blob/dev/docs/building-win-x64.md) if you want to
-build by yourself.
+构建时使用与 AyuGram 一致的 Telegram 官方 API 标识；详见 [API 凭据说明](docs/api_credentials.md)。
+不要把会话文件、`tdata`、代理密钥或构建产物提交到仓库。
 
-### macOS
+## 许可证与致谢
 
-#### Official
+本项目遵循 [GNU GPLv3](LICENSE)，并保留许可证中对 OpenSSL 链接的特别例外。它派生自 Telegram Desktop，并包含 AyuGram 与多个第三方依赖的代码；各组件的版权声明和许可证仍适用于对应文件。详见 [LEGAL](LEGAL) 以及各依赖目录中的许可证文件。
 
-You can download prebuilt macOS package from [Releases tab](https://github.com/AyuGram/AyuGramDesktop/releases).
-
-#### Homebrew
-
-```bash
-brew install --cask ayugram
-```
-
-### Arch Linux
-
-#### From source (recommended)
-
-Install `ayugram-desktop` from [AUR](https://aur.archlinux.org/packages/ayugram-desktop).
-
-#### Prebuilt binaries
-
-Install `ayugram-desktop-bin` from [AUR](https://aur.archlinux.org/packages/ayugram-desktop-bin).
-
-Note: these binaries aren't officially maintained by us.
-
-### NixOS
-
-#### Flake (recommended)
-
-Install `ayugram-desktop` from [ndfined-crp/ayugram-desktop](https://github.com/ndfined-crp/ayugram-desktop)
-
-#### Nixpkgs
-
-Install `ayugram-desktop` from [nixpkgs](https://search.nixos.org/packages?channel=unstable&show=ayugram-desktop)
-
-### ALT Linux
-
-[Sisyphus](https://packages.altlinux.org/en/sisyphus/srpms/ayugram-desktop/)
-
-### Gentoo Linux
-
-See [this repository](https://github.com/OverLessArtem/ayugram-ebuild-gentoo) for installation manual.
-
-### Void Linux
-See [this repository](https://github.com/OverLessArtem/ayugram-template-void) for installation manual.
-
-### EPM
-
-`epm play ayugram`
-
-### Fedora
-
-From [RPM Fusion](https://admin.rpmfusion.org/pkgdb/package/free/ayugram-desktop/) repository.
-
-```bash
-dnf install ayugram-desktop
-```
-
-### Any other Linux distro
-
-Flatpak: https://github.com/0FL01/AyuGramDesktop-flatpak
-
-Or follow the [official guide](https://github.com/AyuGram/AyuGramDesktop/blob/dev/docs/building-linux.md).
-
-### Remarks for Windows
-
-Make sure you have these components installed with VS Build Tools:
-
-- C++ MFC latest (x86 & x64)
-- C++ ATL latest (x86 & x64)
-- latest Windows 11 SDK
-
-## Donation
-
-Enjoy using **AyuGram**? Consider sending us a tip!
-
-[Here's available methods.](https://docs.ayugram.one/donate/)
-
-## Credits
-
-### Telegram clients
+### Telegram 客户端
 
 - [Telegram Desktop](https://github.com/telegramdesktop/tdesktop)
-- [Kotatogram](https://github.com/kotatogram/kotatogram-desktop)
 - [64Gram](https://github.com/TDesktop-x64/tdesktop)
-- [Forkgram](https://github.com/forkgram/tdesktop)
+- [Yurigram](https://github.com/Revincx/Yurigram)
+- IrenaGram
 
-### Libraries used
-
-- [JSON for Modern C++](https://github.com/nlohmann/json)
-- [SQLite](https://github.com/sqlite/sqlite)
-- [sqlite_orm](https://github.com/fnc12/sqlite_orm)
-- [androidx sources](https://github.com/androidx/androidx)
-
-### Icons
-
-- [Solar Icon Set](https://www.figma.com/community/file/1166831539721848736)
-
-### Bots
-
-- [TelegramDB](https://t.me/tgdatabase) for username lookup by ID
+![Logo 2](Telegram/Resources/art/ayu/nahida2/app.png)

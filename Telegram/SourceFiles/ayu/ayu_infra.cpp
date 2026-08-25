@@ -14,6 +14,7 @@
 #include "ayu/ui/ayu_logo.h"
 #include "features/translator/ayu_translator.h"
 #include "lang/lang_instance.h"
+#include "storage/localstorage.h"
 #include "ui/chat/chat_style_radius.h"
 #include "utils/rc_manager.h"
 
@@ -24,14 +25,24 @@
 namespace AyuInfra {
 
 void initLang() {
-	QString id = Lang::GetInstance().id();
-	QString baseId = Lang::GetInstance().baseId();
-	if (id.isEmpty()) {
-		LOG(("Language is not loaded"));
-		return;
+	auto &language = Lang::GetInstance();
+	if (language.id().isEmpty()) {
+		language.switchToId({
+			u"zh-hans"_q,
+			u"zh"_q,
+			QString(),
+			u"Simplified Chinese"_q,
+			u"简体中文"_q,
+		});
+		Local::writeLangPack();
 	}
+	const auto id = language.id();
+	const auto baseId = language.baseId();
 	AyuLanguage::init();
-	AyuLanguage::currentInstance()->fetchLanguage(id, baseId);
+	if (!id.startsWith(u"zh-hans"_q)
+		&& !baseId.startsWith(u"zh-hans"_q)) {
+		AyuLanguage::currentInstance()->fetchLanguage(id, baseId);
+	}
 }
 
 void initUiSettings() {

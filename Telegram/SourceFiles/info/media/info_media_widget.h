@@ -7,9 +7,16 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
+#include "base/algorithm.h"
+#include "data/data_search_controller.h"
 #include "info/info_content_widget.h"
 #include "storage/storage_shared_media.h"
-#include "data/data_search_controller.h"
+
+class HistoryItem;
+
+namespace Info {
+class Memento;
+} // namespace Info
 
 namespace tr {
 template <typename ...Tags>
@@ -27,6 +34,8 @@ using Type = Storage::SharedMediaType;
 [[nodiscard]] std::optional<int> TypeToTabIndex(Type type);
 [[nodiscard]] Type TabIndexToType(int index);
 [[nodiscard]] tr::phrase<> SharedMediaTitle(Type type);
+[[nodiscard]] std::shared_ptr<Info::Memento> MementoForItem(
+	not_null<HistoryItem*> item);
 
 class InnerWidget;
 
@@ -63,11 +72,11 @@ public:
 	[[nodiscard]] int idsLimit() const {
 		return _idsLimit;
 	}
-	void setJumpToMessageId(MsgId id) {
-		_jumpToMessageId = id;
+	void setExactJumpId(FullMsgId id) {
+		_exactJumpId = id;
 	}
-	[[nodiscard]] MsgId jumpToMessageId() const {
-		return _jumpToMessageId;
+	[[nodiscard]] FullMsgId takeExactJumpId() {
+		return base::take(_exactJumpId);
 	}
 
 	void setScrollTopItem(GlobalMsgId item) {
@@ -106,7 +115,7 @@ private:
 	Type _type = Type::Photo;
 	FullMsgId _aroundId;
 	int _idsLimit = 0;
-	MsgId _jumpToMessageId = 0;
+	FullMsgId _exactJumpId;
 	int64 _scrollTopItemPosition = 0;
 	GlobalMsgId _scrollTopItem;
 	int _scrollTopShift = 0;
@@ -133,6 +142,7 @@ public:
 	void selectionAction(SelectionAction action) override;
 
 	void fillTopBarMenu(const Ui::Menu::MenuCallback &addAction) override;
+	bool processZoomKey(not_null<QKeyEvent*> e) override;
 
 	rpl::producer<QString> title() override;
 

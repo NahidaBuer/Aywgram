@@ -1,4 +1,4 @@
-﻿// This is the source code of AyuGram for Desktop.
+// This is the source code of AyuGram for Desktop.
 //
 // We do not and cannot prevent the use of our code,
 // but be respectful and credit the original author.
@@ -115,12 +115,11 @@ void addDeletedMessage(not_null<HistoryItem*> item) {
 	DeletedMessage message;
 	map(item, message);
 
-	AyuDatabase::addDeletedMessage(message);
-}
+	if (message.text.empty()) {
+		return;
+	}
 
-std::vector<ID> getDeletedMessageIds(not_null<PeerData*> peer, ID topicId) {
-	const ID userId = peer->session().userId().bare & PeerId::kChatTypeMask;
-	return AyuDatabase::getDeletedMessageIds(userId, getDialogIdFromPeer(peer), topicId);
+	AyuDatabase::addDeletedMessage(message);
 }
 
 std::vector<AyuMessageBase>
@@ -133,6 +132,12 @@ getDeletedMessages(not_null<PeerData*> peer, ID topicId, ID minId, ID maxId, int
 bool hasDeletedMessages(not_null<PeerData*> peer, ID topicId) {
 	const ID userId = peer->session().userId().bare & PeerId::kChatTypeMask;
 	return AyuDatabase::hasDeletedMessages(userId, getDialogIdFromPeer(peer), topicId);
+}
+
+void removeDeletedMessage(not_null<HistoryItem*> item) {
+	const auto peer = item->history()->peer;
+	const ID userId = peer->session().userId().bare & PeerId::kChatTypeMask;
+	AyuDatabase::removeDeletedMessage(userId, getDialogIdFromPeer(peer), item->id.bare);
 }
 
 void clearDeletedMessages(not_null<PeerData*> peer, ID topicId) {

@@ -68,7 +68,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_dialogs.h"
 #include "styles/style_chat.h"
 #include "styles/style_info.h"
-#include "styles/style_menu_icons.h"
 
 #include <QtGui/QWindow>
 
@@ -128,7 +127,6 @@ TopBarWidget::TopBarWidget(
 , _primaryWindow(controller->isPrimary())
 , _clear(this, tr::lng_selected_clear(), st::topBarClearButton)
 , _forward(this, tr::lng_selected_forward(), st::defaultActiveButton)
-, _noQuote(this, tr::lng_selected_no_quote(), st::defaultActiveButton)
 , _sendNow(this, tr::lng_selected_send_now(), st::defaultActiveButton)
 , _delete(this, tr::lng_selected_delete(), st::defaultActiveButton)
 , _messageShot(this, tr::ayu_MessageShotTopBarText(), st::defaultActiveButton)
@@ -149,6 +147,7 @@ TopBarWidget::TopBarWidget(
 	_forward->setTextTransform(Ui::RoundButtonTextTransform::ToUpper);
 	_sendNow->setTextTransform(Ui::RoundButtonTextTransform::ToUpper);
 	_delete->setTextTransform(Ui::RoundButtonTextTransform::ToUpper);
+	_messageShot->setTextTransform(Ui::RoundButtonTextTransform::ToUpper);
 
 	Lang::Updated(
 	) | rpl::on_next([=] {
@@ -157,8 +156,6 @@ TopBarWidget::TopBarWidget(
 
 	_forward->setClickedCallback([=] { _forwardSelection.fire({}); });
 	_forward->setWidthChangedCallback([=] { updateControlsGeometry(); });
-	_noQuote->setClickedCallback([=] { _noQuoteSelection.fire({}); });
-	_noQuote->setWidthChangedCallback([=] { updateControlsGeometry(); });
 	_sendNow->setClickedCallback([=] { _sendNowSelection.fire({}); });
 	_sendNow->setWidthChangedCallback([=] { updateControlsGeometry(); });
 	_delete->setClickedCallback([=] { _deleteSelection.fire({}); });
@@ -250,7 +247,12 @@ TopBarWidget::TopBarWidget(
 		| UpdateFlag::SupportInfo
 		| UpdateFlag::Rights
 		| UpdateFlag::EmojiStatus
+		| UpdateFlag::Name
 	) | rpl::on_next([=](const Data::PeerUpdate &update) {
+		if ((update.flags & UpdateFlag::Name)
+			&& (update.peer == titleNamePeer())) {
+			TopBarWidget::update();
+		}
 		if (update.flags & UpdateFlag::HasCalls) {
 			if (update.peer->isUser()
 				&& (update.peer->isSelf()
@@ -585,19 +587,8 @@ void TopBarWidget::paintTopBar(Painter &p) {
 		? _activeChat.key.owningHistory()->peer.get()
 		: nullptr;
 	const auto folder = _activeChat.key.folder();
-	const auto sublist = _activeChat.key.sublist();
 	const auto topic = _activeChat.key.topic();
-	const auto history = _activeChat.key.history();
-	const auto broadcastForMonoforum = history
-		? history->peer->monoforumBroadcast()
-		: nullptr;
-	const auto namePeer = broadcastForMonoforum
-		? broadcastForMonoforum
-		: history
-		? history->peer.get()
-		: sublist
-		? sublist->sublistPeer().get()
-		: nullptr;
+	const auto namePeer = titleNamePeer();
 	if (topic && _activeChat.section == Section::Replies) {
 		p.setPen(st::dialogsNameFg);
 		topic->chatListNameText().drawElided(
@@ -624,13 +615,17 @@ void TopBarWidget::paintTopBar(Painter &p) {
 			&& (peer->sharedMediaInfo() || peer->isVerifyCodes())
 			&& _activeChat.section != Section::SavedSublist)
 		|| (_activeChat.section == Section::Scheduled)
-		|| (_activeChat.section == Section::Pinned)) {
+		|| (_activeChat.section == Section::Pinned)
+		|| (_activeChat.section == Section::WelcomeMessages)
+		|| communityChatsListBar()) {
 		auto text = (_activeChat.section == Section::Scheduled)
 			? ((peer && peer->isSelf())
 				? tr::lng_reminder_messages(tr::now)
 				: tr::lng_scheduled_messages(tr::now))
 			: (_activeChat.section == Section::Pinned)
 			? _customTitleText
+			: (_activeChat.section == Section::WelcomeMessages)
+			? tr::lng_welcome_messages_title(tr::now)
 			: folder
 			? folder->chatListName()
 			: peer->isSelf()
@@ -640,17 +635,22 @@ void TopBarWidget::paintTopBar(Painter &p) {
 			: peer->isVerifyCodes()
 			? tr::lng_verification_codes(tr::now)
 			: peer->name();
-		const auto textWidth = st::historySavedFont->width(text);
-		if (namewidth < textWidth) {
-			text = st::historySavedFont->elided(text, namewidth);
+		const auto opacity = folder ? _titleShownRatio : 1.;
+		if (opacity > 0.) {
+			const auto textWidth = st::historySavedFont->width(text);
+			if (namewidth < textWidth) {
+				text = st::historySavedFont->elided(text, namewidth);
+			}
+			p.setOpacity(opacity);
+			p.setPen(st::dialogsNameFg);
+			p.setFont(st::historySavedFont);
+			p.drawTextLeft(
+				nameleft,
+				(height() - st::historySavedFont->height) / 2,
+				width(),
+				text);
+			p.setOpacity(1.);
 		}
-		p.setPen(st::dialogsNameFg);
-		p.setFont(st::historySavedFont);
-		p.drawTextLeft(
-			nameleft,
-			(height() - st::historySavedFont->height) / 2,
-			width(),
-			text);
 	} else if (_activeChat.section == Section::Replies) {
 		p.setPen(st::dialogsNameFg);
 		p.setFont(st::semiboldFont);
@@ -684,7 +684,8 @@ void TopBarWidget::paintTopBar(Painter &p) {
 			if (!_titleBadge.ready(info)) {
 				_titleBadge.set(
 					info,
-					namePeer->owner().customEmojiManager().factory(),
+					namePeer->owner().customEmojiManager().factory(
+						Data::CustomEmojiSizeTag::Isolated),
 					[=] { update(); });
 			}
 			const auto position = QPoint{ nameleft, nametop };
@@ -736,6 +737,21 @@ void TopBarWidget::paintTopBar(Painter &p) {
 			paintStatus(p, statusleft, statustop, statuswidth, width());
 		}
 	}
+}
+
+PeerData *TopBarWidget::titleNamePeer() const {
+	const auto history = _activeChat.key.history();
+	const auto broadcastForMonoforum = history
+		? history->peer->monoforumBroadcast()
+		: nullptr;
+	const auto sublist = _activeChat.key.sublist();
+	return broadcastForMonoforum
+		? broadcastForMonoforum
+		: history
+		? history->peer.get()
+		: sublist
+		? sublist->sublistPeer().get()
+		: nullptr;
 }
 
 bool TopBarWidget::paintSendAction(
@@ -854,9 +870,7 @@ void TopBarWidget::infoClicked() {
 	} else if (const auto sublist = key.sublist()) {
 		_controller->showSection(std::make_shared<Info::Memento>(sublist));
 	} else if (key.peer()->savedSublistsInfo()) {
-		_controller->showSection(std::make_shared<Info::Memento>(
-			key.peer(),
-			Info::Section::Type::SavedSublists));
+		_controller->showSection(Info::Memento::Default(key.peer()));
 	} else if (key.peer()->sharedMediaInfo()) {
 		_controller->showSection(std::make_shared<Info::Memento>(
 			key.peer(),
@@ -880,6 +894,11 @@ void TopBarWidget::backClicked() {
 		&& _activeChat.key.history()
 		&& _activeChat.key.history()->isForum()) {
 		_controller->closeForum();
+	} else if (_activeChat.section == Section::ChatsList
+		&& _activeChat.key.history()
+		&& _activeChat.key.history()->peer->asChannel()
+		&& _activeChat.key.history()->peer->asChannel()->isCommunity()) {
+		_controller->closeCommunity();
 	} else {
 		_controller->showBackFromStack();
 	}
@@ -1020,6 +1039,17 @@ void TopBarWidget::setCustomTitle(const QString &title) {
 	}
 }
 
+void TopBarWidget::setTitleShownRatio(float64 shown) {
+	if (_titleShownRatio != shown) {
+		_titleShownRatio = shown;
+		update();
+	}
+}
+
+int TopBarWidget::titleLeft() const {
+	return _leftTaken;
+}
+
 bool TopBarWidget::rootChatsListBar() const {
 	if (_activeChat.section != Section::ChatsList) {
 		return false;
@@ -1027,15 +1057,41 @@ bool TopBarWidget::rootChatsListBar() const {
 	const auto id = _controller->windowId();
 	const auto separateFolder = id.folder();
 	const auto separateForum = id.forum();
+	const auto separateCommunity = id.community();
 	const auto active = _activeChat.key;
 	return (separateForum && separateForum->history() == active.history())
-		|| (separateFolder && separateFolder == active.folder());
+		|| (separateFolder && separateFolder == active.folder())
+		|| (separateCommunity
+			&& separateCommunity->channel() == active.peer());
+}
+
+bool TopBarWidget::communityChatsListBar() const {
+	if (_activeChat.section != Section::ChatsList) {
+		return false;
+	}
+	const auto history = _activeChat.key.history();
+	const auto channel = history ? history->peer->asChannel() : nullptr;
+	return channel && channel->isCommunity();
+}
+
+bool TopBarWidget::communityUserpicShown() const {
+	if (_narrowRatio > 0.) {
+		return false;
+	}
+	return true;
+}
+
+const style::UserpicButton &TopBarWidget::infoButtonStyle() const {
+	return communityChatsListBar()
+		? st::topBarCommunityInfoButton
+		: st::topBarInfoButton;
 }
 
 void TopBarWidget::refreshInfoButton() {
 	if (_activeChat.key.topic()
 		|| (_activeChat.section == Section::ChatsList
-			&& !rootChatsListBar())) {
+			&& !rootChatsListBar()
+			&& !communityChatsListBar())) {
 		_info.destroy();
 	} else if (const auto peer = _activeChat.key.peer()) {
 		const auto sublist = _activeChat.key.sublist();
@@ -1046,7 +1102,7 @@ void TopBarWidget::refreshInfoButton() {
 			infoPeer->userpicPaintingPeer(),
 			Ui::UserpicButton::Role::Custom,
 			Ui::UserpicButton::Source::PeerPhoto,
-			st::topBarInfoButton,
+			infoButtonStyle(),
 			infoPeer->userpicShape());
 		info->showSavedMessagesOnSelf(true);
 		info->showMyNotesOnSelf(true);
@@ -1075,11 +1131,26 @@ int TopBarWidget::countSelectedButtonsTop(float64 selectedShown) {
 }
 
 void TopBarWidget::updateSearchVisibility() {
+	const auto pinnedInSavedMessages = (_activeChat.section == Section::Pinned)
+		&& _activeChat.key.peer()
+		&& _activeChat.key.peer()->isSelf();
 	const auto searchAllowedMode = (_activeChat.section == Section::History)
 		|| (_activeChat.section == Section::Replies)
+		|| (_activeChat.section == Section::Pinned
+			&& !pinnedInSavedMessages)
 		|| (_activeChat.section == Section::SavedSublist
 			&& _activeChat.key.sublist());
 	_search->setVisible(searchAllowedMode && !_chooseForReportReason);
+}
+
+void TopBarWidget::updateInfoButtonVisibility() {
+	if (!_info) {
+		return;
+	}
+	const auto shown = (communityChatsListBar() && !rootChatsListBar())
+		? communityUserpicShown()
+		: (_controller->adaptive().isOneColumn() || !_primaryWindow);
+	_info->setVisible(!_chooseForReportReason && shown);
 }
 
 void TopBarWidget::updateControlsGeometry() {
@@ -1094,6 +1165,7 @@ void TopBarWidget::updateControlsGeometry() {
 		_searchCancel.destroy();
 		_jumpToDate.destroy();
 		_chooseFromUser.destroy();
+		_messageFilter.destroy();
 	}
 	auto searchFieldTop = _searchField
 		? countSelectedButtonsTop(_searchShown.value(_searchMode ? 1. : 0.))
@@ -1104,17 +1176,15 @@ void TopBarWidget::updateControlsGeometry() {
 	auto buttonsLeft = st::topBarActionSkip
 		+ (_controller->adaptive().isOneColumn() ? 0 : st::lineWidth);
 	auto buttonsWidth = (_forward->isHidden() ? 0 : _forward->contentWidth())
-		+ (_noQuote->isHidden() ? 0 : _noQuote->contentWidth())
 		+ (_sendNow->isHidden() ? 0 : _sendNow->contentWidth())
 		+ (_delete->isHidden() ? 0 : _delete->contentWidth())
 		+ (_messageShot->isHidden() ? 0 : _messageShot->contentWidth())
 		+ _clear->width();
-	buttonsWidth += buttonsLeft + st::topBarActionSkip * 4;
+	buttonsWidth += buttonsLeft + st::topBarActionSkip * 3;
 
 	auto widthLeft = qMin(width() - buttonsWidth, -2 * st::defaultActiveButton.width);
 	auto buttonFullWidth = qMin(-(widthLeft / 2), 0);
 	_forward->setFullWidth(buttonFullWidth);
-	_noQuote->setFullWidth(buttonFullWidth);
 	_sendNow->setFullWidth(buttonFullWidth);
 	_delete->setFullWidth(buttonFullWidth);
 	_messageShot->setFullWidth(buttonFullWidth);
@@ -1124,11 +1194,6 @@ void TopBarWidget::updateControlsGeometry() {
 	_forward->moveToLeft(buttonsLeft, selectedButtonsTop);
 	if (!_forward->isHidden()) {
 		buttonsLeft += _forward->width() + st::topBarActionSkip;
-	}
-
-	_noQuote->moveToLeft(buttonsLeft, selectedButtonsTop);
-	if (!_noQuote->isHidden()) {
-		buttonsLeft += _noQuote->width() + st::topBarActionSkip;
 	}
 
 	_sendNow->moveToLeft(buttonsLeft, selectedButtonsTop);
@@ -1191,7 +1256,7 @@ void TopBarWidget::updateControlsGeometry() {
 	}
 	if (_info && !_info->isHidden()) {
 		if (_back->isHidden() && _narrowRatio > 0.) {
-			const auto &infoSt = st::topBarInfoButton;
+			const auto &infoSt = infoButtonStyle();
 			const auto middle = (_narrowWidth - infoSt.photoSize) / 2;
 			_leftTaken = anim::interpolate(
 				_leftTaken,
@@ -1220,18 +1285,18 @@ void TopBarWidget::updateControlsGeometry() {
 			fieldWidth,
 			_searchField->height());
 
-		auto right = fieldLeft + fieldWidth;
-		_searchCancel->moveToLeft(
-			right - _searchCancel->width(),
-			_searchField->y());
-		right -= st::dialogsCalendar.width;
+		const auto fieldY = _searchField->y();
+		const auto cancelLeft = fieldLeft
+			+ fieldWidth
+			- _searchCancel->width();
+		_searchCancel->moveToLeft(cancelLeft, fieldY);
 		if (_jumpToDate) {
-			_jumpToDate->moveToLeft(right, _searchField->y());
+			_jumpToDate->moveToLeft(
+				cancelLeft - st::dialogsCalendarTopBar.width,
+				fieldY);
 		}
-		right -= st::dialogsSearchFrom.width;
-		if (_chooseFromUser) {
-			_chooseFromUser->moveToLeft(right, _searchField->y());
-		}
+		updateSearchActionsGeometry();
+		updateSearchJumpToDateVisibility();
 	}
 
 	_rightTaken = 0;
@@ -1280,6 +1345,8 @@ void TopBarWidget::setAnimatingMode(bool enabled) {
 		_animatingMode = enabled;
 		setAttribute(Qt::WA_OpaquePaintEvent, !_animatingMode);
 		finishAnimating();
+	} else if (!enabled) {
+		finishAnimating();
 	}
 }
 
@@ -1298,8 +1365,8 @@ void TopBarWidget::updateControlsVisibility() {
 	_delete->setVisible(_canDelete && visible);
 	_messageShot->setVisible(settings.showMessageShot() && visible);
 	_forward->setVisible(_canForward && visible);
-	_noQuote->setVisible(_canForward && !_canSendNow && !_hideNoQuote && visible);
 	_sendNow->setVisible(_canSendNow && visible);
+
 
 	const auto isOneColumn = _controller->adaptive().isOneColumn();
 	const auto backVisible = !rootChatsListBar()
@@ -1308,10 +1375,7 @@ void TopBarWidget::updateControlsVisibility() {
 			|| !_controller->content()->stackIsEmpty());
 	_back->setVisible(backVisible && !_chooseForReportReason);
 	_cancelChoose->setVisible(_chooseForReportReason.has_value());
-	if (_info) {
-		_info->setVisible(!_chooseForReportReason
-			&& (isOneColumn || !_primaryWindow));
-	}
+	updateInfoButtonVisibility();
 	if (_unreadBadge) {
 		_unreadBadge->setVisible(!_chooseForReportReason
 			&& !rootChatsListBar());
@@ -1340,21 +1404,24 @@ void TopBarWidget::updateControlsVisibility() {
 			Ui::Menu::MenuCallback(callback));
 		return !empty;
 	}();
-	const auto hasMenu = !_activeChat.key.folder()
-		&& (section == Section::History
-			? true
-			: (section == Section::Scheduled)
-			? (hasPollsMenu || hasTodoListsMenu)
-			: (section == Section::Replies)
-			? (hasPollsMenu || hasTodoListsMenu || hasTopicMenu)
-			: (section == Section::ChatsList)
-			? (_activeChat.key.peer() && _activeChat.key.peer()->isForum())
-			: (section == Section::SavedSublist)
-			? (_activeChat.key.peer()
-				&& _activeChat.key.peer()->isChannel()
-				&& _activeChat.key.peer()->owner().commonStarsPerMessage(
-					_activeChat.key.peer()->asChannel()))
-			: false);
+	const auto hasMenu = (section == Section::History)
+		? !_activeChat.key.folder()
+		: (section == Section::Scheduled)
+		? (hasPollsMenu || hasTodoListsMenu)
+		: (section == Section::WelcomeMessages)
+		? true
+		: (section == Section::Replies)
+		? (hasPollsMenu || hasTodoListsMenu || hasTopicMenu)
+		: (section == Section::ChatsList)
+		? (_activeChat.key.folder()
+			|| (_activeChat.key.peer() && _activeChat.key.peer()->isForum())
+			|| communityChatsListBar())
+		: (section == Section::SavedSublist)
+		? (_activeChat.key.peer()
+			&& _activeChat.key.peer()->isChannel()
+			&& _activeChat.key.peer()->owner().commonStarsPerMessage(
+				_activeChat.key.peer()->asChannel()))
+		: false;
 	const auto hasInfo = !_activeChat.key.folder()
 		&& (section == Section::History
 			? true
@@ -1366,17 +1433,8 @@ void TopBarWidget::updateControlsVisibility() {
 			: false);
 	updateSearchVisibility();
 	if (_searchMode) {
-		const auto hasSearchQuery = _searchField
-			&& !_searchField->getLastText().isEmpty();
-		if (!_jumpToDate || hasSearchQuery) {
-			_searchCancel->show(anim::type::normal);
-			if (_jumpToDate) {
-				_jumpToDate->hide(anim::type::normal);
-			}
-		} else {
-			_searchCancel->hide(anim::type::normal);
-			_jumpToDate->show(anim::type::normal);
-		}
+		_searchCancel->show(anim::type::normal);
+		updateSearchJumpToDateVisibility();
 	}
 	_menuToggle->setVisible(hasMenu
 		&& !_chooseForReportReason
@@ -1506,13 +1564,11 @@ void TopBarWidget::showSelected(SelectedState state) {
 	auto canDelete = (state.count > 0 && state.count == state.canDeleteCount);
 	auto canForward = (state.count > 0 && state.count == state.canForwardCount);
 	auto canSendNow = (state.count > 0 && state.count == state.canSendNowCount);
-	const auto hideNoQuote = state.hideNoQuote;
 	auto count = (!canDelete && !canForward && !canSendNow && !settings.showMessageShot()) ? 0 : state.count;
 	if (_selectedCount == count
 		&& _canDelete == canDelete
 		&& _canForward == canForward
-		&& _canSendNow == canSendNow
-		&& _hideNoQuote == hideNoQuote) {
+		&& _canSendNow == canSendNow) {
 		return;
 	}
 	if (count == 0) {
@@ -1525,23 +1581,19 @@ void TopBarWidget::showSelected(SelectedState state) {
 	const auto wasSelectedState = showSelectedState();
 	const auto visibilityChanged = (_canDelete != canDelete)
 		|| (_canForward != canForward)
-		|| (_canSendNow != canSendNow)
-		|| (_hideNoQuote != hideNoQuote);
+		|| (_canSendNow != canSendNow);
 	_selectedCount = count;
 	_canDelete = canDelete;
 	_canForward = canForward;
 	_canSendNow = canSendNow;
-	_hideNoQuote = hideNoQuote;
 	const auto nowSelectedState = showSelectedState();
 	if (nowSelectedState) {
 		_forward->setNumbersText(_selectedCount);
-		_noQuote->setNumbersText(_selectedCount);
 		_sendNow->setNumbersText(_selectedCount);
 		_delete->setNumbersText(_selectedCount);
 		_messageShot->setNumbersText(_selectedCount);
 		if (!wasSelectedState) {
 			_forward->finishNumbersAnimation();
-			_noQuote->finishNumbersAnimation();
 			_sendNow->finishNumbersAnimation();
 			_delete->finishNumbersAnimation();
 			_messageShot->finishNumbersAnimation();
@@ -1588,7 +1640,7 @@ bool TopBarWidget::toggleSearch(bool shown, anim::type animated) {
 			const auto was = _searchQuery.current();
 			const auto now = _searchField->getLastText();
 			if (_jumpToDate && was.isEmpty() != now.isEmpty()) {
-				updateControlsVisibility();
+				updateSearchJumpToDateVisibility();
 			}
 			if (_chooseFromUser) {
 				auto switchToChooseFrom = SwitchToChooseFromQuery();
@@ -1603,6 +1655,7 @@ bool TopBarWidget::toggleSearch(bool shown, anim::type animated) {
 	} else {
 		Assert(_searchField != nullptr);
 	}
+	_searchModeChanges.fire_copy(shown);
 	_searchQuery = shown ? _searchField->getLastText() : QString();
 	if (animated == anim::type::normal) {
 		_searchShown.start(
@@ -1629,10 +1682,11 @@ void TopBarWidget::searchEnableJumpToDate(bool enable) {
 	} else if (!_jumpToDate) {
 		_jumpToDate.create(
 			this,
-			object_ptr<Ui::IconButton>(this, st::dialogsCalendar));
-		_jumpToDate->toggle(
-			_searchField->getLastText().isEmpty(),
-			anim::type::instant);
+			object_ptr<Ui::IconButton>(this, st::dialogsCalendarTopBar));
+		_jumpToDate->toggle(false, anim::type::instant);
+		_jumpToDate->setUpdatedCallback([=](float64) {
+			updateSearchActionsGeometry();
+		});
 		_jumpToDate->entity()->clicks(
 		) | rpl::to_empty | rpl::start_to_stream(
 			_jumpToDateRequests,
@@ -1640,6 +1694,64 @@ void TopBarWidget::searchEnableJumpToDate(bool enable) {
 	}
 	updateControlsVisibility();
 	updateControlsGeometry();
+}
+
+bool TopBarWidget::searchJumpToDateFits() const {
+	if (!_searchField) {
+		return false;
+	}
+	const auto &fieldSt = st::dialogsFilter;
+	const auto placeholderWidth = fieldSt.textMargins.left()
+		+ fieldSt.placeholderMargins.left()
+		+ fieldSt.placeholderFont->width(tr::lng_dlg_filter(tr::now))
+		+ fieldSt.placeholderMargins.right();
+	const auto required = placeholderWidth
+		+ st::dialogsFilterPadding.x()
+		+ st::dialogsSearchFromTopBar.width
+		+ st::dialogsSearchTypeTopBar.width
+		+ st::dialogsCalendarTopBar.width
+		+ st::dialogsCancelSearch.width;
+	return (_searchField->width() >= required);
+}
+
+void TopBarWidget::updateSearchActionsGeometry() {
+	if (!_searchField || !_searchCancel) {
+		return;
+	}
+	const auto fieldRight = st::dialogsFilterSkip
+		+ st::dialogsFilterPadding.x();
+	const auto cancelLeft = width() - fieldRight - _searchCancel->width();
+	const auto reserved = _jumpToDate
+		? anim::interpolate(
+			0,
+			st::dialogsCalendarTopBar.width,
+			_jumpToDate->shownProgress())
+		: 0;
+	auto right = cancelLeft - reserved;
+	if (_chooseFromUser) {
+		_chooseFromUser->moveToLeft(
+			right - st::dialogsSearchFromTopBar.width,
+			_searchField->y());
+		right -= anim::interpolate(
+			0,
+			st::dialogsSearchFromTopBar.width,
+			_chooseFromUser->shownProgress());
+	}
+	if (_messageFilter) {
+		_messageFilter->moveToLeft(
+			right - st::dialogsSearchTypeTopBar.width,
+			_searchField->y());
+	}
+}
+
+void TopBarWidget::updateSearchJumpToDateVisibility() {
+	if (!_searchMode || !_jumpToDate || !_searchField) {
+		return;
+	}
+	const auto empty = _searchField->getLastText().isEmpty();
+	_jumpToDate->toggle(
+		empty && searchJumpToDateFits(),
+		anim::type::normal);
 }
 
 void TopBarWidget::searchEnableChooseFromUser(bool enable, bool visible) {
@@ -1650,7 +1762,7 @@ void TopBarWidget::searchEnableChooseFromUser(bool enable, bool visible) {
 	} else if (!_chooseFromUser) {
 		_chooseFromUser.create(
 			this,
-			object_ptr<Ui::IconButton>(this, st::dialogsSearchFrom));
+			object_ptr<Ui::IconButton>(this, st::dialogsSearchFromTopBar));
 		_chooseFromUser->toggle(visible, anim::type::instant);
 		_chooseFromUser->entity()->clicks(
 		) | rpl::to_empty | rpl::start_to_stream(
@@ -1662,6 +1774,48 @@ void TopBarWidget::searchEnableChooseFromUser(bool enable, bool visible) {
 	auto additional = QMargins();
 	if (_chooseFromUser && _chooseFromUser->toggled()) {
 		additional.setRight(_chooseFromUser->width());
+	}
+	if (_messageFilter && _messageFilter->toggled()) {
+		additional.setRight(
+			additional.right() + _messageFilter->width());
+	}
+	_searchField->setAdditionalMargins(additional);
+	updateControlsVisibility();
+	updateControlsGeometry();
+}
+
+void TopBarWidget::searchEnableMessageFilter(
+		bool enable,
+		bool visible,
+		bool active) {
+	if (!_searchMode) {
+		return;
+	} else if (!enable) {
+		_messageFilter.destroy();
+	} else if (!_messageFilter) {
+		_messageFilter.create(
+			this,
+			object_ptr<Ui::IconButton>(this, st::dialogsSearchTypeTopBar));
+		_messageFilter->entity()->setAccessibleName(
+			tr::ayu_SearchFilterType(tr::now));
+		_messageFilter->toggle(visible, anim::type::instant);
+		_messageFilter->entity()->clicks(
+		) | rpl::to_empty | rpl::start_to_stream(
+			_messageFilterRequests,
+			_messageFilter->lifetime());
+	} else {
+		_messageFilter->toggle(visible, anim::type::normal);
+	}
+	_messageFilter->entity()->setIconOverride(
+		active ? &st::dialogsSearchTypeActive : nullptr,
+		active ? &st::dialogsSearchTypeActive : nullptr);
+	auto additional = QMargins();
+	if (_chooseFromUser && _chooseFromUser->toggled()) {
+		additional.setRight(_chooseFromUser->width());
+	}
+	if (_messageFilter && _messageFilter->toggled()) {
+		additional.setRight(
+			additional.right() + _messageFilter->width());
 	}
 	_searchField->setAdditionalMargins(additional);
 	updateControlsVisibility();
@@ -1678,6 +1832,10 @@ bool TopBarWidget::searchSetFocus() {
 
 bool TopBarWidget::searchMode() const {
 	return _searchMode;
+}
+
+rpl::producer<bool> TopBarWidget::searchModeChanges() const {
+	return _searchModeChanges.events();
 }
 
 bool TopBarWidget::searchHasFocus() const {

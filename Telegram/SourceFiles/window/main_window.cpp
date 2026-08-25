@@ -14,6 +14,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "platform/platform_window_title.h"
 #include "history/history.h"
 #include "info/media/info_media_widget.h" // SharedMediaTitle.
+#include "window/window_saved_windows.h"
 #include "window/window_separate_id.h"
 #include "window/window_session_controller.h"
 #include "window/window_lock_widgets.h"
@@ -44,6 +45,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "tray.h"
 #include "styles/style_window.h"
 #include "styles/style_dialogs.h" // ChildSkip().x() for new child windows.
+
+#ifdef Q_OS_MAC
+#include "platform/mac/global_menu_mac.h"
+#endif // Q_OS_MAC
 
 #include <QtCore/QMimeData>
 #include <QtGui/QWindow>
@@ -85,6 +90,9 @@ base::options::toggle OptionNewWindowsSizeAsFirst({
 base::options::toggle OptionDisableTouchbar({
 	.id = kOptionDisableTouchbar,
 	.name = "Disable Touch Bar (macOS only).",
+#ifdef Q_OS_MAC
+	.defaultValue = !Platform::HasTouchBar(),
+#endif // Q_OS_MAC
 	.scope = [] {
 #ifdef Q_OS_MAC
 		return true;
@@ -186,27 +194,41 @@ void OverrideApplicationIcon(QImage image) {
 	OverridenIcon() = std::move(image);
 }
 
-QIcon CreateOfficialIcon(Main::Session *session) {
-	return QIcon(Ui::PixmapFromImage(AyuAssets::currentAppLogo()));
+QIcon CreateSupportIcon(Main::Session *session) {
+	const auto support = (session && session->supportMode());
+	if (!support) {
+		return QIcon();
+	}
+	auto overriden = OverridenIcon();
+	auto image = overriden.isNull()
+		? Platform::DefaultApplicationIcon()
+		: overriden;
+	ConvertIconToBlack(image);
+	return QIcon(Ui::PixmapFromImage(std::move(image)));
 }
 
 QIcon CreateIcon(Main::Session *session, bool returnNullIfDefault) {
-	const auto officialIcon = CreateOfficialIcon(session);
-	if (!officialIcon.isNull() || returnNullIfDefault) {
-		return officialIcon;
+	const auto supportIcon = CreateSupportIcon(session);
+	if (!supportIcon.isNull() || returnNullIfDefault) {
+		return supportIcon;
 	}
 
-	auto result = QIcon(Ui::PixmapFromImage(base::duplicate(Logo())));
+	const auto officialIcon = QIcon(Ui::PixmapFromImage(
+		AyuAssets::currentAppLogo()));
 
 	if constexpr (!Platform::IsLinux()) {
-		return result;
+		return officialIcon;
 	}
 
 	const auto iconFromTheme = QIcon::fromTheme(
 		Platform::ApplicationIconName(),
-		result);
+		officialIcon);
 
-	result = QIcon();
+	if (!Platform::IsX11()) {
+		return iconFromTheme;
+	}
+
+	QIcon result;
 
 	static const auto iconSizes = {
 		16,
@@ -498,6 +520,14 @@ void MainWindow::clearWidgets() {
 	updateGlobalMenu();
 }
 
+void MainWindow::updateGlobalMenu() {
+#ifdef Q_OS_MAC
+	Platform::RequestUpdateGlobalMenu();
+#else // Q_OS_MAC
+	updateGlobalMenuHook();
+#endif // Q_OS_MAC
+}
+
 void MainWindow::updateIsActive() {
 	const auto isActive = computeIsActive();
 	if (_isActive != isActive) {
@@ -663,6 +693,11 @@ void MainWindow::recountGeometryConstraints() {
 }
 
 WindowPosition MainWindow::initialPosition() const {
+	if (const auto saved = Core::App().savedWindows()) {
+		if (const auto restored = saved->restorePositionFor(id())) {
+			return Core::AdjustToScale(*restored, u"Window"_q);
+		}
+	}
 	const auto active = Core::App().activeWindow();
 	return (!active || active == &controller())
 		? Core::AdjustToScale(
@@ -833,7 +868,7 @@ void MainWindow::updateTitle() {
 		: Dialogs::Key();
 	const auto thread = key ? key.thread() : nullptr;
 	if (!thread) {
-		setTitle((user.isEmpty() ? u"AyuGram"_q : user) + added);
+		setTitle((user.isEmpty() ? u"AywGram"_q : user) + added);
 		return;
 	}
 	const auto history = thread->owningHistory();
@@ -867,8 +902,13 @@ void MainWindow::savePosition(Qt::WindowState state) {
 
 	if (state == Qt::WindowMinimized
 		|| !isVisible()
-		|| !Core::App().savingPositionFor(&controller())
 		|| !positionInited()) {
+		return;
+	}
+	if (const auto saved = Core::App().savedWindows()) {
+		saved->scheduleSave();
+	}
+	if (!Core::App().savingPositionFor(&controller())) {
 		return;
 	}
 
@@ -919,6 +959,53 @@ WindowPosition MainWindow::withScreenInPosition(
 		this,
 		{ st::windowMinWidth, st::windowMinHeight },
 		u"Window"_q);
+}
+
+WindowPosition MainWindow::countPositionForSave() {
+	auto result = WindowPosition{ .scale = cScale() };
+	const auto handle = windowHandle();
+	const auto state = handle ? handle->windowState() : Qt::WindowNoState;
+	const auto windowScreen = screen();
+	const auto screenGeometry = windowScreen
+		? windowScreen->geometry()
+		: QRect();
+	if (windowScreen) {
+		result.moncrc = Platform::ScreenNameChecksum(windowScreen->name());
+	}
+	if (state == Qt::WindowMaximized || state == Qt::WindowFullScreen) {
+		result.maximized = 1;
+		const auto normal = normalGeometry();
+		result.x = normal.x() - screenGeometry.x();
+		result.y = normal.y() - screenGeometry.y();
+		result.w = normal.width();
+		result.h = normal.height();
+		return result;
+	}
+	const auto rect = body()->mapToGlobal(body()->rect());
+	result.x = rect.x();
+	result.y = rect.y();
+	result.w = rect.width() - (_rightColumn ? _rightColumn->width() : 0);
+	result.h = rect.height();
+	result = withScreenInPosition(result);
+	result.x -= screenGeometry.x();
+	result.y -= screenGeometry.y();
+	return result;
+}
+
+void MainWindow::applySavedPosition(const Core::WindowPosition &position) {
+	const auto geometry = countInitialGeometry(
+		Core::AdjustToScale(position, u"Window"_q));
+	const auto handle = windowHandle();
+	const auto state = handle ? handle->windowState() : Qt::WindowNoState;
+	if (position.maximized) {
+		setGeometry(geometry);
+		setWindowState(Qt::WindowMaximized);
+	} else {
+		if (state == Qt::WindowMaximized || state == Qt::WindowFullScreen) {
+			setWindowState(Qt::WindowNoState);
+		}
+		setGeometry(geometry);
+	}
 }
 
 bool MainWindow::minimizeToTray() {

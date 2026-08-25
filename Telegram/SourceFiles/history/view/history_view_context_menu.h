@@ -21,7 +21,9 @@ class SessionShow;
 } // namespace Main
 
 namespace Ui {
+class DropdownMenu;
 class PopupMenu;
+class Show;
 enum class ReportReason;
 } // namespace Ui
 
@@ -54,18 +56,15 @@ struct ContextMenuRequest {
 	PointState pointState = PointState();
 };
 
-enum class ContextMenuAnchorInfoPlacement {
-	Top,
-	Bottom,
-};
-
 base::unique_qptr<Ui::PopupMenu> FillContextMenu(
 	not_null<ListWidget*> list,
-	const ContextMenuRequest &request,
-	ContextMenuAnchorInfoPlacement anchorInfoPlacement
-		= ContextMenuAnchorInfoPlacement::Bottom);
+	const ContextMenuRequest &request);
 
 void InsertPollHiddenResultsLabel(not_null<Ui::PopupMenu*> menu);
+void InsertPollVoteRestrictionsLabel(
+	not_null<Ui::PopupMenu*> menu,
+	not_null<HistoryItem*> item,
+	not_null<PollData*> poll);
 
 void CopyPostLink(
 	not_null<Window::SessionController*> controller,
@@ -85,6 +84,7 @@ void FillPollOptionPage(
 	not_null<Data::Session*> owner,
 	FullMsgId itemId,
 	const QByteArray &pollOption,
+	not_null<Window::SessionController*> controller,
 	Fn<void()> replyToOption = nullptr);
 
 void AttachPollOptionTabs(
@@ -100,7 +100,8 @@ void AddPollActions(
 	not_null<HistoryItem*> item,
 	Context context,
 	not_null<Window::SessionController*> controller,
-	bool skipRetractVote = false);
+	bool skipRetractVote = false,
+	bool skipViewStats = false);
 void AddSaveSoundForNotifications(
 	not_null<Ui::PopupMenu*> menu,
 	not_null<HistoryItem*> item,
@@ -110,21 +111,11 @@ void AddWhoReactedAction(
 	not_null<Ui::PopupMenu*> menu,
 	not_null<QWidget*> context,
 	not_null<HistoryItem*> item,
-	not_null<Window::SessionController*> controller,
-	bool separateInfoDetails = true);
-[[nodiscard]] int AddContextMenuAnchorInfo(
-	not_null<Ui::PopupMenu*> menu,
-	not_null<QWidget*> context,
-	not_null<HistoryItem*> item,
 	not_null<Window::SessionController*> controller);
 void MaybeAddWhenEditedForwardedAction(
 	not_null<Ui::PopupMenu*> menu,
 	not_null<HistoryItem*> item,
-	Element *view,
-	not_null<Window::SessionController*> controller,
-	bool separateFromPrevious = true);
-[[nodiscard]] ContextMenuAnchorInfoPlacement
-ResolveContextMenuAnchorInfoPlacement(not_null<Ui::PopupMenu*> menu);
+	not_null<Window::SessionController*> controller);
 void ShowWhoReactedMenu(
 	not_null<base::unique_qptr<Ui::PopupMenu>*> menu,
 	QPoint position,
@@ -149,12 +140,18 @@ enum class EmojiPacksSource {
 	Reaction,
 	Reactions,
 	Tag,
+	PollOption,
 };
 [[nodiscard]] std::vector<StickerSetIdentifier> CollectEmojiPacks(
 	not_null<HistoryItem*> item,
 	EmojiPacksSource source);
 void AddEmojiPacksAction(
 	not_null<Ui::PopupMenu*> menu,
+	std::vector<StickerSetIdentifier> packIds,
+	EmojiPacksSource source,
+	not_null<Window::SessionController*> controller);
+void AddEmojiPacksAction(
+	not_null<Ui::DropdownMenu*> menu,
 	std::vector<StickerSetIdentifier> packIds,
 	EmojiPacksSource source,
 	not_null<Window::SessionController*> controller);
@@ -167,6 +164,13 @@ void AddSelectRestrictionAction(
 	not_null<Ui::PopupMenu*> menu,
 	not_null<HistoryItem*> item,
 	bool addIcon);
+void AddEphemeralMessageActions(
+	not_null<Ui::PopupMenu*> menu,
+	std::shared_ptr<Ui::Show> show,
+	not_null<HistoryItem*> item);
+void AddEphemeralAboutAction(
+	not_null<Ui::PopupMenu*> menu,
+	not_null<HistoryItem*> item);
 
 [[nodiscard]] TextWithEntities TransribedText(not_null<HistoryItem*> item);
 

@@ -1,56 +1,44 @@
-## Build instructions for Linux using Docker
+# Linux 构建
 
-### Prepare folder
+本流程使用 Docker 构建。先安装 Git、Python、Poetry、Docker 和 Docker Buildx，并确认当前用户
+可以访问 Docker daemon。
 
-Choose a folder for the future build, for example **/home/user/TBuild**. It will be named ***BuildPath*** in the rest of this document. All commands will be launched from Terminal.
+```bash
+git clone --recursive <本仓库地址> tdesktop
+cd tdesktop
+./Telegram/build/prepare/linux.sh
+```
 
-### Clone source code and prepare libraries
+## Release 构建
 
-Install [poetry](https://python-poetry.org), [docker](https://www.docker.com/) and [docker-buildx](https://docs.docker.com/reference/cli/docker/buildx/), go to ***BuildPath*** and run
+```bash
+docker run --rm -it \
+  -u "$(id -u)" \
+  -v "$PWD:/usr/src/tdesktop" \
+  ghcr.io/telegramdesktop/tdesktop/centos_env:latest \
+  /usr/src/tdesktop/Telegram/build/docker/centos_env/build.sh \
+  -D TDESKTOP_API_ID=2040 \
+  -D TDESKTOP_API_HASH=b18441a1ff607e10a989891a5462e627
+```
 
-    git clone --recursive https://github.com/AyuGram/AyuGramDesktop.git tdesktop
-    ./tdesktop/Telegram/build/prepare/linux.sh
+## Debug 构建
 
-### Building the project
+```bash
+docker run --rm -it \
+  -u "$(id -u)" \
+  -v "$PWD:/usr/src/tdesktop" \
+  -e CONFIG=Debug \
+  ghcr.io/telegramdesktop/tdesktop/centos_env:latest \
+  /usr/src/tdesktop/Telegram/build/docker/centos_env/build.sh \
+  -D TDESKTOP_API_ID=2040 \
+  -D TDESKTOP_API_HASH=b18441a1ff607e10a989891a5462e627
+```
 
-Go to ***BuildPath*/tdesktop** and run
+生成的文件位于根目录 `out/`；可在发布前按需使用 `strip` 缩小二进制体积。API 标识的来源见
+[API 凭据说明](api_credentials.md)。不要在提交中包含容器缓存或构建产物。
 
-    docker run --rm -it \
-        -u $(id -u) \
-        -v "$PWD:/usr/src/tdesktop" \
-        ghcr.io/telegramdesktop/tdesktop/centos_env:latest \
-        /usr/src/tdesktop/Telegram/build/docker/centos_env/build.sh \
-        -D TDESKTOP_API_ID=2040 \
-        -D TDESKTOP_API_HASH=b18441a1ff607e10a989891a5462e627
+## Visual Studio Code（可选）
 
-Or, to create a debug build, run
-
-    docker run --rm -it \
-        -u $(id -u) \
-        -v "$PWD:/usr/src/tdesktop" \
-        -e CONFIG=Debug \
-        ghcr.io/telegramdesktop/tdesktop/centos_env:latest \
-        /usr/src/tdesktop/Telegram/build/docker/centos_env/build.sh \
-        -D TDESKTOP_API_ID=2040 \
-        -D TDESKTOP_API_HASH=b18441a1ff607e10a989891a5462e627
-
-The built files will be in the `out` directory.
-
-You can use `strip` command to reduce binary size.
-
-### Visual Studio Code integration
-
-Ensure you've followed the instruction up to the [**Clone source code and prepare libraries**](#clone-source-code-and-prepare-libraries) step at least.
-
-Open the repository in Visual Studio Code, install the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension and add the following to `.vscode/settings.json` (using [your **api_id** and **api_hash**](#obtain-your-api-credentials)):
-
-    {
-        "cmake.configureSettings": {
-            "TDESKTOP_API_ID": "YOUR_API_ID",
-            "TDESKTOP_API_HASH": "YOUR_API_HASH"
-        }
-    }
-
-After that, choose **Reopen in Container** via the menu triggered by the green button in bottom left corner and you're done.
-
-![Quick actions Status bar item](https://code.visualstudio.com/assets/docs/devcontainers/containers/remote-dev-status-bar.png)
+完成准备步骤后，可在 Visual Studio Code 中打开仓库并使用 Dev Containers 扩展。现有
+`.devcontainer.json` 假定本机已具备 `tdesktop:centos_env` 镜像；若镜像不可用，请直接使用上方
+Docker 命令，或先将开发容器配置改为团队可访问的镜像。

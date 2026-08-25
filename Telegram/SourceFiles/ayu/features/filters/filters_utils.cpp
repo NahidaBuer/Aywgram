@@ -6,33 +6,289 @@
 // Copyright @Radolyn, 2026
 #include "ayu/features/filters/filters_utils.h"
 
+#include "apiwrap.h"
 #include "lang_auto.h"
 #include "ayu/ayu_settings.h"
 #include "ayu/data/ayu_database.h"
 #include "ayu/features/filters/filters_cache_controller.h"
 #include "ayu/utils/telegram_helpers.h"
+#include "base/qthelp_url.h"
+#include "boxes/abstract_box.h"
+#include "core/local_url_handlers.h"
+#include "data/data_channel.h"
+#include "data/data_chat.h"
 #include "data/data_document.h"
+#include "data/data_media_types.h"
 #include "data/data_peer.h"
 #include "data/data_session.h"
+#include "data/data_user.h"
 #include "history/history.h"
 #include "history/history_item.h"
+#include "lang/lang_text_entity.h"
 #include "main/main_account.h"
 #include "main/main_domain.h"
 #include "main/main_session.h"
+#include "ui/boxes/confirm_box.h"
 #include "ui/toast/toast.h"
 
+#include <atomic>
+#include <chrono>
+#include <memory>
+#include <optional>
 #include <QByteArray>
 #include <QClipboard>
 #include <QGuiApplication>
 #include <QJsonArray>
 #include <qjsondocument.h>
 #include <QString>
+#include <thread>
 #include <vector>
 #include <QtNetwork/QHttpPart>
 #include <QtNetwork/QNetworkAccessManager>
 #include <QtNetwork/QNetworkReply>
 
 constexpr auto BACKUP_VERSION = 2;
+
+enum class PeerResolveHintType {
+	Username,
+	Invite,
+};
+
+struct PeerResolveHint {
+	PeerResolveHintType type = PeerResolveHintType::Username;
+	QString value;
+};
+
+bool HasChanges(const ApplyChanges &changes) {
+	return !changes.newFilters.empty()
+		|| !changes.removeFiltersById.empty()
+		|| !changes.filtersOverrides.empty()
+		|| !changes.newExclusions.empty()
+		|| !changes.removeExclusions.empty()
+		|| !changes.peersToBeResolved.empty();
+}
+
+void AppendChangeSummary(
+		TextWithEntities &summary,
+		TextWithEntities &&line) {
+	if (!summary.text.isEmpty()) {
+		summary.append('\n');
+	}
+	summary.append(std::move(line));
+}
+
+TextWithEntities ChangeSummaryText(const ApplyChanges &changes) {
+	auto result = tr::marked();
+
+	if (!changes.newFilters.empty()) {
+		AppendChangeSummary(
+			result,
+			tr::ayu_FiltersSheetNewFilters(
+				tr::now,
+				lt_count,
+				int(changes.newFilters.size()),
+				tr::rich));
+	}
+	if (!changes.removeFiltersById.empty()) {
+		AppendChangeSummary(
+			result,
+			tr::ayu_FiltersSheetRemovedFilters(
+				tr::now,
+				lt_count,
+				int(changes.removeFiltersById.size()),
+				tr::rich));
+	}
+	if (!changes.filtersOverrides.empty()) {
+		AppendChangeSummary(
+			result,
+			tr::ayu_FiltersSheetUpdatedFilters(
+				tr::now,
+				lt_count,
+				int(changes.filtersOverrides.size()),
+				tr::rich));
+	}
+	if (!changes.newExclusions.empty()) {
+		AppendChangeSummary(
+			result,
+			tr::ayu_FiltersSheetNewExclusions(
+				tr::now,
+				lt_count,
+				int(changes.newExclusions.size()),
+				tr::rich));
+	}
+	if (!changes.removeExclusions.empty()) {
+		AppendChangeSummary(
+			result,
+			tr::ayu_FiltersSheetRemovedExclusions(
+				tr::now,
+				lt_count,
+				int(changes.removeExclusions.size()),
+				tr::rich));
+	}
+	if (!changes.peersToBeResolved.empty()) {
+		AppendChangeSummary(
+			result,
+			tr::ayu_FiltersSheetDialogsToResolve(
+				tr::now,
+				lt_count,
+				int(changes.peersToBeResolved.size()),
+				tr::rich));
+	}
+
+	return result;
+}
+
+std::optional<PeerResolveHint> ParsePeerResolveHint(QString value) {
+	value = value.trimmed();
+	if (value.isEmpty()) {
+		return std::nullopt;
+	}
+
+	const auto converted = Core::TryConvertUrlToLocal(value);
+	const auto local = converted.isEmpty() ? value : converted;
+	const auto delimiter = local.indexOf('?');
+	const auto params = (delimiter > 0)
+		? qthelp::url_parse_params(
+			local.mid(delimiter + 1),
+			qthelp::UrlParamNameTransform::ToLower)
+		: QMap<QString, QString>();
+
+	if (local.startsWith(u"tg://join"_q, Qt::CaseInsensitive)) {
+		const auto invite = params.value(u"invite"_q);
+		if (!invite.isEmpty()) {
+			return PeerResolveHint{
+				.type = PeerResolveHintType::Invite,
+				.value = invite,
+			};
+		}
+	} else if (local.startsWith(u"tg://resolve"_q, Qt::CaseInsensitive)) {
+		const auto domain = params.value(u"domain"_q);
+		if (!domain.isEmpty()) {
+			return PeerResolveHint{
+				.type = PeerResolveHintType::Username,
+				.value = domain,
+			};
+		}
+	}
+
+	if (value.startsWith('@')) {
+		value = value.mid(1);
+	}
+	if (value.startsWith('+')) {
+		return PeerResolveHint{
+			.type = PeerResolveHintType::Invite,
+			.value = value.mid(1),
+		};
+	}
+	if (value.startsWith("joinchat/"_q, Qt::CaseInsensitive)) {
+		return PeerResolveHint{
+			.type = PeerResolveHintType::Invite,
+			.value = value.mid(9),
+		};
+	}
+
+	const auto slash = value.indexOf('/');
+	if (slash >= 0) {
+		value = value.left(slash);
+	}
+	if (value.isEmpty()) {
+		return std::nullopt;
+	}
+	return PeerResolveHint{
+		.type = PeerResolveHintType::Username,
+		.value = value,
+	};
+}
+
+std::vector<char> ParseFilterId(QString id) {
+	id.remove('-');
+	if (id.size() != 32) {
+		return {};
+	}
+
+	const auto bytes = QByteArray::fromHex(id.toUtf8());
+	if (bytes.size() != 16) {
+		return {};
+	}
+	return std::vector(bytes.constData(), bytes.constData() + bytes.size());
+}
+
+PeerData *LoadedPeerFromDialogId(not_null<Data::Session*> data, ID dialogId) {
+	if (!dialogId) {
+		return nullptr;
+	}
+	const auto bare = (dialogId < 0) ? -dialogId : dialogId;
+	if (dialogId > 0) {
+		return data->userLoaded(UserId(bare));
+	}
+	if (const auto channel = data->channelLoaded(ChannelId(bare))) {
+		return channel;
+	}
+	return data->chatLoaded(ChatId(bare));
+}
+
+void ResolveFilterBackupPeers(const std::vector<QString> &peerHints) {
+	auto session = currentSession();
+	auto hintsCopy = peerHints;
+
+	crl::async([=]
+	{
+		for (const auto &entry : hintsCopy) {
+			const auto hint = ParsePeerResolveHint(entry);
+			if (!hint || hint->value.isEmpty()) {
+				continue;
+			}
+			auto latch = std::make_shared<TimedCountDownLatch>(1);
+			auto floodWait = std::make_shared<std::atomic_bool>(false);
+
+			auto onFail = [=](const MTP::Error &error)
+			{
+				if (MTP::IsFloodError(error.type())) {
+					floodWait->store(true);
+				}
+				latch->countDown();
+			};
+
+			crl::on_main([=]
+			{
+				if (hint->type == PeerResolveHintType::Username) {
+					session->api().request(MTPcontacts_ResolveUsername(
+						MTP_flags(0),
+						MTP_string(hint->value),
+						MTP_string()
+					)).done([=](const MTPcontacts_ResolvedPeer &result)
+					{
+						const auto &data = result.data();
+						session->data().processUsers(data.vusers());
+						session->data().processChats(data.vchats());
+						latch->countDown();
+					}).fail(onFail).send();
+				} else {
+					session->api().checkChatInvite(
+						hint->value,
+						[=](const MTPChatInvite &invite)
+						{
+							invite.match([=](const MTPDchatInvite &data)
+							{
+							}, [=](const MTPDchatInviteAlready &data)
+							{
+								session->data().processChat(data.vchat());
+							}, [=](const MTPDchatInvitePeek &data)
+							{
+								session->data().processChat(data.vchat());
+							});
+							latch->countDown();
+						},
+						onFail);
+				}
+			});
+			latch->await(std::chrono::seconds(20));
+			if (floodWait->load()) {
+				std::this_thread::sleep_for(std::chrono::seconds(20));
+			}
+		}
+	});
+}
 
 void FilterUtils::importFromLink(const QString &link) {
 	if (link.isEmpty()) {
@@ -41,15 +297,21 @@ void FilterUtils::importFromLink(const QString &link) {
 	}
 
 	const auto request = QNetworkRequest(QUrl(link));
-	_reply = _manager->get(request);
+	const auto reply = _manager->get(request);
+	const auto failed = std::make_shared<bool>(false);
 
 	connect(
-		_reply,
+		reply,
 		&QNetworkReply::finished,
 		this,
 		[=]
 		{
-			const auto responseData = _reply->readAll();
+			if (*failed) {
+				reply->deleteLater();
+				return;
+			}
+
+			const auto responseData = reply->readAll();
 
 			const auto jsonString = QString::fromUtf8(responseData);
 
@@ -57,25 +319,26 @@ void FilterUtils::importFromLink(const QString &link) {
 				LOG(("FilterUtils: Invalid response."));
 				Ui::Toast::Show(tr::ayu_FiltersToastFailImport(tr::now));
 
-				_reply->deleteLater();
+				reply->deleteLater();
 				return;
 			}
 
-			if (!handleResponse(jsonString.toUtf8())) {
-				LOG(("FilterUtils: Error handling response."));
-			}
-			_reply->deleteLater();
+			handleResponse(jsonString.toUtf8());
+			reply->deleteLater();
 		});
 
 	connect(
-		_reply,
+		reply,
 		&QNetworkReply::errorOccurred,
 		this,
 		[=](QNetworkReply::NetworkError e)
 		{
+			if (*failed) {
+				return;
+			}
+			*failed = true;
 			gotFailure(e);
-
-			_reply->deleteLater();
+			reply->deleteLater();
 		});
 }
 
@@ -102,17 +365,17 @@ void FilterUtils::publishFilters() {
 
 	QNetworkRequest request(QUrl("https://dpaste.com/api/v2/"));
 
-	_reply = _manager->post(request, multiPart);
-	multiPart->setParent(_reply);
+	const auto reply = _manager->post(request, multiPart);
+	multiPart->setParent(reply);
 
 	connect(
-		_reply,
+		reply,
 		&QNetworkReply::finished,
 		this,
 		[=]
 		{
-			const auto error = _reply->error();
-			const auto location = _reply->header(QNetworkRequest::LocationHeader);
+			const auto error = reply->error();
+			const auto location = reply->header(QNetworkRequest::LocationHeader);
 
 			if (error == QNetworkReply::NoError && location.isValid()) {
 				auto url = location.toString();
@@ -121,15 +384,15 @@ void FilterUtils::publishFilters() {
 
 				Ui::Toast::Show(tr::lng_stickers_copied(tr::now));
 			} else {
-				LOG(("Failed to publish filters to dpaste, error: %1").arg(_reply->errorString()));
+				LOG(("Failed to publish filters to dpaste, error: %1").arg(reply->errorString()));
 
 				Ui::Toast::Show(tr::ayu_FiltersToastFailPublish(tr::now));
 			}
-			_reply->deleteLater();
+			reply->deleteLater();
 		});
 }
 
-bool FilterUtils::importFromJson(const QByteArray &json) {
+void FilterUtils::importFromJson(const QByteArray &json) {
 	auto error = QJsonParseError{0, QJsonParseError::NoError};
 	const auto document = QJsonDocument::fromJson(json, &error);
 
@@ -137,33 +400,37 @@ bool FilterUtils::importFromJson(const QByteArray &json) {
 		Ui::Toast::Show(tr::ayu_FiltersToastFailImport(tr::now));
 		LOG(("FilterUtils: Failed to parse JSON, error: %1"
 		).arg(error.errorString()));
-		return false;
+		return;
 	}
 	if (!document.isObject()) {
 		Ui::Toast::Show(tr::ayu_FiltersToastFailImport(tr::now));
 		LOG(("FilterUtils: not an object received in JSON"));
-		return false;
+		return;
 	}
 	const auto changes = prepareChanges(document.object());
 
-	if (changes == ApplyChanges{}) {
+	if (!HasChanges(changes)) {
 		Ui::Toast::Show(tr::ayu_FiltersToastFailNoChanges(tr::now));
 		LOG(("FilterUtils: received empty changes"));
-		return false;
+		return;
 	}
 
-	const auto any = !changes.newFilters.empty() || !changes.removeFiltersById.empty() || !changes.filtersOverrides.
-		empty() || !changes.newExclusions.empty() || !changes.removeExclusions.empty() || !changes.peersToBeResolved.
-		empty();
-
-	if (!any) {
-		Ui::Toast::Show(tr::ayu_FiltersToastFailNoChanges(tr::now));
-		return false;
-	}
-
-	applyChanges(changes);
-
-	return true;
+	auto box = Ui::MakeConfirmBox({
+		.text = ChangeSummaryText(changes),
+		.confirmed = [=](Fn<void()> close) {
+			close();
+			try {
+				applyChanges(changes);
+				Ui::Toast::Show(tr::ayu_FiltersToastSuccess(tr::now));
+			} catch (...) {
+				LOG(("FilterUtils: Failed to apply import changes"));
+				Ui::Toast::Show(tr::ayu_FiltersToastFailImport(tr::now));
+			}
+		},
+		.confirmText = tr::ayu_FiltersMenuImport(),
+		.title = tr::ayu_FiltersSheetTitle(),
+	});
+	Ui::show(std::move(box));
 }
 
 struct BackupExclusion
@@ -248,7 +515,7 @@ QString FilterUtils::exportFilters() {
 		if (!item.dialogId.has_value()) {
 			continue;
 		}
-		if (const auto peer = session->data().peer(peerFromChat(abs(item.dialogId.value())))) {
+		if (const auto peer = LoadedPeerFromDialogId(&session->data(), item.dialogId.value())) {
 			if (!peer->username().isEmpty()) {
 				QString key = QString::number(item.dialogId.value());
 				peers[key] = peer->username();
@@ -270,10 +537,22 @@ int typeOfMessage(const HistoryItem *item) {
 		return 0; // TYPE_TEXT
 	}
 
+	if (item->showSimilarChannels()) {
+		return 27; // TYPE_JOINED_CHANNEL
+	}
+
 	if (!item->isService()) {
+		if (item->richPage()) {
+			return 36; // TYPE_ARTICLE
+		}
 		if (const auto media = item->media()) {
-			if (const auto invoice = media->invoice(); invoice && invoice->isPaidMedia) {
-				return 29; // TYPE_PAID_MEDIA
+			if (const auto invoice = media->invoice()) {
+				if (invoice->isPaidMedia) {
+					return 29; // TYPE_PAID_MEDIA
+				}
+				if (Data::HasUnpaidMedia(*invoice)) {
+					return 20; // TYPE_EXTENDED_MEDIA_PREVIEW
+				}
 			}
 			if (media->giveawayStart()) {
 				return 26; // TYPE_GIVEAWAY
@@ -361,10 +640,31 @@ int typeOfMessage(const HistoryItem *item) {
 					|| gift->type == Data::GiftType::Ton) {
 					return 30; // TYPE_GIFT_STARS
 				}
+				if (gift->type == Data::GiftType::ChatTheme) {
+					return 31; // TYPE_GIFT_THEME_UPDATE
+				}
+				if (gift->type == Data::GiftType::BirthdaySuggest) {
+					return 32; // TYPE_SUGGEST_BIRTHDAY
+				}
+				if (gift->type == Data::GiftType::GiftOffer) {
+					return 33; // TYPE_GIFT_OFFER
+				}
 			}
-			if (item->Get<HistoryServiceGiveawayResults>()) {
-				return 28; // TYPE_GIVEAWAY_RESULTS
-			}
+		}
+		if (item->Get<HistoryServiceGiveawayResults>()) {
+			return 28; // TYPE_GIVEAWAY_RESULTS
+		}
+		if (item->Get<HistoryServiceNoForwardsRequest>()) {
+			return 35; // TYPE_SHARING_OFFER
+		}
+		if (item->Get<HistoryServiceCommunityAdded>()) {
+			return 37; // TYPE_COMMUNITY_CHANGED
+		}
+		if (const auto finish = item->Get<HistoryServiceSuggestFinish>();
+			finish
+			&& finish->refundType != SuggestRefundType::None
+			&& !finish->price.empty()) {
+			return 34; // TYPE_GIFT_OFFER_REJECTED
 		}
 		return 10; // TYPE_DATE
 	}
@@ -372,10 +672,14 @@ int typeOfMessage(const HistoryItem *item) {
 }
 
 QString extractSingle(const not_null<HistoryItem*> item) {
-	QString text(item->originalText().text);
-	if (!item->originalText().entities.empty()) {
-		for (const auto &entity : item->originalText().entities) {
-			if (entity.type() == EntityType::Url || entity.type() == EntityType::CustomUrl) {
+	const auto original = item->originalText();
+	QString text(original.text);
+	if (!original.entities.empty()) {
+		for (const auto &entity : original.entities) {
+			if (entity.type() == EntityType::Url) {
+				text.append("\n");
+				text.append(original.text.mid(entity.offset(), entity.length()));
+			} else if (entity.type() == EntityType::CustomUrl) {
 				text.append("\n");
 				text.append(entity.data());
 			}
@@ -414,12 +718,12 @@ QString FilterUtils::extractAllText(const not_null<HistoryItem*> item, const Dat
 	return text;
 }
 
-bool FilterUtils::handleResponse(const QByteArray &response) {
+void FilterUtils::handleResponse(const QByteArray &response) {
 	try {
-		return importFromJson(response);
+		importFromJson(response);
 	} catch (...) {
 		LOG(("FilterUtils: Failed to apply response"));
-		return false;
+		Ui::Toast::Show(tr::ayu_FiltersToastFailImport(tr::now));
 	}
 }
 
@@ -442,9 +746,9 @@ ApplyChanges FilterUtils::prepareChanges(const QJsonObject &root) {
 	std::vector<RegexFilter> filtersOverrides;
 	std::map<std::vector<char>, RegexFilter> newFilters;
 	std::vector<RegexFilterGlobalExclusion> newExclusions;
-	std::vector<QString> removeFiltersById;
+	std::vector<std::vector<char>> removeFiltersById;
 	std::vector<RegexFilterGlobalExclusion> removeExclusions;
-	std::map<long long, QString> peersToBeResolved;
+	std::vector<QString> peersToBeResolved;
 
 
 	if (const auto &filters = root.value("filters").toArray(); !filters.isEmpty()) {
@@ -461,11 +765,10 @@ ApplyChanges FilterUtils::prepareChanges(const QJsonObject &root) {
 				}
 				regex.enabled = filter.value("enabled").toBool();
 
-				auto idString = filter.value("id").toString();
-				idString.remove('-');
-
-				auto idBytes = QByteArray::fromHex(idString.toUtf8());
-				regex.id = std::vector(idBytes.constData(), idBytes.constData() + idBytes.size());
+				regex.id = ParseFilterId(filter.value("id").toString());
+				if (regex.id.empty()) {
+					continue;
+				}
 
 				regex.reversed = filter.value("reversed").toBool();
 				regex.text = filter.value("text").toString().toStdString();
@@ -479,7 +782,7 @@ ApplyChanges FilterUtils::prepareChanges(const QJsonObject &root) {
 				if (it != existingFilters.end()) {
 					const RegexFilter &existing = *it;
 					if (existing != regex) {
-						filtersOverrides.push_back(existing);
+						filtersOverrides.push_back(std::move(regex));
 					}
 				} else {
 					newFilters[regex.id] = std::move(regex);
@@ -495,14 +798,10 @@ ApplyChanges FilterUtils::prepareChanges(const QJsonObject &root) {
 
 				regex.dialogId = exclusion.value("dialogId").toVariant().toLongLong();
 
-				auto filterIdString = exclusion.value("filterId").toString();
-				filterIdString.remove('-');
-
-				auto filterIdBytes = QByteArray::fromHex(filterIdString.toUtf8());
-				regex.filterId = std::vector(
-					filterIdBytes.constData(),
-					filterIdBytes.constData() + filterIdBytes.size()
-				);
+				regex.filterId = ParseFilterId(exclusion.value("filterId").toString());
+				if (regex.filterId.empty()) {
+					continue;
+				}
 
 				auto it = std::ranges::find_if(
 					existingExclusions,
@@ -521,10 +820,10 @@ ApplyChanges FilterUtils::prepareChanges(const QJsonObject &root) {
 	if (const auto removeFiltersByIdJson = root.value("removeFiltersById").toArray(); !removeFiltersByIdJson.
 		isEmpty()) {
 		for (const auto &filterRef : removeFiltersByIdJson) {
-			const auto filter = filterRef.toString();
-
-			const auto byteArray = filter.toUtf8();
-			const auto filterId = std::vector(byteArray.constData(), byteArray.constData() + byteArray.size());
+			const auto filterId = ParseFilterId(filterRef.toString());
+			if (filterId.empty()) {
+				continue;
+			}
 
 			const auto exists = std::ranges::any_of(
 				existingFilters,
@@ -533,7 +832,7 @@ ApplyChanges FilterUtils::prepareChanges(const QJsonObject &root) {
 					return f.id == filterId;
 				});
 			if (exists) {
-				removeFiltersById.push_back(filter);
+				removeFiltersById.push_back(filterId);
 			}
 		}
 	}
@@ -541,23 +840,24 @@ ApplyChanges FilterUtils::prepareChanges(const QJsonObject &root) {
 	if (const auto removeExclusionsJson = root.value("removeExclusions").toArray(); !removeExclusionsJson.isEmpty()) {
 		for (const auto &exclusionRef : removeExclusionsJson) {
 			const auto exclusionObj = exclusionRef.toObject();
-			const auto filterIdStr = exclusionObj.value("filterId").toString();
 			const qint64 dialogId = exclusionObj.value("dialogId").toVariant().toLongLong();
 
-			const auto byteArray = filterIdStr.toUtf8();
-			const auto filterIdVec = std::vector<char>(byteArray.constData(), byteArray.constData() + byteArray.size());
+			const auto filterId = ParseFilterId(exclusionObj.value("filterId").toString());
+			if (filterId.empty()) {
+				continue;
+			}
 
 			const bool exists = std::ranges::any_of(
 				existingExclusions,
 				[&](const RegexFilterGlobalExclusion &x)
 				{
-					return x.filterId == filterIdVec && x.dialogId == dialogId;
+					return x.filterId == filterId && x.dialogId == dialogId;
 				});
 
 			if (exists) {
 				RegexFilterGlobalExclusion regex;
 				regex.dialogId = dialogId;
-				regex.filterId = filterIdVec;
+				regex.filterId = filterId;
 				removeExclusions.push_back(regex);
 			}
 		}
@@ -567,24 +867,22 @@ ApplyChanges FilterUtils::prepareChanges(const QJsonObject &root) {
 		for (const auto &dialogIdStr : peersJson.keys()) {
 			bool parsed;
 			const auto dialogId = dialogIdStr.toLongLong(&parsed);
-			if (!parsed) {
-				continue;
-			}
 
-			// almost everytime fails
 			PeerData *peerMaybe = nullptr;
-			for (const auto &[index, account] : Core::App().domain().accounts()) {
-				if (const auto session = account->maybeSession()) {
-					if (const auto peer = session->data().peer(peerFromChat(abs(dialogId)))) {
-						peerMaybe = peer;
-						break;
+			if (parsed) {
+				for (const auto &[index, account] : Core::App().domain().accounts()) {
+					if (const auto session = account->maybeSession()) {
+						if (const auto peer = LoadedPeerFromDialogId(&session->data(), dialogId)) {
+							peerMaybe = peer;
+							break;
+						}
 					}
 				}
 			}
 
 			if (!peerMaybe) {
-				const auto username = peersJson.value(dialogIdStr).toString();
-				peersToBeResolved[dialogId] = username;
+				const auto resolverHint = peersJson.value(dialogIdStr).toString();
+				peersToBeResolved.push_back(resolverHint);
 			}
 		}
 	}
@@ -611,9 +909,8 @@ void FilterUtils::applyChanges(const ApplyChanges &changes) {
 
 	if (!changes.removeFiltersById.empty()) {
 		for (const auto &id : changes.removeFiltersById) {
-			const auto byteArray = id.toUtf8();
-			const auto filterId = std::vector<char>(byteArray.constData(), byteArray.constData() + byteArray.size());
-			AyuDatabase::deleteExclusionsByFilterId(filterId);
+			AyuDatabase::deleteExclusionsByFilterId(id);
+			AyuDatabase::deleteFilter(id);
 		}
 	}
 
@@ -636,7 +933,7 @@ void FilterUtils::applyChanges(const ApplyChanges &changes) {
 	}
 
 	if (!changes.peersToBeResolved.empty()) {
-		resolveAllChats(changes.peersToBeResolved);
+		ResolveFilterBackupPeers(changes.peersToBeResolved);
 	}
 
 	FiltersCacheController::rebuildCache();

@@ -51,6 +51,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_settings.h"
+#include "styles/style_stickers_box.h"
 
 namespace Settings {
 namespace {
@@ -362,9 +363,96 @@ struct FoldersState {
 	Fn<void(const FilterRowButton*, Fn<void(Data::ChatFilter)>)> save;
 	Ui::Animations::Simple tagsEnabledAnimation;
 	rpl::event_stream<bool> tagsButtonEnabled;
+	rpl::event_stream<> reorderingFinished;
 	std::unique_ptr<Ui::VerticalLayoutReorder> reorder;
 	int reordering = 0;
 };
+
+void RebuildFolderRowsFromLayout(
+		not_null<Ui::VerticalLayout*> layout,
+		std::vector<FilterRow> &current) {
+	auto rows = std::vector<FilterRow>();
+	rows.reserve(current.size());
+	for (auto i = 0; i != layout->count(); ++i) {
+		const auto widget = layout->widgetAt(i);
+		const auto j = ranges::find(
+			current,
+			widget,
+			[](const FilterRow &row) {
+				return row.button.get();
+			});
+		if (j != end(current)) {
+			rows.push_back(*j);
+		}
+	}
+	for (const auto &row : current) {
+		if (!ranges::contains(rows, row.button, &FilterRow::button)) {
+			rows.push_back(row);
+		}
+	}
+	current = std::move(rows);
+}
+
+[[nodiscard]] std::vector<FilterId> ComputeFolderOrder(
+		not_null<Ui::VerticalLayout*> layout,
+		const std::vector<FilterRow> &rows,
+		const std::vector<Data::ChatFilter> &realList) {
+	auto realOrder = std::vector<FilterId>();
+	realOrder.reserve(realList.size());
+	for (const auto &filter : realList) {
+		const auto id = filter.id();
+		if (ranges::contains(realOrder, id)) {
+			return {};
+		}
+		realOrder.push_back(id);
+	}
+
+	auto customOrder = std::vector<FilterId>();
+	customOrder.reserve(rows.size());
+	for (auto i = 0; i != layout->count(); ++i) {
+		const auto widget = layout->widgetAt(i);
+		const auto row = ranges::find(
+			rows,
+			widget,
+			[](const FilterRow &row) {
+				return row.button.get();
+			});
+		if (row == end(rows)
+			|| row->removed
+			|| row->removePeersRequestId > 0) {
+			continue;
+		}
+		const auto id = row->filter.id();
+		if (!id || !ranges::contains(realOrder, id)) {
+			continue;
+		} else if (ranges::contains(customOrder, id)) {
+			return {};
+		}
+		customOrder.push_back(id);
+	}
+	if (customOrder.size() < 2) {
+		return {};
+	}
+
+	auto order = std::vector<FilterId>();
+	order.reserve(realOrder.size());
+	auto custom = customOrder.begin();
+	for (const auto id : realOrder) {
+		order.push_back(ranges::contains(customOrder, id)
+			? *custom++
+			: id);
+	}
+	if (custom != end(customOrder) || order == realOrder) {
+		return {};
+	}
+	for (const auto id : order) {
+		if (!ranges::contains(realOrder, id)
+			|| ranges::count(order, id) != 1) {
+			return {};
+		}
+	}
+	return order;
+}
 
 not_null<Ui::VerticalLayout*> SetupFoldersList(
 		not_null<Window::SessionController*> controller,
@@ -396,11 +484,16 @@ not_null<Ui::VerticalLayout*> SetupFoldersList(
 	const auto markForRemovalSure = [=](not_null<FilterRowButton*> button) {
 		const auto row = find(button);
 		auto suggestRemoving = Api::ExtractSuggestRemoving(row->filter);
-		if (row->removed || row->removePeersRequestId > 0) {
+		if (state->reordering
+			|| row->removed
+			|| row->removePeersRequestId > 0) {
 			return;
 		} else if (!suggestRemoving.empty()) {
 			const auto chosen = crl::guard(button, [=](
 					std::vector<not_null<PeerData*>> peers) {
+				if (state->reordering) {
+					return;
+				}
 				const auto row = find(button);
 				row->removePeers = std::move(peers);
 				row->removed = true;
@@ -421,7 +514,9 @@ not_null<Ui::VerticalLayout*> SetupFoldersList(
 	};
 	const auto markForRemoval = [=](not_null<FilterRowButton*> button) {
 		const auto row = find(button);
-		if (row->removed || row->removePeersRequestId > 0) {
+		if (state->reordering
+			|| row->removed
+			|| row->removePeersRequestId > 0) {
 			return;
 		} else if (row->filter.hasMyLinks()) {
 			controller->show(Ui::MakeConfirmBox({
@@ -436,6 +531,17 @@ not_null<Ui::VerticalLayout*> SetupFoldersList(
 		} else {
 			markForRemovalSure(button);
 		}
+	};
+	const auto markForRemovalWhenReady = [=](
+			not_null<FilterRowButton*> button) {
+		if (!state->reordering) {
+			markForRemoval(button);
+			return;
+		}
+		state->reorderingFinished.events(
+		) | rpl::take(1) | rpl::on_next([=] {
+			markForRemoval(button);
+		}, button->lifetime());
 	};
 	const auto remove = [=](not_null<FilterRowButton*> button) {
 		const auto row = find(button);
@@ -456,11 +562,11 @@ not_null<Ui::VerticalLayout*> SetupFoldersList(
 				) | ranges::views::transform([=](const MTPPeer &peer) {
 					return session->data().peer(peerFromMTP(peer));
 				}) | ranges::to_vector;
-				markForRemoval(button);
+				markForRemovalWhenReady(button);
 			})).fail(crl::guard(button, [=] {
 				const auto row = find(button);
 				row->removePeersRequestId = -1;
-				markForRemoval(button);
+				markForRemovalWhenReady(button);
 			})).send();
 		} else {
 			markForRemoval(button);
@@ -544,6 +650,10 @@ not_null<Ui::VerticalLayout*> SetupFoldersList(
 		}
 
 		wrap->resizeToWidth(container->width());
+		if (state->reorder) {
+			state->reorder->cancel();
+			state->reorder->start();
+		}
 
 		return button;
 	};
@@ -560,61 +670,27 @@ not_null<Ui::VerticalLayout*> SetupFoldersList(
 		using State = Ui::VerticalLayoutReorder::State;
 		if (data.state == State::Started) {
 			++state->reordering;
-		} else {
-			Ui::PostponeCall(wrap, [=] {
-				--state->reordering;
-			});
-			if (data.state == State::Applied) {
-				auto rows = std::vector<FilterRow>();
-				rows.reserve(state->rows.size());
-				auto customOrder = std::vector<FilterId>();
-				customOrder.reserve(state->rows.size());
-				for (auto i = 0; i != wrap->count(); ++i) {
-					const auto widget = wrap->widgetAt(i);
-					const auto j = ranges::find(
-						state->rows,
-						widget,
-						[](const FilterRow &row) {
-							return row.button.get();
-						});
-					if (j == end(state->rows)) {
-						continue;
-					}
-					rows.push_back(*j);
-					if (!j->removed && j->filter.id()) {
-						customOrder.push_back(j->filter.id());
-					}
-				}
-				for (const auto &row : state->rows) {
-					if (!ranges::contains(
-							rows,
-							row.button,
-							&FilterRow::button)) {
-						rows.push_back(row);
-					}
-				}
-				state->rows = std::move(rows);
-				if (customOrder.size() < 2
-					|| ranges::contains(
-						state->rows,
-						true,
-						&FilterRow::removed)) {
-					return;
-				}
-				auto order = std::vector<FilterId>();
-				const auto &realList = session->data().chatsFilters().list();
-				order.reserve(realList.size());
-				auto custom = customOrder.begin();
-				for (const auto &filter : realList) {
-					const auto id = filter.id();
-					if (id && ranges::contains(customOrder, id)) {
-						order.push_back(*custom++);
-					} else {
-						order.push_back(id);
-					}
-				}
-				session->data().chatsFilters().saveOrder(order);
+			return;
+		}
+		Ui::PostponeCall(wrap, [=] {
+			Assert(state->reordering > 0);
+			--state->reordering;
+			if (!state->reordering) {
+				state->reorderingFinished.fire({});
 			}
+		});
+		if (data.state == State::Cancelled) {
+			return;
+		}
+
+		RebuildFolderRowsFromLayout(wrap, state->rows);
+		const auto &realList = session->data().chatsFilters().list();
+		const auto order = ComputeFolderOrder(
+			wrap,
+			state->rows,
+			realList);
+		if (!order.empty()) {
+			session->data().chatsFilters().saveOrder(order);
 		}
 	}, wrap->lifetime());
 	state->reorder->start();
@@ -709,7 +785,7 @@ not_null<Ui::VerticalLayout*> SetupFoldersList(
 		auto removeRequests = std::vector<MTPmessages_UpdateDialogFilter>();
 		auto removeChatlistRequests = std::vector<MTPchatlists_LeaveChatlist>();
 
-		auto &realFilters = session->data().chatsFilters();
+		const auto &realFilters = session->data().chatsFilters();
 		const auto &list = realFilters.list();
 		order.reserve(state->rows.size());
 		for (auto &row : state->rows) {
@@ -882,12 +958,18 @@ void SetupRecommendedSection(
 			object_ptr<FilterRowButton>(filtersWrap, session, filter));
 		button->removeRequests(
 		) | rpl::on_next([=] {
+			if (state->reordering) {
+				return;
+			}
 			const auto row = find(button);
 			row->removed = true;
 			button->setRemoved(true);
 		}, button->lifetime());
 		button->restoreRequests(
 		) | rpl::on_next([=] {
+			if (state->reordering) {
+				return;
+			}
 			if (showLimitReached()) {
 				return;
 			}
@@ -896,7 +978,7 @@ void SetupRecommendedSection(
 		}, button->lifetime());
 		button->setClickedCallback([=] {
 			const auto found = find(button);
-			if (found->removed) {
+			if (state->reordering || found->removed) {
 				return;
 			}
 			const auto doneCallback = [=](const Data::ChatFilter &result) {
@@ -920,6 +1002,10 @@ void SetupRecommendedSection(
 		state->count = state->rows.size();
 
 		filtersWrap->resizeToWidth(container->width());
+		if (state->reorder) {
+			state->reorder->cancel();
+			state->reorder->start();
+		}
 		return button;
 	};
 
@@ -981,6 +1067,9 @@ void SetupRecommendedSection(
 				suggestion.description));
 			button->addRequests(
 				) | rpl::on_next([=] {
+				if (state->reordering) {
+					return;
+				}
 				if (showLimitReached()) {
 					return;
 				}
@@ -1194,7 +1283,6 @@ void BuildViewSection(SectionBuilder &builder) {
 		wrap->toggleOn(controller->enoughSpaceForFiltersValue());
 		const auto content = wrap->entity();
 
-		Ui::AddDivider(content);
 		Ui::AddSkip(content);
 		const auto title = Ui::AddSubsectionTitle(
 			content,
@@ -1225,8 +1313,6 @@ void BuildViewSection(SectionBuilder &builder) {
 			Core::App().settings().setChatFiltersHorizontal(value);
 			Core::App().saveSettingsDelayed();
 		});
-		Ui::AddSkip(content);
-		Ui::AddSkip(content);
 
 		return SectionBuilder::WidgetToAdd{};
 	}, [] {
@@ -1235,6 +1321,42 @@ void BuildViewSection(SectionBuilder &builder) {
 			.title = tr::lng_filters_view_subtitle(tr::now),
 			.keywords = { u"view"_q, u"layout"_q, u"tabs"_q },
 		};
+	});
+
+	builder.add([](const WidgetContext &ctx) {
+		const auto content = ctx.container;
+
+		Ui::AddSkip(content);
+		Ui::AddSubsectionTitle(
+			content,
+			tr::lng_filters_tabs_subtitle());
+
+		using Mode = Ui::ChatsFiltersTabsMode;
+		const auto modeGroup = std::make_shared<Ui::RadioenumGroup<Mode>>(
+			Core::App().settings().chatFiltersTabsMode());
+		const auto addMode = [&](Mode value, const QString &text) {
+			content->add(
+				object_ptr<Ui::Radioenum<Mode>>(
+					content,
+					modeGroup,
+					value,
+					text,
+					st::settingsSendType),
+				st::settingsSendTypePadding);
+		};
+		addMode(Mode::Default, tr::lng_filters_tabs_default(tr::now));
+		addMode(Mode::TextOnly, tr::lng_filters_tabs_text(tr::now));
+		addMode(Mode::TextAndIcons, tr::lng_filters_tabs_text_icons(tr::now));
+		addMode(Mode::IconsOnly, tr::lng_filters_tabs_icons(tr::now));
+
+		modeGroup->setChangedCallback([=](Mode value) {
+			Core::App().settings().setChatFiltersTabsMode(value);
+			Core::App().saveSettingsDelayed();
+		});
+		Ui::AddSkip(content);
+		Ui::AddSkip(content);
+
+		return SectionBuilder::WidgetToAdd{};
 	});
 }
 

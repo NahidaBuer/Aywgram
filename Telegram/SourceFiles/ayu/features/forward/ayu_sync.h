@@ -6,44 +6,49 @@
 // Copyright @Radolyn, 2026
 #pragma once
 
-#include "apiwrap.h"
-#include "base/random.h"
-#include "data/data_document.h"
-#include "data/data_media_types.h"
-#include "data/data_photo.h"
-#include "history/history_item.h"
-#include "storage/file_download.h"
-#include "storage/file_upload.h"
-#include "storage/storage_account.h"
-#include "ui/chat/attach/attach_prepare.h"
+#include "base/basic_types.h"
+#include "data/data_msg_id.h"
+
+namespace Main {
+class Session;
+} // namespace Main
+
+namespace Data {
+struct FileOrigin;
+} // namespace Data
+
+class DocumentData;
+class PhotoData;
+
+namespace rpl {
+class lifetime;
+} // namespace rpl
 
 namespace AyuSync {
 
-QString pathForSave(not_null<Main::Session*> session);
-QString filePath(not_null<Main::Session*> session, const Data::Media *media);
-void loadDocuments(not_null<Main::Session*> session, const std::vector<not_null<HistoryItem*>> &items);
-bool isMediaDownloadable(Data::Media *media);
-void sendMessageSync(not_null<Main::Session*> session, Api::MessageToSend &message);
+[[nodiscard]] QString pathForSave(not_null<Main::Session*> session);
+[[nodiscard]] QString filePath(
+	not_null<Main::Session*> session,
+	FullMsgId itemId);
+[[nodiscard]] QString filePath(
+	not_null<Main::Session*> session,
+	not_null<PhotoData*> photo);
+void loadPhoto(
+	not_null<Main::Session*> session,
+	not_null<PhotoData*> photo,
+	Data::FileOrigin origin,
+	rpl::lifetime &lifetime,
+	FnMut<void(QString)> completion);
+void loadDocument(
+	not_null<Main::Session*> session,
+	not_null<DocumentData*> document,
+	Data::FileOrigin origin,
+	rpl::lifetime &lifetime,
+	FnMut<void(QString)> completion);
+void loadMedia(
+	not_null<Main::Session*> session,
+	FullMsgId itemId,
+	rpl::lifetime &lifetime,
+	FnMut<void(bool)> completion);
 
-void sendDocumentSync(not_null<Main::Session*> session,
-					  Ui::PreparedGroup &group,
-					  SendMediaType type,
-					  TextWithTags &&caption,
-					  const Api::SendAction &action);
-
-void sendStickerSync(not_null<Main::Session*> session,
-					 Api::MessageToSend &message,
-					 not_null<DocumentData*> document);
-void waitForMsgSync(not_null<Main::Session*> session, const Api::SendAction &action);
-void loadPhotoSync(not_null<Main::Session*> session, const std::pair<not_null<PhotoData*>, FullMsgId> &photos);
-void loadDocumentSync(not_null<Main::Session*> session, DocumentData *data, not_null<HistoryItem*> item);
-void forwardMessagesSync(not_null<Main::Session*> session,
-						 const std::vector<not_null<HistoryItem*>> &items,
-						 const ApiWrap::SendAction &action,
-						 Data::ForwardOptions options);
-void sendVoiceSync(not_null<Main::Session*> session,
-				   const QByteArray &data,
-				   int64_t duration,
-				   bool video,
-				   Api::MessageToSend &&message);
-}
+} // namespace AyuSync

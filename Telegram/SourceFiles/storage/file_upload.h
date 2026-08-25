@@ -14,6 +14,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 class ApiWrap;
 struct FilePrepareResult;
+struct SendingAlbum;
 
 namespace Api {
 enum class SendProgressType;
@@ -33,10 +34,18 @@ struct UploadedMedia {
 	FullMsgId fullId;
 	Api::RemoteFileInfo info;
 	Api::SendOptions options;
+	Api::SendCompletionPtr completion;
+	std::shared_ptr<SendingAlbum> album;
 	bool edit = false;
 };
 
 struct UploadSecureProgress {
+	FullMsgId fullId;
+	int64 offset = 0;
+	int64 size = 0;
+};
+
+struct UploadFileProgress {
 	FullMsgId fullId;
 	int64 offset = 0;
 	int64 size = 0;
@@ -70,6 +79,9 @@ public:
 	[[nodiscard]] rpl::producer<UploadedMedia> documentReady() const {
 		return _documentReady.events();
 	}
+	[[nodiscard]] rpl::producer<UploadedMedia> secondaryFileReady() const {
+		return _secondaryFileReady.events();
+	}
 	[[nodiscard]] rpl::producer<UploadSecureDone> secureReady() const {
 		return _secureReady.events();
 	}
@@ -83,11 +95,18 @@ public:
 	-> rpl::producer<UploadSecureProgress> {
 		return _secureProgress.events();
 	}
+	[[nodiscard]] auto secondaryFileProgress() const
+	-> rpl::producer<UploadFileProgress> {
+		return _secondaryFileProgress.events();
+	}
 	[[nodiscard]] rpl::producer<FullMsgId> photoFailed() const {
 		return _photoFailed.events();
 	}
 	[[nodiscard]] rpl::producer<FullMsgId> documentFailed() const {
 		return _documentFailed.events();
+	}
+	[[nodiscard]] rpl::producer<FullMsgId> secondaryFileFailed() const {
+		return _secondaryFileFailed.events();
 	}
 	[[nodiscard]] rpl::producer<FullMsgId> secureFailed() const {
 		return _secureFailed.events();
@@ -111,6 +130,14 @@ private:
 	};
 
 	void maybeSend();
+	void startTranscode(FullMsgId itemId);
+	void maybeStartTranscode();
+	void runTranscode(FullMsgId itemId);
+	void updatePrepareProgress(FullMsgId itemId, float64 progress);
+	void finishTranscode(
+		FullMsgId itemId,
+		QByteArray bytes,
+		const QString &path);
 	[[nodiscard]] bool canAddDcIndex() const;
 	[[nodiscard]] std::optional<uchar> chooseDcIndexForNextRequest(
 		const base::flat_set<uchar> &used);
@@ -159,6 +186,8 @@ private:
 	const not_null<ApiWrap*> _api;
 
 	std::vector<Entry> _queue;
+	std::deque<FullMsgId> _transcodeQueue;
+	bool _transcodeRunning = false;
 
 	base::flat_map<mtpRequestId, Request> _requests;
 	std::vector<int> _sentPerDcIndex;
@@ -177,12 +206,15 @@ private:
 
 	rpl::event_stream<UploadedMedia> _photoReady;
 	rpl::event_stream<UploadedMedia> _documentReady;
+	rpl::event_stream<UploadedMedia> _secondaryFileReady;
 	rpl::event_stream<UploadSecureDone> _secureReady;
 	rpl::event_stream<FullMsgId> _photoProgress;
 	rpl::event_stream<FullMsgId> _documentProgress;
+	rpl::event_stream<UploadFileProgress> _secondaryFileProgress;
 	rpl::event_stream<UploadSecureProgress> _secureProgress;
 	rpl::event_stream<FullMsgId> _photoFailed;
 	rpl::event_stream<FullMsgId> _documentFailed;
+	rpl::event_stream<FullMsgId> _secondaryFileFailed;
 	rpl::event_stream<FullMsgId> _secureFailed;
 	rpl::event_stream<FullMsgId> _nonPremiumDelays;
 

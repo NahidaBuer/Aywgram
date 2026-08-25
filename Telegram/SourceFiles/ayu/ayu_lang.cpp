@@ -39,6 +39,9 @@ AyuLanguage::AyuLanguage() = default;
 
 void AyuLanguage::init() {
 	if (!instance) instance = new AyuLanguage;
+	if (instance->loadBundledLanguage()) {
+		return;
+	}
 	instance->loadCachedLanguage();
 }
 
@@ -52,6 +55,39 @@ QString AyuLanguage::getCacheDir() const {
 
 QString AyuLanguage::getCachePath(const QString &langId) const {
 	return getCacheDir() + langId + u".json"_q;
+}
+
+bool AyuLanguage::loadBundledLanguage() {
+	auto langId = Lang::GetInstance().id();
+	const auto baseId = Lang::GetInstance().baseId();
+
+	if (langMapping.contains(langId)) {
+		langId = langMapping[langId];
+	}
+	if (langId.isEmpty()) {
+		langId = baseId;
+	}
+
+	if (langId != u"zh-hans"_q
+		&& !baseId.startsWith(u"zh-hans"_q)) {
+		return false;
+	}
+
+	QFile file(u":/gui/langs/zh-hans.lproj/zh-hans.json"_q);
+	if (!file.open(QIODevice::ReadOnly)) {
+		return false;
+	}
+	const auto data = file.readAll();
+	file.close();
+
+	QJsonParseError error{};
+	const auto doc = QJsonDocument::fromJson(data, &error);
+	if (error.error != QJsonParseError::NoError) {
+		return false;
+	}
+	LOG(("Loading bundled AyuGram zh-hans language"));
+	applyLanguageJson(doc);
+	return true;
 }
 
 void AyuLanguage::loadCachedLanguage() {

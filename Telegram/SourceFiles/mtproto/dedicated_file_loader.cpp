@@ -11,6 +11,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_account.h" // Account::sessionChanges.
 #include "main/main_session.h" // Session::account.
 #include "core/application.h"
+#include "base/base_file_utilities.h"
 #include "base/call_delayed.h"
 
 namespace MTP {
@@ -155,14 +156,22 @@ AbstractDedicatedLoader::AbstractDedicatedLoader(
 	int chunkSize)
 : _filepath(filepath)
 , _chunkSize(chunkSize) {
+	progress() | rpl::on_next([=](Progress progress) {
+		QMutexLocker lock(&_sizesMutex);
+		_alreadySize = progress.already;
+		_totalSize = progress.size;
+		_preferPercent = progress.percent;
+	}, lifetime());
 }
 
 void AbstractDedicatedLoader::start() {
-	if (!validateOutput()
-		|| (!_output.isOpen() && !_output.open(QIODevice::Append))) {
-		QFile(_filepath).remove();
-		threadSafeFailed();
-		return;
+	if (!_filepath.isEmpty()) {
+		if (!validateOutput()
+			|| (!_output.isOpen() && !_output.open(QIODevice::Append))) {
+			QFile(_filepath).remove();
+			threadSafeFailed();
+			return;
+		}
 	}
 
 	LOG(("Update Info: Starting loading '%1' from %2 offset."
@@ -181,6 +190,10 @@ int64 AbstractDedicatedLoader::totalSize() const {
 	return _totalSize;
 }
 
+bool AbstractDedicatedLoader::preferPercent() const {
+	return _preferPercent;
+}
+
 rpl::producer<QString> AbstractDedicatedLoader::ready() const {
 	return _ready.events();
 }
@@ -194,6 +207,9 @@ rpl::producer<> AbstractDedicatedLoader::failed() const {
 }
 
 void AbstractDedicatedLoader::wipeFolder() {
+	if (_filepath.isEmpty()) {
+		return;
+	}
 	QFileInfo info(_filepath);
 	const auto dir = info.dir();
 	const auto all = dir.entryInfoList(QDir::Files);
@@ -288,7 +304,9 @@ DedicatedLoader::DedicatedLoader(
 	base::weak_ptr<Main::Session> session,
 	const QString &folder,
 	const File &file)
-: AbstractDedicatedLoader(folder + '/' + file.name, kChunkSize)
+: AbstractDedicatedLoader(
+	folder + '/' + base::FileNameFromUserString(file.name),
+	kChunkSize)
 , _size(file.size)
 , _dcId(file.dcId)
 , _location(file.location)

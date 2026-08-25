@@ -248,6 +248,10 @@ void addEditedMessage(const EditedMessage &message) {
 		storage.insert(message);
 		storage.commit();
 	} catch (std::exception &ex) {
+		try {
+			storage.rollback();
+		} catch (...) {
+		}
 		LOG(("Failed to save edited message for some reason: %1").arg(ex.what()));
 	}
 }
@@ -289,28 +293,11 @@ void addDeletedMessage(const DeletedMessage &message) {
 		storage.insert(message);
 		storage.commit();
 	} catch (std::exception &ex) {
-		LOG(("Failed to save edited message for some reason: %1").arg(ex.what()));
-	}
-}
-
-std::vector<ID> getDeletedMessageIds(ID userId, ID dialogId, ID topicId) {
-	try {
-		const auto ids = storage.select(
-			column<DeletedMessage>(&DeletedMessage::messageId),
-			where(
-				column<DeletedMessage>(&DeletedMessage::userId) == userId and
-				column<DeletedMessage>(&DeletedMessage::dialogId) == dialogId and
-				(column<DeletedMessage>(&DeletedMessage::topicId) == topicId or topicId == 0)
-			)
-		);
-		auto result = std::vector<ID>();
-		result.reserve(ids.size());
-		for (const auto id : ids) {
-			result.push_back(id);
+		try {
+			storage.rollback();
+		} catch (...) {
 		}
-		return result;
-	} catch (const std::exception &) {
-		return {};
+		LOG(("Failed to save edited message for some reason: %1").arg(ex.what()));
 	}
 }
 
@@ -369,6 +356,20 @@ bool hasDeletedMessages(ID userId, ID dialogId, ID topicId) {
 	}
 }
 
+void removeDeletedMessage(ID userId, ID dialogId, ID messageId) {
+	try {
+		storage.remove_all<DeletedMessage>(
+			where(
+				column<DeletedMessage>(&DeletedMessage::userId) == userId and
+				column<DeletedMessage>(&DeletedMessage::dialogId) == dialogId and
+				column<DeletedMessage>(&DeletedMessage::messageId) == messageId
+			)
+		);
+	} catch (std::exception &ex) {
+		LOG(("Failed to remove deleted message: %1").arg(ex.what()));
+	}
+}
+
 void clearDeletedMessages(ID userId, ID dialogId, ID topicId) {
 	try {
 		storage.remove_all<DeletedMessage>(
@@ -378,7 +379,7 @@ void clearDeletedMessages(ID userId, ID dialogId, ID topicId) {
 				(column<DeletedMessage>(&DeletedMessage::topicId) == topicId or topicId == 0)
 			)
 		);
-	} catch (const std::exception &) {
+	} catch (std::exception &) {
 	}
 }
 
@@ -463,7 +464,10 @@ void addRegexFilter(const RegexFilter &filter) {
 		storage.replace(filter); // we're using replace as we set std::vector<char> as primary key
 		storage.commit();
 	} catch (std::exception &ex) {
-		storage.rollback();
+		try {
+			storage.rollback();
+		} catch (...) {
+		}
 		LOG(("Failed to save regex filter for some reason: %1").arg(ex.what()));
 	}
 }
@@ -474,6 +478,10 @@ void addRegexExclusion(const RegexFilterGlobalExclusion &exclusion) {
 		storage.insert(exclusion);
 		storage.commit();
 	} catch (std::exception &ex) {
+		try {
+			storage.rollback();
+		} catch (...) {
+		}
 		LOG(("Failed to save regex filter exclusion for some reason: %1").arg(ex.what()));
 	}
 }

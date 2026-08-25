@@ -42,15 +42,20 @@ public:
 			Imported       = 0x040,
 			Shortcut       = 0x080,
 			EstimateDate   = 0x100,
-			ForwardedDate  = 0x200,
-			AyuDeleted     = 0x400,
-			AyuBurnt       = 0x800,
+			ForwardedDate  = 0x0200,
+			Silent         = 0x0400,
+			EditedPrimary  = 0x0800,
+			Ephemeral      = 0x1000,
+			Updated        = 0x2000,
+			AyuDeleted     = 0x4000,
+			AyuBurnt       = 0x8000,
 			//Unread, // We don't want to pass and update it in Date for now.
 		};
 		friend inline constexpr bool is_flag_type(Flag) { return true; };
 		using Flags = base::flags<Flag>;
 
 		QDateTime date;
+		QDateTime editedDate;
 		QString author;
 		EffectId effectId = 0;
 		int64 tonStake = 0;
@@ -59,6 +64,7 @@ public:
 		std::optional<int> views;
 		std::optional<int> replies;
 		std::optional<int> forwardsCount;
+		MsgId messageId = 0;
 		Flags flags;
 	};
 	BottomInfo(not_null<::Data::Reactions*> reactionsOwner, Data &&data);

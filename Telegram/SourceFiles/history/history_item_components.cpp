@@ -9,10 +9,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "api/api_text_entities.h"
 #include "base/qt/qt_key_modifiers.h"
+#include "base/algorithm.h"
 #include "base/options.h"
 #include "lang/lang_keys.h"
 #include "ui/effects/ripple_animation.h"
 #include "ui/effects/spoiler_mess.h"
+#include "ui/effects/voice_once_particles.h"
 #include "ui/image/image.h"
 #include "ui/toast/toast.h"
 #include "ui/text/format_values.h"
@@ -21,6 +23,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/chat/chat_style.h"
 #include "ui/chat/chat_theme.h"
 #include "ui/painter.h"
+#include "ui/paint/blobs.h"
 #include "ui/rect.h"
 #include "ui/power_saving.h"
 #include "history/history.h"
@@ -29,10 +32,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_message.h" // FromNameFg.
 #include "history/view/history_view_service_message.h"
 #include "history/view/media/history_view_document.h"
+#include "history/view/history_view_transcribe_button.h"
 #include "core/click_handler_types.h"
+#include "core/local_url_handlers.h"
 #include "core/ui_integration.h"
-#include "layout/layout_position.h"
 #include "media/audio/media_audio.h"
+#include "media/player/media_player_float.h"
 #include "media/player/media_player_instance.h"
 #include "data/business/data_shortcut_messages.h"
 #include "data/components/scheduled_messages.h"
@@ -52,17 +57,14 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_session_controller.h"
 #include "api/api_bot.h"
 #include "support/support_helper.h"
-#include "styles/style_boxes.h"
 #include "styles/style_chat.h"
 #include "styles/style_credits.h"
 #include "styles/style_dialogs.h" // dialogsMiniReplyStory.
-#include "styles/style_settings.h"
 #include "styles/style_widgets.h"
 
 #include <QtGui/QGuiApplication>
 
 // AyuGram includes
-#include "ayu/ayu_settings.h"
 #include "ayu/features/filters/filters_controller.h"
 
 namespace {
@@ -157,6 +159,43 @@ void HistoryMessageVia::resize(int32 availw) const {
 			tr::now,
 			lt_inline_bot,
 			'@' + bot->username());
+		maxWidth = st::msgServiceNameFont->width(text);
+		if (availw < maxWidth) {
+			text = st::msgServiceNameFont->elided(text, availw);
+			width = st::msgServiceNameFont->width(text);
+		} else if (width < maxWidth) {
+			width = maxWidth;
+		}
+	}
+}
+
+void HistoryMessageGuestChat::create(
+		not_null<Data::Session*> owner,
+		PeerId visitorId) {
+	visitor = owner->peer(visitorId);
+	const auto firstName = visitor->isUser()
+		? visitor->asUser()->firstName
+		: visitor->name();
+	maxWidth = st::msgServiceNameFont->width(
+		tr::lng_guest_chat_for(tr::now, lt_user, firstName));
+	link = std::make_shared<LambdaClickHandler>([peer = this->visitor](
+			ClickContext context) {
+		const auto my = context.other.value<ClickHandlerContext>();
+		if (const auto controller = my.sessionWindow.get()) {
+			controller->showPeerInfo(peer);
+		}
+	});
+}
+
+void HistoryMessageGuestChat::resize(int32 availw) const {
+	if (availw < 0) {
+		text = QString();
+		width = 0;
+	} else {
+		const auto firstName = visitor->isUser()
+			? visitor->asUser()->firstName
+			: visitor->name();
+		text = tr::lng_guest_chat_for(tr::now, lt_user, firstName);
 		if (availw < maxWidth) {
 			text = st::msgServiceNameFont->elided(text, availw);
 			width = st::msgServiceNameFont->width(text);
@@ -181,6 +220,9 @@ HiddenSenderInfo::HiddenSenderInfo(
 	Expects(!name.isEmpty());
 
 	const auto parts = name.trimmed().split(' ', Qt::SkipEmptyParts);
+	if (parts.isEmpty()) {
+		return;
+	}
 	firstName = parts[0];
 	for (const auto &part : parts.mid(1)) {
 		if (!lastName.isEmpty()) {
@@ -201,9 +243,14 @@ ClickHandlerPtr HiddenSenderInfo::ForwardClickHandler() {
 	static const auto hidden = std::make_shared<LambdaClickHandler>([](
 			ClickContext context) {
 		const auto my = context.other.value<ClickHandlerContext>();
-		const auto weak = my.sessionWindow;
-		if (const auto strong = weak.get()) {
-			strong->showToast(tr::lng_forwarded_hidden(tr::now));
+		auto text = tr::lng_forwarded_hidden(tr::now, Ui::Text::WithEntities);
+		const auto delegate = my.elementDelegate
+			? my.elementDelegate()
+			: nullptr;
+		if (delegate) {
+			delegate->elementShowHiddenSenderTooltip(my.itemId, text);
+		} else if (const auto strong = my.sessionWindow.get()) {
+			strong->showToast(std::move(text));
 		}
 	});
 	return hidden;
@@ -469,6 +516,8 @@ FullReplyTo ReplyToFromMTP(
 		return FullReplyTo{
 			.monoforumPeerId = parsed ? parsed->id : PeerId(),
 		};
+	}, [&](const MTPDinputReplyToEphemeralMessage &) {
+		return FullReplyTo();
 	});
 }
 
@@ -532,18 +581,6 @@ void HistoryMessageReply::updateData(
 		&& (asExternal || _fields.manualQuote);
 	_multiline = !_fields.storyId && (asExternal || nonEmptyQuote);
 
-	const auto &settings = AyuSettings::getInstance();
-	const auto author = resolvedMessage
-							? resolvedMessage->from().get()
-							: resolvedStory
-								  ? resolvedStory->peer().get()
-								  : nullptr;
-	const auto blocked = settings.hideFromBlocked()
-		&& author
-		&& author->isUser()
-		&& author->asUser()->isBlocked();
-
-
 	const auto filtered = resolvedMessage &&
 			!resolvedMessage.empty() &&
 			FiltersController::filtered(resolvedMessage.get());
@@ -552,12 +589,12 @@ void HistoryMessageReply::updateData(
 		|| resolvedStory
 		|| ((nonEmptyQuote || _fields.externalMedia)
 			&& (!_fields.messageId || force));
-	_displaying = displaying && !blocked && !filtered ? 1 : 0;
+	_displaying = displaying && !filtered ? 1 : 0;
 
 	const auto unavailable = !resolvedMessage
 		&& !resolvedStory
 		&& ((!_fields.storyId && !_fields.messageId) || force);
-	_unavailable = unavailable && !blocked && !filtered ? 1 : 0;
+	_unavailable = (unavailable || filtered) ? 1 : 0;
 
 	if (force) {
 		if (!_displaying && (_fields.messageId || _fields.storyId)) {
@@ -574,6 +611,23 @@ void HistoryMessageReply::updateData(
 		_pendingResolve = 1;
 		_requestedResolve = 0;
 	}
+}
+
+void HistoryMessageReply::setInLogReplyTo(
+		not_null<HistoryItem*> holder,
+		not_null<HistoryItem*> message) {
+	if (resolvedMessage.get() == message) {
+		return;
+	} else if (resolvedMessage) {
+		holder->history()->owner().unregisterDependentMessage(
+			holder,
+			resolvedMessage.get());
+		resolvedMessage = nullptr;
+	}
+	_fields.externalPeerId = PeerId();
+	_fields.messageId = message->id;
+	_unavailable = 0;
+	updateData(holder, true);
 }
 
 void HistoryMessageReply::set(ReplyFields fields) {
@@ -689,6 +743,11 @@ ReplyMarkupClickHandler::ReplyMarkupClickHandler(
 , _column(column) {
 }
 
+QString ReplyMarkupClickHandler::dragText() const {
+	const auto button = getUrlButton();
+	return button ? QString::fromUtf8(button->data) : QString();
+}
+
 // Copy to clipboard support.
 QString ReplyMarkupClickHandler::copyToClipboardText() const {
 	const auto button = getUrlButton();
@@ -775,9 +834,6 @@ ReplyKeyboard::ReplyKeyboard(
 	not_null<const HistoryItem*> item,
 	std::unique_ptr<Style> &&s)
 : _item(item)
-, _selectedAnimation([=](crl::time now) {
-	return selectedAnimationCallback(now);
-})
 , _st(std::move(s)) {
 	if (const auto markup = _item->Get<HistoryMessageReplyMarkup>()) {
 		const auto owner = &_item->history()->owner();
@@ -839,6 +895,10 @@ ReplyKeyboard::ReplyKeyboard(
 						: result;
 				}();
 				button.type = type;
+				button.iconType = (type == Type::Url
+					&& Core::IsMiniAppUrl(QString::fromUtf8(row[j].data)))
+					? Type::WebView
+					: type;
 				button.link = std::make_shared<ReplyMarkupClickHandler>(
 					owner,
 					i,
@@ -893,7 +953,7 @@ void ReplyKeyboard::resize(int width, int height) {
 		auto maxMinButtonWidth = 0;
 		for (const auto &button : row) {
 			widthOfText += qMax(button.text.maxWidth(), 1);
-			int minButtonWidth = _st->minButtonWidth(button.type);
+			int minButtonWidth = _st->minButtonWidth(button.iconType);
 			widthForText -= minButtonWidth;
 			accumulate_max(maxMinButtonWidth, minButtonWidth);
 		}
@@ -904,7 +964,7 @@ void ReplyKeyboard::resize(int width, int height) {
 		auto x = 0.;
 		for (auto &button : row) {
 			int buttonw = qMax(button.text.maxWidth(), 1);
-			float64 textw = buttonw, minw = _st->minButtonWidth(button.type);
+			float64 textw = buttonw, minw = _st->minButtonWidth(button.iconType);
 			float64 w = textw;
 			if (exact) {
 				w += minw;
@@ -967,7 +1027,7 @@ int ReplyKeyboard::naturalWidth() const {
 		for (const auto &button : row) {
 			accumulate_max(
 				maxMinButtonWidth,
-				_st->minButtonWidth(button.type));
+				_st->minButtonWidth(button.iconType));
 		}
 		auto rowMaxButtonWidth = 0;
 		for (const auto &button : row) {
@@ -1082,7 +1142,8 @@ ClickHandlerPtr ReplyKeyboard::getLink(QPoint point) const {
 
 			if (rect.contains(point)) {
 				if (_item->isAdminLogEntry()
-					&& button.type != HistoryMessageMarkupButton::Type::Url) {
+					&& button.type != HistoryMessageMarkupButton::Type::Url
+					&& button.type != HistoryMessageMarkupButton::Type::Callback) {
 					return ClickHandlerPtr();
 				}
 				_savedCoords = point;
@@ -1116,14 +1177,15 @@ void ReplyKeyboard::clickHandlerActiveChanged(
 	_savedActive = active ? p : ClickHandlerPtr();
 	auto coords = findButtonCoordsByClickHandler(p);
 	if (coords.i >= 0 && _savedPressed != p) {
-		startAnimation(coords.i, coords.j, active ? 1 : -1);
+		_rows[coords.i][coords.j].howMuchOver = active ? 1. : 0.;
+		_st->repaint(_item);
 	}
 }
 
 ReplyKeyboard::ButtonCoords ReplyKeyboard::findButtonCoordsByClickHandler(
 		const ClickHandlerPtr &p) {
 	for (int i = 0, rows = _rows.size(); i != rows; ++i) {
-		auto &row = _rows[i];
+		const auto &row = _rows[i];
 		for (int j = 0, cols = row.size(); j != cols; ++j) {
 			if (row[j].link == p) {
 				return { i, j };
@@ -1170,55 +1232,19 @@ void ReplyKeyboard::clickHandlerPressedChanged(
 				button.ripple->lastStop();
 			}
 			if (_savedActive != handler) {
-				startAnimation(coords.i, coords.j, -1);
+				button.howMuchOver = 0.;
+				_st->repaint(_item);
 			}
 		}
 	}
 }
 
-void ReplyKeyboard::startAnimation(int i, int j, int direction) {
-	auto notStarted = _animations.empty();
-
-	int indexForAnimation = Layout::PositionToIndex(i, j + 1) * direction;
-
-	_animations.remove(-indexForAnimation);
-	if (!_animations.contains(indexForAnimation)) {
-		_animations.emplace(indexForAnimation, crl::now());
-	}
-
-	if (notStarted && !_selectedAnimation.animating()) {
-		_selectedAnimation.start();
-	}
-}
-
-bool ReplyKeyboard::selectedAnimationCallback(crl::time now) {
-	if (anim::Disabled()) {
-		now += st::botKbDuration;
-	}
-	for (auto i = _animations.begin(); i != _animations.end();) {
-		const auto index = std::abs(i->first) - 1;
-		const auto &[row, col] = Layout::IndexToPosition(index);
-		const auto dt = float64(now - i->second) / st::botKbDuration;
-		if (dt >= 1) {
-			_rows[row][col].howMuchOver = (i->first > 0) ? 1 : 0;
-			i = _animations.erase(i);
-		} else {
-			_rows[row][col].howMuchOver = (i->first > 0) ? dt : (1 - dt);
-			++i;
+void ReplyKeyboard::clearSelection() {
+	for (auto &row : _rows) {
+		for (auto &button : row) {
+			button.howMuchOver = 0.;
 		}
 	}
-	_st->repaint(_item);
-	return !_animations.empty();
-}
-
-void ReplyKeyboard::clearSelection() {
-	for (const auto &[relativeIndex, time] : _animations) {
-		const auto index = std::abs(relativeIndex) - 1;
-		const auto &[row, col] = Layout::IndexToPosition(index);
-		_rows[row][col].howMuchOver = 0;
-	}
-	_animations.clear();
-	_selectedAnimation.stop();
 }
 
 int ReplyKeyboard::Style::buttonSkip() const {
@@ -1253,10 +1279,8 @@ void ReplyKeyboard::Style::paintButton(
 			button.ripple.reset();
 		}
 	}
-	paintButtonIcon(p, st, rect, outerWidth, button.type);
-	if (button.type == HistoryMessageMarkupButton::Type::CallbackWithPassword
-		|| button.type == HistoryMessageMarkupButton::Type::Callback
-		|| button.type == HistoryMessageMarkupButton::Type::Game) {
+	paintButtonIcon(p, st, rect, outerWidth, button.iconType);
+	if (HistoryMessageMarkupButton::LoadsOnActivate(button.type)) {
 		if (const auto data = button.link->getButton()) {
 			if (data->requestId) {
 				paintButtonLoading(
@@ -1533,6 +1557,35 @@ HistoryDocumentVoicePlayback::HistoryDocumentVoicePlayback(
 	const auto nonconst = const_cast<HistoryView::Document*>(that);
 	return nonconst->voiceProgressAnimationCallback(now);
 }) {
+}
+
+HistoryDocumentVoicePlayback::~HistoryDocumentVoicePlayback() = default;
+
+HistoryDocumentVoice &HistoryDocumentVoice::operator=(
+		HistoryDocumentVoice &&other) {
+	if (this == &other) {
+		return *this;
+	}
+	if (_seeking) {
+		stopSeeking();
+	}
+	playback = std::move(other.playback);
+	seekl = std::move(other.seekl);
+	lastDurationMs = base::take(other.lastDurationMs);
+	transcribe = std::move(other.transcribe);
+	transcribeText = std::move(other.transcribeText);
+	round = std::move(other.round);
+	once = std::move(other.once);
+	_seeking = base::take(other._seeking);
+	_seekingStart = base::take(other._seekingStart);
+	_seekingCurrent = base::take(other._seekingCurrent);
+	return *this;
+}
+
+HistoryDocumentVoice::~HistoryDocumentVoice() {
+	if (_seeking) {
+		stopSeeking();
+	}
 }
 
 void HistoryDocumentVoice::ensurePlayback(

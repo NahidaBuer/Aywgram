@@ -162,12 +162,16 @@ void BuildQoLToggles(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 
 	builder.addSubsectionTitle(tr::ayu_CategoryGeneral());
 
-	ayu.addSettingToggle({
+	const auto controller = builder.controller();
+	ayu.addToggle({
 		.id = u"ayu/disableStories"_q,
 		.altIds = { u"ayu/hideStories"_q },
 		.title = tr::ayu_DisableStories(),
-		.getter = &AyuSettings::disableStories,
-		.setter = &AyuSettings::setDisableStories,
+		.getter = [=] { return settings->disableStories(); },
+		.setter = [=](bool enabled) {
+			AyuSettings::getInstance().setDisableStories(enabled);
+			ShowRestartPrompt(controller);
+		},
 	});
 
 	ayu.addSettingToggle({
@@ -204,7 +208,6 @@ void BuildQoLToggles(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 
 	ayu.addSectionDivider();
 
-	const auto controller = builder.controller();
 	const auto zalgoButton = builder.addButton({
 		.id = u"ayu/filterZalgo"_q,
 		.title = tr::ayu_FilterZalgo(),
@@ -232,12 +235,45 @@ void BuildQoLToggles(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 		.getter = &AyuSettings::improveLinkPreviews,
 		.setter = &AyuSettings::setImproveLinkPreviews,
 	});
+	ayu.addCollapsibleToggle({
+		.id = u"ayu/confirmations"_q,
+		.title = tr::ayu_ConfirmationsTitle(),
+		.checkboxes = {
+			NestedEntry{
+				tr::ayu_StickerConfirmation(tr::now),
+				[] { return AyuSettings::getInstance().stickerConfirmation(); },
+				[](bool v) { AyuSettings::getInstance().setStickerConfirmation(v); }
+			},
+			NestedEntry{
+				tr::ayu_GIFConfirmation(tr::now),
+				[] { return AyuSettings::getInstance().gifConfirmation(); },
+				[](bool v) { AyuSettings::getInstance().setGifConfirmation(v); }
+			},
+			NestedEntry{
+				tr::ayu_VoiceConfirmation(tr::now),
+				[] { return AyuSettings::getInstance().voiceConfirmation(); },
+				[](bool v) { AyuSettings::getInstance().setVoiceConfirmation(v); }
+			},
+			NestedEntry{
+				tr::ayu_RoundConfirmation(tr::now),
+				[] { return AyuSettings::getInstance().roundConfirmation(); },
+				[](bool v) { AyuSettings::getInstance().setRoundConfirmation(v); }
+			}
+		},
+		.toggledWhenAll = false,
+	});
 	ayu.addSettingToggle({
 		.id = u"ayu/showMessageSeconds"_q,
 		.altIds = { u"ayu/formatTimeWithSeconds"_q },
 		.title = tr::ayu_SettingsShowMessageSeconds(),
 		.getter = &AyuSettings::showMessageSeconds,
 		.setter = &AyuSettings::setShowMessageSeconds,
+	});
+	ayu.addSettingToggle({
+		.id = u"ayu/showMessageId"_q,
+		.title = tr::ayu_SettingsShowMessageId(),
+		.getter = &AyuSettings::showMessageId,
+		.setter = &AyuSettings::setShowMessageId,
 	});
 
 	BuildShowPeerId(builder);
@@ -269,29 +305,6 @@ void BuildQoLToggles(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 			}
 		},
 		.toggledWhenAll = false,
-	});
-
-	ayu.addSectionDivider();
-
-	builder.addSubsectionTitle(tr::ayu_ConfirmationsTitle());
-
-	ayu.addSettingToggle({
-		.id = u"ayu/stickerConfirmation"_q,
-		.title = tr::ayu_StickerConfirmation(),
-		.getter = &AyuSettings::stickerConfirmation,
-		.setter = &AyuSettings::setStickerConfirmation,
-	});
-	ayu.addSettingToggle({
-		.id = u"ayu/gifConfirmation"_q,
-		.title = tr::ayu_GIFConfirmation(),
-		.getter = &AyuSettings::gifConfirmation,
-		.setter = &AyuSettings::setGifConfirmation,
-	});
-	ayu.addSettingToggle({
-		.id = u"ayu/voiceConfirmation"_q,
-		.title = tr::ayu_VoiceConfirmation(),
-		.getter = &AyuSettings::voiceConfirmation,
-		.setter = &AyuSettings::setVoiceConfirmation,
 	});
 }
 

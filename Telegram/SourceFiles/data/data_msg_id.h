@@ -8,8 +8,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 #include "base/qt/qt_compare.h"
+#include "core/credits_amount.h"
 #include "data/data_peer_id.h"
 #include "ui/text/text_entity.h"
+
+#ifdef _DEBUG
+#include <QtCore/QDebug>
+#endif // _DEBUG
 
 struct MsgId {
 	constexpr MsgId() noexcept = default;
@@ -80,6 +85,7 @@ constexpr auto EndStoryMsgId = MsgId(StartStoryMsgId.bare + StoryMsgIds);
 constexpr auto ServerMaxMsgId = MsgId(1LL << 56);
 constexpr auto ScheduledMaxMsgId = MsgId(ServerMaxMsgId + (1LL << 32));
 constexpr auto ShortcutMaxMsgId = MsgId(ScheduledMaxMsgId + (1LL << 32));
+constexpr auto WelcomeMaxMsgId = MsgId(ShortcutMaxMsgId + (1LL << 32));
 constexpr auto ShowAtUnreadMsgId = MsgId(0);
 
 constexpr auto SpecialMsgIdShift = EndStoryMsgId.bare;

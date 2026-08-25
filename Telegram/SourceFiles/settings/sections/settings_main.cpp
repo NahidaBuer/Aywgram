@@ -31,11 +31,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_user.h"
 #include "info/profile/info_profile_badge.h"
 #include "info/profile/info_profile_emoji_status_panel.h"
+#include "info/profile/info_profile_phone_menu.h"
 #include "info/profile/info_profile_values.h"
 #include "lang/lang_cloud_manager.h"
 #include "lang/lang_instance.h"
 #include "lang/lang_keys.h"
 #include "lottie/lottie_icon.h"
+#include "menu/menu_checked_action.h"
 #include "main/main_account.h"
 #include "main/main_app_config.h"
 #include "main/main_domain.h"
@@ -68,6 +70,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/rect.h"
 #include "ui/text/format_values.h"
 #include "ui/text/text_utilities.h"
+#include "ui/toast/toast.h"
 #include "ui/vertical_list.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/continuous_sliders.h"
@@ -77,6 +80,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/wrap/slide_wrap.h"
 #include "window/window_controller.h"
 #include "window/window_session_controller.h"
+#include "styles/style_chat_helpers.h"
 #include "styles/style_info.h"
 #include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
@@ -90,6 +94,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ayu/ui/settings/settings_main.h"
 #include "ayu/ui/utils/ayu_profile_values.h"
 #include "ayu/utils/telegram_helpers.h"
+
 
 namespace Settings {
 namespace {
@@ -113,6 +118,7 @@ public:
 private:
 	void setupChildGeometry();
 	void initViewers();
+	void updateIdText();
 	void refreshNameGeometry(int newWidth);
 	void refreshIdGeometry(int newWidth);
 	void refreshUsernameGeometry(int newWidth);
@@ -127,6 +133,7 @@ private:
 	object_ptr<Ui::UserpicButton> _userpic;
 	object_ptr<Ui::FlatLabel> _name = { nullptr };
 	object_ptr<Ui::FlatLabel> _id = { nullptr };
+	QString _idText;
 	object_ptr<Ui::FlatLabel> _username = { nullptr };
 	object_ptr<Ui::IconButton> _qrButton = { nullptr };
 
@@ -175,7 +182,7 @@ Cover::Cover(
 	Ui::UserpicButton::Source::PeerPhoto,
 	st::infoProfileCover.photo)
 , _name(this, st::infoProfileCover.name)
-, _id(this, st::defaultFlatLabel)
+, _id(this, st::defaultFlatLabel, st::popupMenuWithIcons)
 , _username(this, st::infoProfileMegagroupCover.status) {
 	_user->updateFull();
 
@@ -186,11 +193,14 @@ Cover::Cover(
 	_id->setContextCopyText(tr::ayu_ContextCopyID(tr::now));
 	const auto hook = [=](Ui::FlatLabel::ContextMenuRequest request) {
 		if (request.selection.empty()) {
-			const auto c = [=] {
+			const auto callback = [=] {
 				auto id = IDString(_user);
 				TextUtilities::SetClipboardText({ id });
 			};
-			request.menu->addAction(tr::ayu_ContextCopyID(tr::now), c);
+			request.menu->addAction(
+				tr::ayu_ContextCopyID(tr::now),
+				callback,
+				&st::menuIconCopy);
 		} else {
 			_id->fillContextMenu(request);
 		}
@@ -200,6 +210,7 @@ Cover::Cover(
 	initViewers();
 	setupChildGeometry();
 
+	_userpic->setVideoAllowed(true);
 	_userpic->switchChangePhotoOverlay(_user->isSelf(), [=](
 			Ui::UserpicButton::ChosenImage chosen) {
 		auto &image = chosen.image;
@@ -208,9 +219,10 @@ Cover::Cover(
 		_user->session().api().peerPhoto().upload(
 			_user,
 			{
-				std::move(image),
-				chosen.markup.documentId,
-				chosen.markup.colors,
+				.image = std::move(image),
+				.markupDocumentId = chosen.markup.documentId,
+				.markupColors = chosen.markup.colors,
+				.video = std::move(chosen.video),
 			});
 		if (!isMarkup) {
 			_userpic->showUploadProgress();
@@ -278,8 +290,8 @@ void Cover::initViewers() {
 	rpl::single(
 		tr::marked(IDString(_user))
 	) | rpl::on_next([=](const TextWithEntities &value) {
-		_id->setText(value.text);
-		refreshIdGeometry(width());
+		_idText = value.text;
+		updateIdText();
 	}, lifetime());
 
 	Info::Profile::UsernameValue(
@@ -301,7 +313,11 @@ void Cover::initViewers() {
 		} else {
 			QGuiApplication::clipboard()->setText(
 				_user->session().createInternalLinkFull(username));
-			_controller->showToast(tr::lng_username_copied(tr::now));
+			_controller->showToast({
+				.text = { tr::lng_username_copied(tr::now) },
+				.iconLottie = u"toast/voip_invite"_q,
+				.iconLottieSize = st::toastLottieIconSize,
+			});
 		}
 	});
 }
@@ -333,6 +349,11 @@ void Cover::refreshNameGeometry(int newWidth) {
 			   ? (_badge.widget()->width() + st::infoVerifiedCheckPosition.x())
 			   : 0);
 	_exteraBadge.move(exteraBadgeLeft, badgeTop, badgeBottom);
+}
+
+void Cover::updateIdText() {
+	_id->setText(_idText);
+	refreshIdGeometry(width());
 }
 
 void Cover::refreshIdGeometry(int newWidth) {
@@ -673,6 +694,7 @@ void Main::fillTopBarMenu(const Ui::Menu::MenuCallback &addAction) {
 	const auto &list = Core::App().domain().accounts();
 	if (list.size() < Core::App().domain().maxAccounts()) {
 		addAction(tr::lng_menu_add_account(tr::now), [=] {
+			Core::App().setActivePrimaryWindow(&controller()->window());
 			Core::App().domain().addActivated(MTP::Environment{});
 		}, &st::menuIconAddAccount);
 	}
@@ -896,6 +918,7 @@ void SetupValidatePhoneNumberSuggestion(
 		wrap,
 		tr::lng_box_yes(),
 		st::inviteLinkButton);
+	yes->setFullRadius(true);
 	yes->setClickedCallback([=] {
 		controller->session().promoSuggestions().dismiss(
 			kSugValidatePhone.utf8());
@@ -905,6 +928,7 @@ void SetupValidatePhoneNumberSuggestion(
 		wrap,
 		tr::lng_box_no(),
 		st::inviteLinkButton);
+	no->setFullRadius(true);
 	no->setClickedCallback([=] {
 		const auto sharedLabel = std::make_shared<base::weak_qptr<Ui::FlatLabel>>();
 		const auto height = st::boxLabel.style.font->height;
@@ -996,6 +1020,7 @@ void SetupValidatePasswordSuggestion(
 		wrap,
 		tr::lng_settings_suggestion_password_yes(),
 		st::inviteLinkButton);
+	yes->setFullRadius(true);
 	yes->setClickedCallback([=] {
 		controller->session().promoSuggestions().dismiss(
 			Data::PromoSuggestions::SugValidatePassword());
@@ -1005,6 +1030,7 @@ void SetupValidatePasswordSuggestion(
 		wrap,
 		tr::lng_settings_suggestion_password_no(),
 		st::inviteLinkButton);
+	no->setFullRadius(true);
 	no->setClickedCallback([=] {
 		showOther(Settings::CloudPasswordSuggestionInputId());
 	});

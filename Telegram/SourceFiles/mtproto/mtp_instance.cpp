@@ -152,6 +152,14 @@ public:
 			const Response &response,
 			const ResponseHandler &handler,
 			const Error &error) {
+		if (handler.handleMigrateErrors && MigrateDcId(error)) {
+			if (!handler.fail) {
+				return true;
+			}
+			const auto guard = QPointer<Instance>(_instance);
+			handler.fail(error, response);
+			return !guard.isNull();
+		}
 		return rpcErrorOccured(response, handler.fail, error);
 	}
 
@@ -1337,7 +1345,7 @@ void Instance::Private::exportDone(
 		return;
 	}
 
-	auto &data = result.c_auth_exportedAuthorization();
+	const auto &data = result.c_auth_exportedAuthorization();
 	_instance->send(MTPauth_ImportAuthorization(
 		data.vid(),
 		data.vbytes()
@@ -1382,16 +1390,15 @@ bool Instance::Private::onErrorDefault(
 	const auto &type = error.type();
 	const auto code = error.code();
 	auto badGuestDc = (code == 400) && (type == u"FILE_ID_INVALID"_q);
-	static const auto MigrateRegExp = QRegularExpression("^(FILE|PHONE|NETWORK|USER)_MIGRATE_(\\d+)$");
 	static const auto FloodWaitRegExp = QRegularExpression("^FLOOD_WAIT_(\\d+)$");
 	static const auto FloodPremiumWaitRegExp = QRegularExpression("^FLOOD_PREMIUM_WAIT_(\\d+)$");
 	static const auto SlowmodeWaitRegExp = QRegularExpression("^SLOWMODE_WAIT_(\\d+)$");
 	QRegularExpressionMatch m1, m2, m3;
-	if ((m1 = MigrateRegExp.match(type)).hasMatch()) {
+	if (const auto migrateDcId = MigrateDcId(error)) {
 		if (!requestId) return false;
 
 		auto dcWithShift = ShiftedDcId(0);
-		auto newdcWithShift = ShiftedDcId(m1.captured(2).toInt());
+		auto newdcWithShift = ShiftedDcId(*migrateDcId);
 		if (const auto shiftedDcId = queryRequestByDc(requestId)) {
 			dcWithShift = *shiftedDcId;
 		} else {

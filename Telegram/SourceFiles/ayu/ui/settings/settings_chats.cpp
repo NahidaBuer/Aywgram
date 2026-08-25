@@ -66,18 +66,17 @@ void BuildStickersAndEmoji(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 		},
 		.toggledWhenAll = false,
 	});
-
-	ayu.addSectionDivider();
 }
 
-void BuildRecentStickersLimit(SectionBuilder &builder, AyuSectionBuilder &ayu) {
+void BuildStickerSizing(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 	auto *settings = &AyuSettings::getInstance();
+	constexpr auto kMessageStickerMinScale = 0.5;
+	constexpr auto kMessageStickerScaleStep = 0.1;
+	constexpr auto kPanelMinScale = 1.0;
+	constexpr auto kPanelScaleStep = 0.1;
 
-	constexpr auto kMinScale = 1.0;
-	constexpr auto kScaleStep = 0.1;
-
-	const auto scaleToIndex = [=](double value) {
-		return static_cast<int>(std::round((value - kMinScale) / kScaleStep));
+	const auto scaleToIndex = [](double value, double min, double step) {
+		return static_cast<int>(std::round((value - min) / step));
 	};
 
 	ayu.addSlider({
@@ -94,32 +93,60 @@ void BuildRecentStickersLimit(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 	});
 
 	ayu.addSlider({
-		.id = u"ayu/stickerPanelScale"_q,
-		.title = tr::ayu_StickerPanelScale(),
-		.steps = 31,
-		.current = scaleToIndex(settings->stickerPanelScale()),
+		.id = u"ayu/messageStickerScale"_q,
+		.title = tr::ayu_StickerSizeScale(),
+		.steps = 12,
+		.current = scaleToIndex(
+			settings->messageStickerScale(),
+			kMessageStickerMinScale,
+			kMessageStickerScaleStep),
 		.indexToValue = [](int index) { return index; },
 		.onChanged = [=](int index) {
-			AyuSettings::getInstance().setStickerPanelScale(
-				kMinScale + index * kScaleStep);
+			AyuSettings::getInstance().setMessageStickerScale(
+				kMessageStickerMinScale + index * kMessageStickerScaleStep);
 		},
 		.onFinalChanged = [=](int index) {
-			AyuSettings::getInstance().setStickerPanelScale(
-				kMinScale + index * kScaleStep);
+			AyuSettings::getInstance().setMessageStickerScale(
+				kMessageStickerMinScale + index * kMessageStickerScaleStep);
 		},
 		.formatLabel = [=](int index) {
-			return QString::number(kMinScale + index * kScaleStep, 'f', 1)
-				+ 'x';
+			return QString::number(
+				kMessageStickerMinScale + index * kMessageStickerScaleStep,
+				'f',
+				1) + 'x';
 		},
 	});
 
-	ayu.addSectionDivider();
+	ayu.addSlider({
+		.id = u"ayu/stickerPanelScale"_q,
+		.title = tr::ayu_StickerPanelScale(),
+		.steps = 31,
+		.current = scaleToIndex(
+			settings->stickerPanelScale(),
+			kPanelMinScale,
+			kPanelScaleStep),
+		.indexToValue = [](int index) { return index; },
+		.onChanged = [=](int index) {
+			AyuSettings::getInstance().setStickerPanelScale(
+				kPanelMinScale + index * kPanelScaleStep);
+		},
+		.onFinalChanged = [=](int index) {
+			AyuSettings::getInstance().setStickerPanelScale(
+				kPanelMinScale + index * kPanelScaleStep);
+		},
+		.formatLabel = [=](int index) {
+			return QString::number(
+				kPanelMinScale + index * kPanelScaleStep,
+				'f',
+				1) + 'x';
+		},
+	});
 }
 
-void BuildGroupsAndChannels(SectionBuilder &builder, AyuSectionBuilder &ayu) {
+void BuildChatBehavior(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 	auto *settings = &AyuSettings::getInstance();
 
-	builder.addSubsectionTitle(tr::lng_premium_double_limits_subtitle_channels());
+	builder.addSubsectionTitle(tr::ayu_CategoryChats());
 
 	ayu.addChooseButton({
 		.id = u"ayu/channelBottomButton"_q,
@@ -145,6 +172,24 @@ void BuildGroupsAndChannels(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 		.setter = &AyuSettings::setQuickAdminShortcuts,
 	});
 	ayu.addSettingToggle({
+		.id = u"ayu/disableGreetingSticker"_q,
+		.title = tr::ayu_DisableGreetingSticker(),
+		.getter = &AyuSettings::disableGreetingSticker,
+		.setter = &AyuSettings::setDisableGreetingSticker,
+	});
+	ayu.addSettingToggle({
+		.id = u"ayu/useQuickForwardMenu"_q,
+		.title = tr::ayu_UseQuickForwardMenu(),
+		.getter = &AyuSettings::useQuickForwardMenu,
+		.setter = &AyuSettings::setUseQuickForwardMenu,
+	});
+	ayu.addSettingToggle({
+		.id = u"ayu/sendForwardFirst"_q,
+		.title = tr::ayu_SendForwardFirst(),
+		.getter = &AyuSettings::sendForwardFirst,
+		.setter = &AyuSettings::setSendForwardFirst,
+	});
+	ayu.addSettingToggle({
 		.id = u"ayu/showMessageShot"_q,
 		.title = tr::ayu_SettingsShowMessageShot(),
 		.getter = &AyuSettings::showMessageShot,
@@ -153,6 +198,24 @@ void BuildGroupsAndChannels(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 
 	builder.addSkip();
 	builder.addDividerText(tr::ayu_SettingsShowMessageShotDescription());
+	builder.addSkip();
+}
+
+void BuildSearch(SectionBuilder &builder, AyuSectionBuilder &ayu) {
+	builder.addSubsectionTitle(tr::lng_dlg_search_for_messages());
+
+	const auto button = ayu.addSettingToggle({
+		.id = u"ayu/exactSearchIntersection"_q,
+		.title = tr::ayu_ExactSearchIntersection(),
+		.getter = &AyuSettings::exactSearchIntersection,
+		.setter = &AyuSettings::setExactSearchIntersection,
+	});
+	if (button) {
+		ayu.addBetaBadge(button);
+	}
+
+	builder.addSkip();
+	builder.addDividerText(tr::ayu_ExactSearchIntersectionDescription());
 	builder.addSkip();
 }
 
@@ -259,11 +322,12 @@ void BuildMarks(
 	ayu.addSectionDivider();
 }
 
-void BuildWideMessagesMultiplier(
+void BuildMessageAppearance(
 		SectionBuilder &builder,
 		AyuSectionBuilder &ayu,
 		std::shared_ptr<PreviewState> previewState) {
 	auto *settings = &AyuSettings::getInstance();
+	builder.addSubsectionTitle(tr::ayu_CategoryAppearance());
 
 	constexpr auto kMinSize = 1.00;
 	constexpr auto kStep = 0.05;
@@ -337,6 +401,8 @@ void BuildWideMessagesMultiplier(
 		.getter = &AyuSettings::showMediaMetadata,
 		.setter = &AyuSettings::setShowMediaMetadata,
 	});
+
+	ayu.addSectionDivider();
 }
 
 void BuildContextMenuElements(SectionBuilder &builder, AyuSectionBuilder &ayu) {
@@ -494,6 +560,8 @@ void BuildMessageFieldPopups(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 		.setter = &AyuSettings::setShowEmojiPopup,
 		.icon = { &st::messageFieldEmojiIcon },
 	});
+
+	ayu.addSectionDivider();
 }
 
 const auto kMeta = BuildHelper({
@@ -506,14 +574,15 @@ const auto kMeta = BuildHelper({
 	const auto previewState = std::make_shared<PreviewState>();
 
 	builder.addSkip();
-	BuildStickersAndEmoji(builder, ayu);
-	BuildRecentStickersLimit(builder, ayu);
-	BuildGroupsAndChannels(builder, ayu);
+	BuildChatBehavior(builder, ayu);
+	BuildSearch(builder, ayu);
 	BuildMarks(builder, ayu, previewState);
-	BuildWideMessagesMultiplier(builder, ayu, previewState);
-	BuildContextMenuElements(builder, ayu);
+	BuildMessageAppearance(builder, ayu, previewState);
 	BuildMessageFieldElements(builder, ayu);
 	BuildMessageFieldPopups(builder, ayu);
+	BuildContextMenuElements(builder, ayu);
+	BuildStickersAndEmoji(builder, ayu);
+	BuildStickerSizing(builder, ayu);
 	builder.addSkip();
 });
 

@@ -15,6 +15,7 @@ namespace Ui {
 
 struct CornersPixmaps {
 	QPixmap p[4];
+	int radius = -1;
 };
 
 enum CachedRoundCorners : int {

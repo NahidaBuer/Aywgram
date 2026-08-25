@@ -146,6 +146,9 @@ class Sender {
 		void setFailSkipPolicy(FailSkipPolicy policy) noexcept {
 			_failSkipPolicy = policy;
 		}
+		void setHandleMigrateErrors() noexcept {
+			_handleMigrateErrors = true;
+		}
 		void setAfter(mtpRequestId requestId) noexcept {
 			_afterRequestId = requestId;
 		}
@@ -173,6 +176,9 @@ class Sender {
 		[[nodiscard]] mtpRequestId takeOverrideRequestId() const noexcept {
 			return _overrideRequestId;
 		}
+		[[nodiscard]] bool takeHandleMigrateErrors() const noexcept {
+			return _handleMigrateErrors;
+		}
 
 		[[nodiscard]] not_null<Sender*> sender() const noexcept {
 			return _sender;
@@ -194,6 +200,7 @@ class Sender {
 		FailSkipPolicy _failSkipPolicy = FailSkipPolicy::Simple;
 		mtpRequestId _afterRequestId = 0;
 		mtpRequestId _overrideRequestId = 0;
+		bool _handleMigrateErrors = false;
 
 	};
 
@@ -295,6 +302,10 @@ public:
 			setFailSkipPolicy(FailSkipPolicy::HandleAll);
 			return *this;
 		}
+		[[nodiscard]] SpecificRequestBuilder &handleMigrateErrors() noexcept {
+			setHandleMigrateErrors();
+			return *this;
+		}
 		[[nodiscard]] SpecificRequestBuilder &afterRequest(mtpRequestId requestId) noexcept {
 			setAfter(requestId);
 			return *this;
@@ -303,8 +314,11 @@ public:
 		mtpRequestId send() {
 			const auto id = sender()->_instance->send(
 				_request,
-				takeOnDone(),
-				takeOnFail(),
+				ResponseHandler{
+					takeOnDone(),
+					takeOnFail(),
+					takeHandleMigrateErrors(),
+				},
 				takeDcId(),
 				takeCanWait(),
 				takeAfter(),

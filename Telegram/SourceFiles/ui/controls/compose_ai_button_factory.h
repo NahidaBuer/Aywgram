@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
+class QMimeData;
+
 namespace Main {
 class Session;
 } // namespace Main
@@ -23,11 +25,15 @@ class ComposeAiButton;
 
 namespace Ui {
 
+struct PreparedList;
+
 extern const char kOptionHideAiButton[];
 
 [[nodiscard]] bool HasEnoughLinesForAi(
 	not_null<Main::Session*> session,
 	not_null<Ui::InputField*> field);
+
+[[nodiscard]] bool HasEnoughLinesForExpand(not_null<Ui::InputField*> field);
 
 struct SetupCaptionAiButtonArgs {
 	not_null<QWidget*> parent;
@@ -43,5 +49,17 @@ struct SetupCaptionAiButtonArgs {
 void UpdateCaptionAiButtonGeometry(
 	not_null<HistoryView::Controls::ComposeAiButton*> button,
 	not_null<Ui::InputField*> field);
+
+[[nodiscard]] PreparedList PrepareTextAsFile(const QString &text);
+
+struct LargeTextPasteResult {
+	bool exceeds = false;
+	QString resultingText;
+};
+
+[[nodiscard]] LargeTextPasteResult CheckLargeTextPaste(
+	not_null<Main::Session*> session,
+	not_null<Ui::InputField*> field,
+	not_null<const QMimeData*> data);
 
 } // namespace Ui

@@ -1,5 +1,4 @@
 /out/
-/build/
 Debug/
 Release/
 /ThirdParty/
@@ -54,6 +53,7 @@ stage
 *.*~
 .idea/
 cmake-build-debug/
+*.qsb
 
 # Local configuration files
 settings.local.json
@@ -69,11 +69,12 @@ settings.local.json
 # AI work folder (session-specific, not for version control)
 .ai
 
+# local only tools or scripts
+.local-tools
+*.override.md
+
 # Generated changelog page (built by CI, deployed to GitHub Pages)
 /docs/changelog/
 
 # Project specific
 Telegram/SourceFiles/_other/packer_private.h
-/Telegram/build/CMakeFiles/
-/Telegram/build/CMakeCache.txt
-/Telegram/build/.cmake/

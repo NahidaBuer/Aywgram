@@ -15,6 +15,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_report.h"
 #include "dialogs/dialogs_key.h"
 
+namespace style {
+struct UserpicButton;
+} // namespace style
+
 namespace Main {
 class Session;
 } // namespace Main
@@ -54,7 +58,6 @@ public:
 		int canDeleteCount = 0;
 		int canForwardCount = 0;
 		int canSendNowCount = 0;
-		bool hideNoQuote = false;
 	};
 	using ActiveChat = Dialogs::EntryState;
 	using Section = ActiveChat::Section;
@@ -79,6 +82,8 @@ public:
 		ActiveChat activeChat,
 		SendActionPainter *sendAction);
 	void setCustomTitle(const QString &title);
+	void setTitleShownRatio(float64 shown);
+	[[nodiscard]] int titleLeft() const;
 
 	void showChooseMessagesForReport(Data::ReportInput reportInput);
 	void clearChooseMessagesForReport();
@@ -86,8 +91,10 @@ public:
 	bool toggleSearch(bool shown, anim::type animated);
 	void searchEnableJumpToDate(bool enable);
 	void searchEnableChooseFromUser(bool enable, bool visible);
+	void searchEnableMessageFilter(bool enable, bool visible, bool active);
 	bool searchSetFocus();
 	[[nodiscard]] bool searchMode() const;
+	[[nodiscard]] rpl::producer<bool> searchModeChanges() const;
 	[[nodiscard]] bool searchHasFocus() const;
 	[[nodiscard]] rpl::producer<> searchCancelled() const;
 	[[nodiscard]] rpl::producer<> searchSubmitted() const;
@@ -99,9 +106,6 @@ public:
 
 	[[nodiscard]] rpl::producer<> forwardSelectionRequest() const {
 		return _forwardSelection.events();
-	}
-	[[nodiscard]] rpl::producer<> noQuoteSelectionRequest() const {
-		return _noQuoteSelection.events();
 	}
 	[[nodiscard]] rpl::producer<> sendNowSelectionRequest() const {
 		return _sendNowSelection.events();
@@ -124,6 +128,9 @@ public:
 	[[nodiscard]] rpl::producer<> chooseFromUserRequest() const {
 		return _chooseFromUserRequests.events();
 	}
+	[[nodiscard]] rpl::producer<> messageFilterRequest() const {
+		return _messageFilterRequests.events();
+	}
 	[[nodiscard]] rpl::producer<> searchRequest() const;
 
 	void setGeometryWithNarrowRatio(
@@ -144,9 +151,16 @@ private:
 	struct EmojiInteractionSeenAnimation;
 
 	[[nodiscard]] bool rootChatsListBar() const;
+	[[nodiscard]] bool communityChatsListBar() const;
+	[[nodiscard]] bool communityUserpicShown() const;
+	[[nodiscard]] const style::UserpicButton &infoButtonStyle() const;
 	void refreshInfoButton();
+	void updateInfoButtonVisibility();
 	void refreshLang();
 	void updateSearchVisibility();
+	void updateSearchJumpToDateVisibility();
+	[[nodiscard]] bool searchJumpToDateFits() const;
+	void updateSearchActionsGeometry();
 	void updateControlsGeometry();
 	void slideAnimationCallback();
 	void updateInfoToggleActive();
@@ -178,6 +192,7 @@ private:
 	void connectingAnimationCallback();
 
 	void paintTopBar(Painter &p);
+	[[nodiscard]] PeerData *titleNamePeer() const;
 	void paintStatus(
 		Painter &p,
 		int left,
@@ -216,16 +231,17 @@ private:
 	bool _canDelete = false;
 	bool _canForward = false;
 	bool _canSendNow = false;
-	bool _hideNoQuote = false;
 	bool _searchMode = false;
 
 	Ui::Animations::Simple _selectedShown;
 	Ui::Animations::Simple _searchShown;
 
 	object_ptr<Ui::RoundButton> _clear;
-	object_ptr<Ui::RoundButton> _forward, _noQuote, _sendNow, _delete, _messageShot;
+	object_ptr<Ui::RoundButton> _forward, _sendNow, _delete, _messageShot;
 	object_ptr<Ui::InputField> _searchField = { nullptr };
 	object_ptr<Ui::FadeWrapScaled<Ui::IconButton>> _chooseFromUser
+		= { nullptr };
+	object_ptr<Ui::FadeWrapScaled<Ui::IconButton>> _messageFilter
 		= { nullptr };
 	object_ptr<Ui::FadeWrapScaled<Ui::IconButton>> _jumpToDate
 		= { nullptr };
@@ -235,6 +251,8 @@ private:
 	rpl::event_stream<> _searchSubmitted;
 	rpl::event_stream<> _jumpToDateRequests;
 	rpl::event_stream<> _chooseFromUserRequests;
+	rpl::event_stream<> _messageFilterRequests;
+	rpl::event_stream<bool> _searchModeChanges;
 
 	object_ptr<Ui::IconButton> _back;
 	object_ptr<Ui::IconButton> _cancelChoose;
@@ -260,6 +278,7 @@ private:
 	bool _titlePeerTextOnline = false;
 	int _leftTaken = 0;
 	int _rightTaken = 0;
+	float64 _titleShownRatio = 1.;
 	bool _animatingMode = false;
 	std::unique_ptr<Ui::InfiniteRadialAnimation> _connecting;
 
@@ -269,7 +288,6 @@ private:
 	base::Timer _onlineUpdater;
 
 	rpl::event_stream<> _forwardSelection;
-	rpl::event_stream<> _noQuoteSelection;
 	rpl::event_stream<> _sendNowSelection;
 	rpl::event_stream<> _deleteSelection;
 	rpl::event_stream<> _messageShotSelection;

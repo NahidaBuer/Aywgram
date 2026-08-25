@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_auto_download.h"
 #include "data/notify/data_peer_notify_settings.h"
 #include "data/data_authorization.h"
+#include "data/data_message_reaction_id.h"
 #include "ui/rect_part.h"
 
 namespace Support {
@@ -106,10 +107,6 @@ public:
 	[[nodiscard]] bool archiveInMainMenu() const;
 	[[nodiscard]] rpl::producer<bool> archiveInMainMenuChanges() const;
 
-	void setSkipArchiveInSearch(bool skip);
-	[[nodiscard]] bool skipArchiveInSearch() const;
-	[[nodiscard]] rpl::producer<bool> skipArchiveInSearchChanges() const;
-
 	[[nodiscard]] bool hadLegacyCallsPeerToPeerNobody() const {
 		return _hadLegacyCallsPeerToPeerNobody;
 	}
@@ -187,6 +184,20 @@ public:
 		return _moderateCommonGroups;
 	}
 
+	void setPhoneNumberHidden(bool hidden) {
+		_phoneNumberHidden = hidden;
+	}
+	[[nodiscard]] bool phoneNumberHidden() const {
+		return _phoneNumberHidden.current();
+	}
+	[[nodiscard]] rpl::producer<bool> phoneNumberHiddenValue() const {
+		return _phoneNumberHidden.value();
+	}
+
+	void setExtraFavoriteReactions(std::vector<Data::ReactionId> list);
+	[[nodiscard]] auto extraFavoriteReactions() const
+	-> const std::vector<Data::ReactionId> &;
+
 private:
 	static constexpr auto kDefaultSupportChatsLimitSlice = 7 * 24 * 60 * 60;
 	static constexpr auto kPhotoEditorHintMaxShowsCount = 5;
@@ -209,7 +220,6 @@ private:
 	Data::AutoDownload::Full _autoDownload;
 	rpl::variable<bool> _archiveCollapsed = false;
 	rpl::variable<bool> _archiveInMainMenu = false;
-	rpl::variable<bool> _skipArchiveInSearch = false;
 	base::flat_map<ThreadId, MsgId> _hiddenPinnedMessages;
 	base::flat_map<PeerId, qint32> _subsectionTabsModes;
 	base::flat_map<Data::DefaultNotify, ushort> _ringtoneDefaultVolumes;
@@ -236,6 +246,10 @@ private:
 	Data::SetupEmailState _setupEmailState;
 
 	std::vector<int32> _moderateCommonGroups;
+
+	rpl::variable<bool> _phoneNumberHidden = false;
+
+	std::vector<Data::ReactionId> _extraFavoriteReactions;
 
 };
 

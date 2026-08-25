@@ -22,7 +22,9 @@
 #include "inline_bots/bot_attach_web_view.h"
 #include "settings/settings_builder.h"
 #include "settings/settings_common.h"
+#include "styles/style_ayu_icons.h"
 #include "styles/style_boxes.h"
+#include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_settings.h"
 #include "ui/vertical_list.h"
@@ -233,9 +235,9 @@ void AyuFilters::fillTopBarMenu(const Ui::Menu::MenuCallback &addAction) {
 			&st::menuIconUnarchive);
 	}
 	addAction({ .isSeparator = true });
-	addAction(
-		tr::ayu_FiltersMenuClear(tr::now),
-		[=] {
+	addAction({
+		.text = tr::ayu_FiltersMenuClear(tr::now),
+		.handler = [=] {
 			auto callback = [=](Fn<void()> &&close) {
 				AyuDatabase::deleteAllFilters();
 				AyuDatabase::deleteAllExclusions();
@@ -246,11 +248,14 @@ void AyuFilters::fillTopBarMenu(const Ui::Menu::MenuCallback &addAction) {
 			auto box = Ui::MakeConfirmBox({
 				.text = tr::ayu_FiltersClearPopupText(),
 				.confirmed = callback,
-				.confirmText = tr::ayu_FiltersClearPopupActionText()
+				.confirmText = tr::ayu_FiltersClearPopupActionText(),
+				.confirmStyle = &st::attentionBoxButton,
 			});
 			Ui::show(std::move(box));
 		},
-		&st::menuIconClear);
+		.icon = &st::menuIconClearAttention,
+		.isAttention = true,
+	});
 }
 
 AyuFilters::AyuFilters(

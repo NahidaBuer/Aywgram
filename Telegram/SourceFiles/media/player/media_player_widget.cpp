@@ -38,8 +38,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 #include "window/window_session_controller.h"
 #include "styles/style_media_player.h"
-#include "styles/style_media_view.h"
-#include "styles/style_chat.h" // expandedMenuSeparator.
 
 namespace Media {
 namespace Player {
@@ -49,40 +47,53 @@ namespace {
 	return size.isEmpty()
 		? QString()
 		: (QString::number(size.width())
-			+ 'x'
+			+ u"×"_q
 			+ QString::number(size.height()));
 }
 
-[[nodiscard]] QString FormatAverageBitrate(int64 bytes, crl::time duration) {
-	return (bytes > 0 && duration > 0)
-		? (u"~"_q
-			+ QString::number(qRound(bytes * 8. / duration))
-			+ " kbps avg")
+[[nodiscard]] QString FormatAverageBitrate(
+		int64 bytes,
+		crl::time duration) {
+	if (bytes <= 0 || duration <= 0) {
+		return QString();
+	}
+	const auto bitrate = qRound64((bytes * 8.) / duration);
+	return (bitrate > 0)
+		? tr::ayu_MediaMetadataAverageBitrate(
+			tr::now,
+			lt_bitrate,
+			QString::number(bitrate))
 		: QString();
 }
 
-[[nodiscard]] QString DocumentMetadataText(not_null<DocumentData*> document) {
+[[nodiscard]] QString DocumentMetadataText(
+		not_null<DocumentData*> document) {
 	auto parts = QStringList();
-	if (const auto dimensions = FormatMediaDimensions(document->dimensions);
-			!dimensions.isEmpty()) {
+	const auto dimensions = FormatMediaDimensions(document->dimensions);
+	if (!dimensions.isEmpty()) {
 		parts.push_back(dimensions);
 	}
-	if (const auto video = document->video()) {
-		if (!video->codec.isEmpty()) {
-			parts.push_back(video->codec.toUpper());
-		}
+	const auto video = document->video();
+	if (video && !video->codec.isEmpty()) {
+		parts.push_back(video->codec.toUpper());
 	}
 	if (!document->mimeString().isEmpty()) {
 		parts.push_back(document->mimeString());
 	}
-	if (const auto bitrate = FormatAverageBitrate(
+	const auto bitrate = FormatAverageBitrate(
 			document->size,
 			document->duration());
-			!bitrate.isEmpty()) {
+	if (!bitrate.isEmpty()) {
 		parts.push_back(bitrate);
 	}
 	if (document->size > 0) {
 		parts.push_back(Ui::FormatSizeText(document->size));
+	}
+	if (document->isSilentVideo()) {
+		parts.push_back(tr::ayu_MediaMetadataSilent(tr::now));
+	}
+	if (document->supportsStreaming()) {
+		parts.push_back(tr::ayu_MediaMetadataStreamable(tr::now));
 	}
 	return parts.join(u" · "_q);
 }
@@ -151,7 +162,9 @@ Widget::Widget(
 	_playbackProgress->setInLoadingStateChangedCallback([=](bool loading) {
 		_playbackSlider->setDisabled(loading);
 	});
-	AyuSettings::getInstance().showMediaMetadataChanges(
+	rpl::merge(
+		AyuSettings::getInstance().showMediaMetadataChanges() | rpl::to_empty,
+		Lang::Updated()
 	) | rpl::on_next([=] {
 		_lastSongId = AudioMsgId();
 		handleSongChange();
@@ -771,7 +784,7 @@ void Widget::handleSongChange() {
 	_lastSongId = current;
 	_speedController->reloadFromLookup();
 
-	auto textWithEntities = TextWithEntities();
+	auto textWithEntities = tr::marked();
 	if (document->isVoiceMessage() || document->isVideoMessage()) {
 		textWithEntities = Ui::Text::FormatVoiceName(
 			document,
@@ -783,7 +796,7 @@ void Widget::handleSongChange() {
 	if (AyuSettings::getInstance().showMediaMetadata()) {
 		const auto metadata = DocumentMetadataText(document);
 		if (!metadata.isEmpty()) {
-			textWithEntities.text += u" · "_q + metadata;
+			textWithEntities.append(u" · "_q).append(metadata);
 		}
 	}
 	_nameLabel->setMarkedText(textWithEntities);

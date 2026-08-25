@@ -6,6 +6,3 @@ contact_links:
   - name: Issue of other client
     url: https://bugs.telegram.org
     about: Any bug report or feature request not about Telegram Desktop.
-  - name: Question
-    url: https://t.me/ayugramchat
-    about: Ask a question.

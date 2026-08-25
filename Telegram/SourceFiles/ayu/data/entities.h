@@ -8,7 +8,7 @@
 
 #include <string>
 
-#define ID long long
+using ID = long long;
 
 class AyuMessageBase
 {

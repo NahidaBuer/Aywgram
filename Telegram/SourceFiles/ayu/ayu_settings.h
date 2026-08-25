@@ -45,6 +45,12 @@ enum class TranslationProvider {
 	Native = 3,
 };
 
+enum class SendWithoutSoundOption {
+	Never = 0,
+	InGhostMode = 1,
+	Always = 2,
+};
+
 NLOHMANN_JSON_SERIALIZE_ENUM(PeerIdDisplay, {
 	{PeerIdDisplay::Hidden, 0},
 	{PeerIdDisplay::TelegramApi, 1},
@@ -70,6 +76,12 @@ NLOHMANN_JSON_SERIALIZE_ENUM(TranslationProvider, {
 	{TranslationProvider::Native, "native"},
 })
 
+NLOHMANN_JSON_SERIALIZE_ENUM(SendWithoutSoundOption, {
+	{SendWithoutSoundOption::Never, 0},
+	{SendWithoutSoundOption::InGhostMode, 1},
+	{SendWithoutSoundOption::Always, 2},
+})
+
 class GhostModeAccountSettings {
 public:
 	GhostModeAccountSettings();
@@ -81,7 +93,9 @@ public:
 	[[nodiscard]] bool sendOfflinePacketAfterOnline() const { return _sendOfflinePacketAfterOnline.current(); }
 	[[nodiscard]] bool markReadAfterAction() const { return _markReadAfterAction.current(); }
 	[[nodiscard]] bool useScheduledMessages() const { return _useScheduledMessages.current(); }
-	[[nodiscard]] bool sendWithoutSound() const { return _sendWithoutSound.current(); }
+	[[nodiscard]] SendWithoutSoundOption sendWithoutSound() const { return _sendWithoutSound.current(); }
+	[[nodiscard]] bool shouldSendWithoutSound() const;
+	[[nodiscard]] bool suggestGhostModeBeforeViewingStory() const { return _suggestGhostModeBeforeViewingStory.current(); }
 	[[nodiscard]] bool isGhostModeActive() const { return _ghostModeActive.current(); }
 	[[nodiscard]] bool isUseScheduledMessages() const { return isGhostModeActive() && useScheduledMessages(); }
 
@@ -98,7 +112,8 @@ public:
 	void setSendOfflinePacketAfterOnline(bool val);
 	void setMarkReadAfterAction(bool val);
 	void setUseScheduledMessages(bool val);
-	void setSendWithoutSound(bool val);
+	void setSendWithoutSound(SendWithoutSoundOption val);
+	void setSuggestGhostModeBeforeViewingStory(bool val);
 	void setGhostModeEnabled(bool val);
 
 	void setSendReadMessagesLocked(bool val);
@@ -121,8 +136,10 @@ public:
 	[[nodiscard]] rpl::producer<bool> markReadAfterActionChanges() const { return _markReadAfterAction.changes(); }
 	[[nodiscard]] rpl::producer<bool> useScheduledMessagesValue() const { return _useScheduledMessages.value(); }
 	[[nodiscard]] rpl::producer<bool> useScheduledMessagesChanges() const { return _useScheduledMessages.changes(); }
-	[[nodiscard]] rpl::producer<bool> sendWithoutSoundValue() const { return _sendWithoutSound.value(); }
-	[[nodiscard]] rpl::producer<bool> sendWithoutSoundChanges() const { return _sendWithoutSound.changes(); }
+	[[nodiscard]] rpl::producer<SendWithoutSoundOption> sendWithoutSoundValue() const { return _sendWithoutSound.value(); }
+	[[nodiscard]] rpl::producer<SendWithoutSoundOption> sendWithoutSoundChanges() const { return _sendWithoutSound.changes(); }
+	[[nodiscard]] rpl::producer<bool> suggestGhostModeBeforeViewingStoryValue() const { return _suggestGhostModeBeforeViewingStory.value(); }
+	[[nodiscard]] rpl::producer<bool> suggestGhostModeBeforeViewingStoryChanges() const { return _suggestGhostModeBeforeViewingStory.changes(); }
 	[[nodiscard]] rpl::producer<bool> ghostModeActiveValue() const { return _ghostModeActive.value(); }
 	[[nodiscard]] rpl::producer<bool> ghostModeActiveChanges() const { return _ghostModeActive.changes(); }
 
@@ -150,7 +167,8 @@ private:
 	rpl::variable<bool> _sendOfflinePacketAfterOnline = false;
 	rpl::variable<bool> _markReadAfterAction = true;
 	rpl::variable<bool> _useScheduledMessages = false;
-	rpl::variable<bool> _sendWithoutSound = false;
+	rpl::variable<SendWithoutSoundOption> _sendWithoutSound = SendWithoutSoundOption::Never;
+	rpl::variable<bool> _suggestGhostModeBeforeViewingStory = true;
 	rpl::variable<bool> _ghostModeActive = false;
 
 	rpl::variable<bool> _sendReadMessagesLocked = false;
@@ -254,6 +272,7 @@ public:
 	[[nodiscard]] bool saveForBots() const { return _saveForBots.current(); }
 	[[nodiscard]] bool filtersEnabled() const { return _filtersEnabled.current(); }
 	[[nodiscard]] bool filtersEnabledInChats() const { return _filtersEnabledInChats.current(); }
+	[[nodiscard]] bool exactSearchIntersection() const { return _exactSearchIntersection.current(); }
 	[[nodiscard]] bool hideFromBlocked() const { return _hideFromBlocked.current(); }
 	[[nodiscard]] bool semiTransparentDeletedMessages() const { return _semiTransparentDeletedMessages.current(); }
 	[[nodiscard]] bool disableAds() const { return _disableAds.current(); }
@@ -268,6 +287,7 @@ public:
 	[[nodiscard]] double wideMultiplier() const { return _wideMultiplier.current(); }
 	[[nodiscard]] bool wideScreenMessagesLeftAligned() const { return _wideScreenMessagesLeftAligned.current(); }
 	[[nodiscard]] bool unlimitedRightColumnWidth() const { return _unlimitedRightColumnWidth.current(); }
+	[[nodiscard]] double messageStickerScale() const { return _messageStickerScale.current(); }
 	[[nodiscard]] double stickerPanelScale() const { return _stickerPanelScale.current(); }
 	[[nodiscard]] bool showMediaMetadata() const { return _showMediaMetadata.current(); }
 	[[nodiscard]] bool spoofWebviewAsAndroid() const { return _spoofWebviewAsAndroid.current(); }
@@ -323,25 +343,32 @@ public:
 	[[nodiscard]] bool hideAllChatsFolder() const { return _hideAllChatsFolder.current(); }
 	[[nodiscard]] ChannelBottomButton channelBottomButton() const { return _channelBottomButton.current(); }
 	[[nodiscard]] bool quickAdminShortcuts() const { return _quickAdminShortcuts.current(); }
+	[[nodiscard]] bool disableGreetingSticker() const { return _disableGreetingSticker.current(); }
+	[[nodiscard]] bool useQuickForwardMenu() const { return _useQuickForwardMenu.current(); }
+	[[nodiscard]] bool sendForwardFirst() const { return _sendForwardFirst.current(); }
 	[[nodiscard]] PeerIdDisplay showPeerId() const { return _showPeerId.current(); }
 	[[nodiscard]] bool showMessageSeconds() const { return _showMessageSeconds.current(); }
+	[[nodiscard]] bool showMessageId() const { return _showMessageId.current(); }
 	[[nodiscard]] bool showMessageShot() const { return _showMessageShot.current(); }
 	[[nodiscard]] bool filterZalgo() const { return _filterZalgo.current(); }
 	[[nodiscard]] bool stickerConfirmation() const { return _stickerConfirmation.current(); }
 	[[nodiscard]] bool gifConfirmation() const { return _gifConfirmation.current(); }
 	[[nodiscard]] bool voiceConfirmation() const { return _voiceConfirmation.current(); }
+	[[nodiscard]] bool roundConfirmation() const { return _roundConfirmation.current(); }
 	[[nodiscard]] TranslationProvider translationProvider() const { return _translationProvider.current(); }
 	[[nodiscard]] bool adaptiveCoverColor() const { return _adaptiveCoverColor.current(); }
 	[[nodiscard]] bool improveLinkPreviews() const { return _improveLinkPreviews.current(); }
 	[[nodiscard]] bool crashReporting() const { return _crashReporting.current(); }
 	[[nodiscard]] int avatarCorners() const { return _avatarCorners.current(); }
 	[[nodiscard]] bool singleCornerRadius() const { return _singleCornerRadius.current(); }
+	[[nodiscard]] bool streamerMode() const { return _streamerMode.current(); }
 
 	void setSaveDeletedMessages(bool val);
 	void setSaveMessagesHistory(bool val);
 	void setSaveForBots(bool val);
 	void setFiltersEnabled(bool val);
 	void setFiltersEnabledInChats(bool val);
+	void setExactSearchIntersection(bool val);
 	void setHideFromBlocked(bool val);
 	void setSemiTransparentDeletedMessages(bool val);
 	void setDisableAds(bool val);
@@ -356,6 +383,7 @@ public:
 	void setWideMultiplier(double val);
 	void setWideScreenMessagesLeftAligned(bool val);
 	void setUnlimitedRightColumnWidth(bool val);
+	void setMessageStickerScale(double val);
 	void setStickerPanelScale(double val);
 	void setShowMediaMetadata(bool val);
 	void setSpoofWebviewAsAndroid(bool val);
@@ -411,19 +439,25 @@ public:
 	void setHideAllChatsFolder(bool val);
 	void setChannelBottomButton(ChannelBottomButton val);
 	void setQuickAdminShortcuts(bool val);
+	void setDisableGreetingSticker(bool val);
+	void setUseQuickForwardMenu(bool val);
+	void setSendForwardFirst(bool val);
 	void setShowPeerId(PeerIdDisplay val);
 	void setShowMessageSeconds(bool val);
+	void setShowMessageId(bool val);
 	void setShowMessageShot(bool val);
 	void setFilterZalgo(bool val);
 	void setStickerConfirmation(bool val);
 	void setGifConfirmation(bool val);
 	void setVoiceConfirmation(bool val);
+	void setRoundConfirmation(bool val);
 	void setTranslationProvider(TranslationProvider val);
 	void setAdaptiveCoverColor(bool val);
 	void setImproveLinkPreviews(bool val);
 	void setCrashReporting(bool val);
 	void setAvatarCorners(int val);
 	void setSingleCornerRadius(bool val);
+	void setStreamerMode(bool val);
 
 	[[nodiscard]] rpl::producer<bool> useGlobalGhostModeValue() const { return _useGlobalGhostMode.value(); }
 	[[nodiscard]] rpl::producer<bool> useGlobalGhostModeChanges() const { return _useGlobalGhostMode.changes(); }
@@ -437,6 +471,8 @@ public:
 	[[nodiscard]] rpl::producer<bool> filtersEnabledChanges() const { return _filtersEnabled.changes(); }
 	[[nodiscard]] rpl::producer<bool> filtersEnabledInChatsValue() const { return _filtersEnabledInChats.value(); }
 	[[nodiscard]] rpl::producer<bool> filtersEnabledInChatsChanges() const { return _filtersEnabledInChats.changes(); }
+	[[nodiscard]] rpl::producer<bool> exactSearchIntersectionValue() const { return _exactSearchIntersection.value(); }
+	[[nodiscard]] rpl::producer<bool> exactSearchIntersectionChanges() const { return _exactSearchIntersection.changes(); }
 	[[nodiscard]] rpl::producer<bool> hideFromBlockedValue() const { return _hideFromBlocked.value(); }
 	[[nodiscard]] rpl::producer<bool> hideFromBlockedChanges() const { return _hideFromBlocked.changes(); }
 	[[nodiscard]] rpl::producer<bool> semiTransparentDeletedMessagesValue() const { return _semiTransparentDeletedMessages.value(); }
@@ -465,6 +501,8 @@ public:
 	[[nodiscard]] rpl::producer<bool> wideScreenMessagesLeftAlignedChanges() const { return _wideScreenMessagesLeftAligned.changes(); }
 	[[nodiscard]] rpl::producer<bool> unlimitedRightColumnWidthValue() const { return _unlimitedRightColumnWidth.value(); }
 	[[nodiscard]] rpl::producer<bool> unlimitedRightColumnWidthChanges() const { return _unlimitedRightColumnWidth.changes(); }
+	[[nodiscard]] rpl::producer<double> messageStickerScaleValue() const { return _messageStickerScale.value(); }
+	[[nodiscard]] rpl::producer<double> messageStickerScaleChanges() const { return _messageStickerScale.changes(); }
 	[[nodiscard]] rpl::producer<double> stickerPanelScaleValue() const { return _stickerPanelScale.value(); }
 	[[nodiscard]] rpl::producer<double> stickerPanelScaleChanges() const { return _stickerPanelScale.changes(); }
 	[[nodiscard]] rpl::producer<bool> showMediaMetadataValue() const { return _showMediaMetadata.value(); }
@@ -575,10 +613,18 @@ public:
 	[[nodiscard]] rpl::producer<ChannelBottomButton> channelBottomButtonChanges() const { return _channelBottomButton.changes(); }
 	[[nodiscard]] rpl::producer<bool> quickAdminShortcutsValue() const { return _quickAdminShortcuts.value(); }
 	[[nodiscard]] rpl::producer<bool> quickAdminShortcutsChanges() const { return _quickAdminShortcuts.changes(); }
+	[[nodiscard]] rpl::producer<bool> disableGreetingStickerValue() const { return _disableGreetingSticker.value(); }
+	[[nodiscard]] rpl::producer<bool> disableGreetingStickerChanges() const { return _disableGreetingSticker.changes(); }
+	[[nodiscard]] rpl::producer<bool> useQuickForwardMenuValue() const { return _useQuickForwardMenu.value(); }
+	[[nodiscard]] rpl::producer<bool> useQuickForwardMenuChanges() const { return _useQuickForwardMenu.changes(); }
+	[[nodiscard]] rpl::producer<bool> sendForwardFirstValue() const { return _sendForwardFirst.value(); }
+	[[nodiscard]] rpl::producer<bool> sendForwardFirstChanges() const { return _sendForwardFirst.changes(); }
 	[[nodiscard]] rpl::producer<PeerIdDisplay> showPeerIdValue() const { return _showPeerId.value(); }
 	[[nodiscard]] rpl::producer<PeerIdDisplay> showPeerIdChanges() const { return _showPeerId.changes(); }
 	[[nodiscard]] rpl::producer<bool> showMessageSecondsValue() const { return _showMessageSeconds.value(); }
 	[[nodiscard]] rpl::producer<bool> showMessageSecondsChanges() const { return _showMessageSeconds.changes(); }
+	[[nodiscard]] rpl::producer<bool> showMessageIdValue() const { return _showMessageId.value(); }
+	[[nodiscard]] rpl::producer<bool> showMessageIdChanges() const { return _showMessageId.changes(); }
 	[[nodiscard]] rpl::producer<bool> showMessageShotValue() const { return _showMessageShot.value(); }
 	[[nodiscard]] rpl::producer<bool> showMessageShotChanges() const { return _showMessageShot.changes(); }
 	[[nodiscard]] rpl::producer<bool> filterZalgoValue() const { return _filterZalgo.value(); }
@@ -589,6 +635,8 @@ public:
 	[[nodiscard]] rpl::producer<bool> gifConfirmationChanges() const { return _gifConfirmation.changes(); }
 	[[nodiscard]] rpl::producer<bool> voiceConfirmationValue() const { return _voiceConfirmation.value(); }
 	[[nodiscard]] rpl::producer<bool> voiceConfirmationChanges() const { return _voiceConfirmation.changes(); }
+	[[nodiscard]] rpl::producer<bool> roundConfirmationValue() const { return _roundConfirmation.value(); }
+	[[nodiscard]] rpl::producer<bool> roundConfirmationChanges() const { return _roundConfirmation.changes(); }
 	[[nodiscard]] rpl::producer<TranslationProvider> translationProviderValue() const { return _translationProvider.value(); }
 	[[nodiscard]] rpl::producer<TranslationProvider> translationProviderChanges() const { return _translationProvider.changes(); }
 	[[nodiscard]] rpl::producer<bool> adaptiveCoverColorValue() const { return _adaptiveCoverColor.value(); }
@@ -601,6 +649,8 @@ public:
 	[[nodiscard]] rpl::producer<int> avatarCornersChanges() const { return _avatarCorners.changes(); }
 	[[nodiscard]] rpl::producer<bool> singleCornerRadiusValue() const { return _singleCornerRadius.value(); }
 	[[nodiscard]] rpl::producer<bool> singleCornerRadiusChanges() const { return _singleCornerRadius.changes(); }
+	[[nodiscard]] rpl::producer<bool> streamerModeValue() const { return _streamerMode.value(); }
+	[[nodiscard]] rpl::producer<bool> streamerModeChanges() const { return _streamerMode.changes(); }
 
 	friend void to_json(nlohmann::json &j, const AyuSettings &s);
 	friend void from_json(const nlohmann::json &j, AyuSettings &s);
@@ -616,19 +666,21 @@ private:
 	std::unordered_set<int64> _shadowBanIds;
 	rpl::variable<bool> _filtersEnabled = false;
 	rpl::variable<bool> _filtersEnabledInChats = false;
+	rpl::variable<bool> _exactSearchIntersection = false;
 	rpl::variable<bool> _hideFromBlocked = false;
 	rpl::variable<bool> _semiTransparentDeletedMessages = false;
 	rpl::variable<bool> _disableAds = true;
 	rpl::variable<bool> _disableStories = false;
-	rpl::variable<bool> _disableCustomBackgrounds = true;
+	rpl::variable<bool> _disableCustomBackgrounds = false;
 	rpl::variable<bool> _showOnlyAddedEmojisAndStickers = false;
 	rpl::variable<bool> _collapseSimilarChannels = true;
 	rpl::variable<bool> _hideSimilarChannels = false;
-	rpl::variable<int> _messageBubbleRadius = 16;
+	rpl::variable<int> _messageBubbleRadius;
 	rpl::variable<bool> _disableOpenLinkWarning = false;
 	rpl::variable<double> _wideMultiplier = 1.0;
 	rpl::variable<bool> _wideScreenMessagesLeftAligned = true;
 	rpl::variable<bool> _unlimitedRightColumnWidth = true;
+	rpl::variable<double> _messageStickerScale = 1.0;
 	rpl::variable<double> _stickerPanelScale = 1.0;
 	rpl::variable<bool> _showMediaMetadata = false;
 	rpl::variable<bool> _spoofWebviewAsAndroid = false;
@@ -685,19 +737,25 @@ private:
 	rpl::variable<bool> _hideAllChatsFolder = false;
 	rpl::variable<ChannelBottomButton> _channelBottomButton = ChannelBottomButton::DiscussWithFallback;
 	rpl::variable<bool> _quickAdminShortcuts = true;
+	rpl::variable<bool> _disableGreetingSticker = false;
+	rpl::variable<bool> _useQuickForwardMenu = false;
+	rpl::variable<bool> _sendForwardFirst = false;
 	rpl::variable<PeerIdDisplay> _showPeerId = PeerIdDisplay::BotApi;
 	rpl::variable<bool> _showMessageSeconds = false;
+	rpl::variable<bool> _showMessageId = false;
 	rpl::variable<bool> _showMessageShot = true;
-	rpl::variable<bool> _filterZalgo = true;
+	rpl::variable<bool> _filterZalgo = false;
 	rpl::variable<bool> _stickerConfirmation = false;
 	rpl::variable<bool> _gifConfirmation = false;
 	rpl::variable<bool> _voiceConfirmation = false;
+	rpl::variable<bool> _roundConfirmation = false;
 	rpl::variable<TranslationProvider> _translationProvider = TranslationProvider::Telegram;
 	rpl::variable<bool> _adaptiveCoverColor = true;
 	rpl::variable<bool> _improveLinkPreviews = false;
 	rpl::variable<bool> _crashReporting = true;
 	rpl::variable<int> _avatarCorners = 23;
 	rpl::variable<bool> _singleCornerRadius = false;
+	rpl::variable<bool> _streamerMode = false;
 
 	rpl::variable<bool> _useGlobalGhostMode = true;
 	std::map<uint64, std::unique_ptr<GhostModeAccountSettings>> _ghostAccounts;

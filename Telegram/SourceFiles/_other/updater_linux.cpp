@@ -12,7 +12,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <cstdlib>
 #include <unistd.h>
 #include <dirent.h>
-#include <pwd.h>
 #include <string>
 #include <deque>
 #include <vector>
@@ -399,7 +398,7 @@ int main(int argc, char *argv[]) {
 		}
 	}
 	if (exeName.empty() || exeName.find('/') != string::npos) {
-		exeName = "Telegram";
+		exeName = "AywGram";
 	}
 	openLog();
 
@@ -427,23 +426,8 @@ int main(int argc, char *argv[]) {
 				writeLog("Using updater binary dir.", exePath.c_str());
 			}
 			if (needupdate) {
-				if (workDir.empty()) { // old app launched, update prepared in tupdates/ready (not in tupdates/temp)
+				if (workDir.empty()) {
 					customWorkingDir = false;
-
-					writeLog("No workdir, trying to figure it out");
-					struct passwd *pw = getpwuid(getuid());
-					if (pw && pw->pw_dir && strlen(pw->pw_dir)) {
-						string tryDir = pw->pw_dir + string("/.TelegramDesktop/");
-						struct stat statbuf;
-						writeLog("Trying to use '%s' as workDir, getting stat() for tupdates/ready", tryDir.c_str());
-						if (!stat((tryDir + "tupdates/ready").c_str(), &statbuf)) {
-							writeLog("Stat got");
-							if (S_ISDIR(statbuf.st_mode)) {
-								writeLog("It is directory, using home work dir");
-								workDir = tryDir;
-							}
-						}
-					}
 					if (workDir.empty()) {
 						workDir = exePath;
 

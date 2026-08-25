@@ -17,12 +17,20 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mtproto/sender.h"
 #include "api/api_single_message_search.h"
 
+class ChannelData;
+
+namespace Api {
+class MessagesSearchIntersection;
+struct SearchOutcome;
+} // namespace Api
+
 namespace MTP {
 class Error;
 } // namespace MTP
 
 namespace Data {
 class Forum;
+class CommunityInfo;
 enum class StorySourcesList : uchar;
 struct ReactionId;
 } // namespace Data
@@ -176,6 +184,12 @@ private:
 	void completeHashtag(QString tag);
 	void requestPublicPosts(bool fromStart);
 	void requestMessages(bool fromStart);
+	void startSearchIntersection(not_null<History*> history);
+	void searchIntersectionMore();
+	void searchIntersectionOutcome(
+		const Api::SearchOutcome &outcome,
+		bool first);
+	void showSearchIntersectionNotice(const Api::SearchOutcome &outcome);
 	[[nodiscard]] not_null<SearchProcessState*> currentSearchProcess();
 
 	[[nodiscard]] bool computeSearchWithPostsPreview() const;
@@ -214,6 +228,9 @@ private:
 	void setupStories();
 	void setupSwipeBack();
 	void setupTopBarSuggestions();
+#ifdef _DEBUG
+	void setupTopBarSuggestionTestHotkeys();
+#endif // _DEBUG
 	void storiesExplicitCollapse();
 	void collectStoriesUserpicsViews(Data::StorySourcesList list);
 	void storiesToggleExplicitExpand(bool expand);
@@ -226,18 +243,25 @@ private:
 
 	void showCalendar();
 	void showSearchFrom();
+	void showSearchFilter();
 	void showMainMenu();
 	void clearSearchCache(bool clearPosts);
 	void setSearchQuery(const QString &query, int cursorPosition = -1);
 	void updateTopBarSuggestions();
+	void updateCommunityRequestsBubble();
+	void updateCommunityAddChatButton();
+	void updateCommunityOverlaysVisibility();
+	[[nodiscard]] bool communityOverlaysShown() const;
 	void updateFrozenAccountBar();
 	void updateControlsVisibility(bool fast = false);
 	void updateLockUnlockVisibility(
 		anim::type animated = anim::type::instant);
 	void updateLoadMoreChatsVisibility();
 	void updateStoriesVisibility();
+	void updateStoriesTitleShown();
 	void updateJumpToDateVisibility(bool fast = false);
 	void updateSearchFromVisibility(bool fast = false);
+	void updateSearchFilterVisibility(bool fast = false);
 	void updateControlsGeometry();
 	void refreshTopBars();
 	void showSearchInTopBar(anim::type animated);
@@ -249,6 +273,9 @@ private:
 		anim::type animated);
 	void changeOpenedFolder(Data::Folder *folder, anim::type animated);
 	void changeOpenedForum(Data::Forum *forum, anim::type animated);
+	void changeOpenedCommunity(
+		Data::CommunityInfo *community,
+		anim::type animated);
 	void hideChildList();
 	void destroyChildListCanvas();
 	[[nodiscard]] QPixmap grabForFolderSlideAnimation();
@@ -288,6 +315,7 @@ private:
 	void updateSuggestions(anim::type animated);
 	void processSearchFocusChange();
 	void closeSuggestions();
+	[[nodiscard]] bool searchActive() const;
 
 	[[nodiscard]] bool redirectToSearchPossible() const;
 	[[nodiscard]] bool redirectKeyToSearch(QKeyEvent *e) const;
@@ -319,6 +347,7 @@ private:
 	object_ptr<Ui::IconButton> _searchForNarrowLayout;
 	object_ptr<Ui::InputField> _search;
 	object_ptr<Ui::FadeWrapScaled<Ui::IconButton>> _chooseFromUser;
+	object_ptr<Ui::FadeWrapScaled<Ui::IconButton>> _chooseSearchFilter;
 	object_ptr<Ui::FadeWrapScaled<Ui::IconButton>> _jumpToDate;
 	object_ptr<Ui::CrossButton> _cancelSearch;
 	object_ptr<Ui::FadeWrapScaled<Ui::IconButton>> _lockUnlock;
@@ -331,10 +360,22 @@ private:
 	std::unique_ptr<HistoryView::ContactStatus> _forumReportBar;
 
 	base::unique_qptr<Ui::RpWidget> _chatFilters;
+	base::unique_qptr<Ui::PopupMenu> _searchFilterMenu;
 
-	QPointer<Ui::SlideWrap<Ui::RpWidget>> _topBarSuggestion;
+	base::unique_qptr<Ui::SlideWrap<Ui::RpWidget>> _topBarSuggestion;
+	base::unique_qptr<Ui::RpWidget> _topBarSuggestionPlaceholder;
 	rpl::event_stream<int> _topBarSuggestionHeightChanged;
+	base::unique_qptr<Ui::SlideWrap<Ui::RpWidget>> _communityRequests;
+	base::unique_qptr<Ui::RpWidget> _communityRequestsPlaceholder;
+	rpl::lifetime _communityRequestsLifetime;
+	int _communityRequestsCount = 0;
+	base::unique_qptr<Ui::SlideWrap<Ui::VerticalLayout>> _communityAddChat;
+	base::unique_qptr<Ui::RpWidget> _communityAddChatPlaceholder;
+	rpl::lifetime _communityAddChatLifetime;
+	base::unique_qptr<Ui::RpWidget> _communityAddChatNarrow;
+	rpl::event_stream<> _communityAddChatRefresh;
 	rpl::event_stream<bool> _searchStateForTopBarSuggestion;
+	rpl::event_stream<> _prepareTopBarSnapshot;
 	rpl::event_stream<bool> _openedFolderOrForumChanges;
 
 	object_ptr<Ui::ElasticScroll> _scroll;
@@ -362,12 +403,14 @@ private:
 
 	Data::Folder *_openedFolder = nullptr;
 	Data::Forum *_openedForum = nullptr;
+	Data::CommunityInfo *_openedCommunity = nullptr;
 	SearchState _searchState;
 	History *_searchInMigrated = nullptr;
 	rpl::lifetime _searchTagsLifetime;
 	QString _lastSearchText;
 	bool _searchSuggestionsLocked = false;
 	bool _searchHasFocus = false;
+	bool _searchEngaged = false;
 	bool _processingSearch = false;
 
 	rpl::event_stream<rpl::producer<Stories::Content>> _storiesContents;
@@ -393,9 +436,13 @@ private:
 
 	QString _searchQuery;
 	PeerData *_searchQueryFrom = nullptr;
+	Api::SearchFilter _searchQueryMessageFilter
+		= Api::SearchFilter::NoFilter;
 	std::vector<Data::ReactionId> _searchQueryTags;
 	ChatSearchTab _searchQueryTab = {};
+	ChannelData *_searchQueryCommunity = nullptr;
 	ChatTypeFilter _searchQueryFilter = {};
+	bool _searchQueryFromArchive = true;
 
 	Ui::Controls::SwipeBackResult _swipeBackData;
 	bool _swipeBackMirrored = false;
@@ -405,6 +452,11 @@ private:
 	SearchProcessState _migratedProcess;
 	SearchProcessState _postsProcess;
 	int _historiesRequest = 0; // Not real mtpRequestId.
+	std::unique_ptr<Api::MessagesSearchIntersection> _searchIntersection;
+	Api::SearchGeneration _searchIntersectionFirstGeneration = 0;
+	Api::SearchGeneration _searchIntersectionPageGeneration = 0;
+	bool _searchIntersectionActive = false;
+	rpl::lifetime _searchIntersectionLifetime;
 
 	Api::PeerSearch _peerSearch;
 	Api::SingleMessageSearch _singleMessageSearch;

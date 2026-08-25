@@ -63,16 +63,13 @@ bool ignoreRender(RenderPart part) {
 	const auto &s = AyuSettings::getInstance().messageShotSettings();
 	return isTakingShot()
 		&& ((part == RenderPart::Date && !s.showDate())
-			|| (part == RenderPart::Reactions && !s.showReactions()));
+			|| (part == RenderPart::Reactions && !s.showReactions())
+			|| (part == RenderPart::HeaderDecorations
+				&& !s.showHeaderDecorations()));
 }
 
 bool isTakingShot() {
 	return takingShot;
-}
-
-bool showHeaderDecorations() {
-	return !isTakingShot()
-		|| AyuSettings::getInstance().messageShotSettings().showHeaderDecorations();
 }
 
 bool setChoosingTheme(bool val) {
@@ -467,12 +464,16 @@ void ShowMessageShotBox(
 		not_null<Window::SessionController*> controller,
 		const MessageIdsList &ids,
 		Fn<void()> clearSelected) {
-	const auto messages = ranges::views::all(ids)
-		| ranges::views::transform([=](const auto item)
-		{
-			return resolveMessage(item);
-		})
-		| ranges::to_vector;
+	auto messages = std::vector<not_null<HistoryItem*>>();
+	messages.reserve(ids.size());
+	for (const auto item : ids) {
+		if (const auto message = resolveMessage(item)) {
+			messages.push_back(message);
+		}
+	}
+	if (messages.empty()) {
+		return;
+	}
 
 	const AyuFeatures::MessageShot::ShotConfig config = {
 		controller,
@@ -505,7 +506,7 @@ void WrapperImpl(
 	}
 
 	ShowMessageShotBox(
-		[=](const auto item) { return gsl::not_null(session->data().message(item)); },
+		[=](const auto item) { return session->data().message(item); },
 		controller,
 		items,
 		std::move(clearSelected));

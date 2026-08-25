@@ -55,6 +55,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_credits.h"
 #include "styles/style_dialogs.h"
 #include "styles/style_menu_icons.h"
+#include "styles/style_premium.h"
 #include "styles/style_settings.h"
 #include "base/qt/qt_common_adapters.h"
 
@@ -88,7 +89,8 @@ constexpr auto kLinkProtocols = {
 // ignore tags for different users.
 [[nodiscard]] Fn<QString(QStringView)> FieldTagMimeProcessor(
 		not_null<Main::Session*> session,
-		Fn<bool(not_null<DocumentData*>)> allowPremiumEmoji) {
+		Fn<bool(not_null<DocumentData*>)> allowPremiumEmoji,
+		Fn<bool(QStringView)> keepCustomEmojiData) {
 	return [=](QStringView mimeTag) {
 		const auto id = session->userId().bare;
 		auto all = TextUtilities::SplitTags(mimeTag);
@@ -101,6 +103,10 @@ constexpr auto kLinkProtocols = {
 				continue;
 			} else if (Ui::InputField::IsCustomEmojiLink(tag)) {
 				const auto data = Ui::InputField::CustomEmojiEntityData(tag);
+				if (keepCustomEmojiData && keepCustomEmojiData(data)) {
+					++i;
+					continue;
+				}
 				const auto emoji = Data::ParseCustomEmojiData(data);
 				if (!emoji) {
 					i = all.erase(i);
@@ -142,8 +148,22 @@ void EditLinkBox(
 		const QString &startLink,
 		Fn<void(TextWithTags, QString)> callback,
 		const style::InputField *fieldStyle,
-		Fn<QString(QString)> validate) {
+		Fn<QString(QString)> validate,
+		Fn<void(bool)> interactionActive,
+		Fn<void()> restoreFocus) {
 	Expects(callback != nullptr);
+
+	if (interactionActive) {
+		interactionActive(true);
+	}
+	box->boxClosing() | rpl::on_next([=] {
+		if (interactionActive) {
+			interactionActive(false);
+		}
+		if (restoreFocus) {
+			restoreFocus();
+		}
+	}, box->lifetime());
 
 	const auto &fieldSt = fieldStyle ? *fieldStyle : st::defaultInputField;
 	const auto content = box->verticalLayout();
@@ -263,21 +283,22 @@ void EditLinkBox(
 		}
 	};
 
+	using TabbedRequest = Ui::InputField::TabbedRequest;
 	url->tabbed(
-	) | rpl::on_next([=](not_null<bool*> handled) {
+	) | rpl::on_next([=](not_null<TabbedRequest*> request) {
 		clearFullSelection(url);
 		text->setFocus();
-		*handled = true;
+		request->handled = true;
 	}, url->lifetime());
 
 	text->tabbed(
-	) | rpl::on_next([=](not_null<bool*> handled) {
+	) | rpl::on_next([=](not_null<TabbedRequest*> request) {
 		if (!url->empty()) {
 			url->selectAll();
 		}
 		clearFullSelection(text);
 		url->setFocus();
-		*handled = true;
+		request->handled = true;
 	}, text->lifetime());
 }
 
@@ -405,7 +426,10 @@ Fn<bool(
 	EditLinkAction action)> DefaultEditLinkCallback(
 		std::shared_ptr<Main::SessionShow> show,
 		not_null<Ui::InputField*> field,
-		const style::InputField *fieldStyle) {
+		const style::InputField *fieldStyle,
+		Fn<QString(QString)> linkValidator,
+		Fn<void(bool)> interactionActive,
+		Fn<void()> restoreFocus) {
 	const auto weak = base::make_weak(field);
 	return [=](
 			EditLinkSelection selection,
@@ -415,7 +439,8 @@ Fn<bool(
 		if (action == EditLinkAction::Check) {
 			return (Ui::InputField::IsValidMarkdownLink(link)
 					&& !TextUtilities::IsMentionLink(link))
-				|| Ui::InputField::IsCustomDateLink(link);
+				|| Ui::InputField::IsCustomDateLink(link)
+				|| (linkValidator && !linkValidator(link).isEmpty());
 		}
 		if (Ui::InputField::IsCustomDateLink(link)) {
 			const auto dateStr = link.mid(
@@ -481,6 +506,9 @@ Fn<bool(
 				strong->commitMarkdownLinkEdit(selection, text, link);
 			}
 		};
+		const auto validateLink = linkValidator
+			? linkValidator
+			: Fn<QString(QString)>(qthelp::validate_url);
 		show->showBox(Box(
 			EditLinkBox,
 			show,
@@ -488,7 +516,9 @@ Fn<bool(
 			link,
 			std::move(callback),
 			fieldStyle,
-			qthelp::validate_url));
+			validateLink,
+			interactionActive,
+			restoreFocus));
 		return true;
 	};
 }
@@ -507,11 +537,28 @@ auto InitMessageFieldHandlers(MessageFieldHandlersArgs &&args)
 	};
 	const auto field = args.field;
 	const auto session = args.session;
-	field->setTagMimeProcessor(
-		FieldTagMimeProcessor(session, args.allowPremiumEmoji));
-	field->setCustomTextContext(Core::TextContext({
-		.session = session
-	}), [paused] {
+	field->setTagMimeProcessor(FieldTagMimeProcessor(
+		session,
+		args.allowPremiumEmoji,
+		std::move(args.keepCustomEmojiData)));
+	auto context = Core::TextContext({ .session = session });
+	if (args.customEmojiFactory) {
+		auto parent = std::move(context.customEmojiFactory);
+		context.customEmojiFactory = [
+			custom = std::move(args.customEmojiFactory),
+			parent = std::move(parent)
+		](
+				QStringView data,
+				const Ui::Text::MarkedContext &context
+		) -> std::unique_ptr<Ui::Text::CustomEmoji> {
+			auto result = custom(data, context);
+			if (!result && parent) {
+				result = parent(data, context);
+			}
+			return result;
+		};
+	}
+	field->setCustomTextContext(std::move(context), [paused] {
 		return On(PowerSaving::kEmojiChat) || paused();
 	}, [paused] {
 		return On(PowerSaving::kChatSpoiler) || paused();
@@ -521,11 +568,19 @@ auto InitMessageFieldHandlers(MessageFieldHandlersArgs &&args)
 		Core::App().settings().replaceEmojiValue(),
 		Core::App().settings().systemTextReplaceValue());
 	field->setMarkdownReplacesEnabled(rpl::single(Ui::MarkdownEnabledState{
-		Ui::MarkdownEnabled{ std::move(args.allowMarkdownTags) }
+		Ui::MarkdownEnabled{
+			std::move(args.allowMarkdownTags),
+			args.allowTypedMarkdown,
+			args.instantMarkdown
+		}
 	}));
 	if (const auto &show = args.show) {
 		field->setEditLinkCallback(
-			DefaultEditLinkCallback(show, field, args.fieldStyle));
+			DefaultEditLinkCallback(
+				show,
+				field,
+				args.fieldStyle,
+				args.linkValidator));
 		field->setEditLanguageCallback(DefaultEditLanguageCallback(show));
 		InitSpellchecker(show, field, args.fieldStyle != nullptr);
 	}
@@ -582,7 +637,9 @@ auto InitMessageFieldHandlers(MessageFieldHandlersArgs &&args)
 			link,
 			std::move(callback),
 			nullptr,
-			validate));
+			validate,
+			nullptr,
+			nullptr));
 		return true;
 	};
 }
@@ -690,11 +747,12 @@ void InitSpellchecker(
 			tr::lng_settings_manage_dictionaries(tr::now),
 			[=] { show->showBox(Box<Ui::ManageDictionariesBox>(session)); }
 		});
-	const auto s = Ui::CreateChild<SpellingHighlighter>(
+	// The highlighter parents itself to the field's document and registers a
+	// context-menu hook on the field, so it keeps working without holding it.
+	Ui::CreateChild<SpellingHighlighter>(
 		field.get(),
 		Core::App().settings().spellcheckerEnabledValue(),
 		menuItem);
-	field->setExtendedContextMenu(s->contextMenuCreated());
 #endif // TDESKTOP_DISABLE_SPELLCHECK
 }
 
@@ -1175,7 +1233,8 @@ void MessageLinksParser::applyRanges(const QString &text) {
 
 base::unique_qptr<Ui::RpWidget> CreateDisabledFieldView(
 		QWidget *parent,
-		not_null<PeerData*> peer) {
+		not_null<PeerData*> peer,
+		QWidget *toastParent) {
 	auto result = base::make_unique_q<Ui::AbstractButton>(parent);
 	const auto raw = result.get();
 	const auto label = CreateChild<Ui::FlatLabel>(
@@ -1221,6 +1280,7 @@ base::unique_qptr<Ui::RpWidget> CreateDisabledFieldView(
 	}, raw->lifetime());
 	using WeakToast = base::weak_ptr<Ui::Toast::Instance>;
 	const auto toast = raw->lifetime().make_state<WeakToast>();
+	const auto showToastOver = toastParent ? toastParent : parent;
 	raw->setClickedCallback([=] {
 		if (toast->get()) {
 			return;
@@ -1259,7 +1319,7 @@ base::unique_qptr<Ui::RpWidget> CreateDisabledFieldView(
 				lt_last,
 				list.back())
 			: list.back();
-		*toast = Ui::Toast::Show(parent, {
+		*toast = Ui::Toast::Show(showToastOver, {
 			.text = { tr::lng_send_text_no_about(tr::now, lt_types, types) },
 			.attach = RectPart::Bottom,
 			.duration = kTypesDuration,

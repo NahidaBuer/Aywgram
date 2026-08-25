@@ -15,11 +15,15 @@
 #include "history/history_item.h"
 #include "rpl/event_stream.h"
 
+#include <memory>
+#include <mutex>
 #include <unordered_set>
 
-static std::mutex mutex;
-
 namespace FiltersCacheController {
+
+std::mutex rebuildMutex;
+std::mutex cacheMutex;
+std::mutex filteredMessagesMutex;
 
 rpl::event_stream<> filtersUpdateStream;
 
@@ -31,21 +35,17 @@ rpl::producer<> updates() {
 	return filtersUpdateStream.events();
 }
 
-std::optional<std::vector<HashablePattern>> sharedPatterns;
-std::optional<std::unordered_map<long long, std::vector<ReversiblePattern>>> patternsByDialogId;
+std::shared_ptr<const Cache> cache;
 
-std::optional<std::unordered_map<long long, std::unordered_set<HashablePattern, PatternHasher>>> exclusionsByDialogId;
+std::unordered_map<long long, std::unordered_map<int64, bool>> filteredMessages;
+std::unordered_set<BareId> dialogsWithHiddenBlockedMessages; // purely for show / hide filtered messages
 
-std::unordered_map<long long, std::unordered_map<std::optional<int>, std::optional<bool>>> filteredMessages;
-
-void rebuildCache() {
-	std::lock_guard lock(mutex);
-
+std::shared_ptr<const Cache> buildCache() {
 	const auto filters = AyuDatabase::getAllRegexFilters();
 	const auto exclusions = AyuDatabase::getAllFiltersExclusions();
 
 	std::vector<HashablePattern> shared;
-	std::unordered_map<long long, std::vector<ReversiblePattern>> byDialogId;
+	std::unordered_map<ID, std::vector<ReversiblePattern>> byDialogId;
 
 	for (const auto &filter : filters) {
 		if (!filter.enabled || filter.text.empty()) {
@@ -56,25 +56,47 @@ void rebuildCache() {
 		if (filter.caseInsensitive) flags |= UREGEX_CASE_INSENSITIVE;
 
 		auto status = U_ZERO_ERROR;
-		auto pattern = RegexPattern::compile(UnicodeString::fromUTF8(filter.text), flags, status);
+		auto pattern = icu::RegexPattern::compile(icu::UnicodeString::fromUTF8(filter.text), flags, status);
 
 		if (!pattern) {
 			continue;
 		}
 
 		if (filter.dialogId.has_value()) {
-			byDialogId[filter.dialogId.value()].push_back({std::shared_ptr<RegexPattern>(pattern), filter.reversed});
+			byDialogId[filter.dialogId.value()].push_back({
+				std::shared_ptr<icu::RegexPattern>(pattern),
+				filter.reversed,
+			});
 		} else {
-			shared.push_back({filter.id, {std::shared_ptr<RegexPattern>(pattern), filter.reversed}});
+			shared.push_back({
+				filter.id,
+				{
+					std::shared_ptr<icu::RegexPattern>(pattern),
+					filter.reversed,
+				},
+			});
 		}
 	}
 
 	auto exclByDialogId = buildExclusions(exclusions, shared);
+	auto result = std::make_shared<Cache>();
+	result->sharedPatterns = std::move(shared);
+	result->patternsByDialogId = std::move(byDialogId);
+	result->exclusionsByDialogId = std::move(exclByDialogId);
 
-	sharedPatterns = shared;
-	patternsByDialogId = byDialogId;
-	exclusionsByDialogId = exclByDialogId;
-	filteredMessages.clear();
+	return result;
+}
+
+void rebuildCache() {
+	std::lock_guard rebuildLock(rebuildMutex);
+	auto next = buildCache();
+	{
+		std::lock_guard cacheLock(cacheMutex);
+		std::lock_guard filteredLock(filteredMessagesMutex);
+		cache = std::move(next);
+		filteredMessages.clear();
+		dialogsWithHiddenBlockedMessages.clear();
+	}
 }
 
 std::unordered_map<long long, std::unordered_set<HashablePattern, PatternHasher>> buildExclusions(
@@ -95,8 +117,32 @@ std::unordered_map<long long, std::unordered_set<HashablePattern, PatternHasher>
 	return exclusionsByDialogId;
 }
 
+std::shared_ptr<const Cache> snapshot() {
+	{
+		std::lock_guard lock(cacheMutex);
+		if (cache) {
+			return cache;
+		}
+	}
+
+	std::lock_guard rebuildLock(rebuildMutex);
+	{
+		std::lock_guard lock(cacheMutex);
+		if (cache) {
+			return cache;
+		}
+	}
+
+	auto next = buildCache();
+	std::lock_guard lock(cacheMutex);
+	if (!cache) {
+		cache = std::move(next);
+	}
+	return cache;
+}
+
 std::optional<bool> isFiltered(not_null<HistoryItem*> item) {
-	std::lock_guard lock(mutex);
+	std::lock_guard lock(filteredMessagesMutex);
 	auto dialogIt = filteredMessages.find(item->history()->peer->id.value);
 
 	if (dialogIt == filteredMessages.end()) {
@@ -111,8 +157,39 @@ std::optional<bool> isFiltered(not_null<HistoryItem*> item) {
 	return it->second;
 }
 
-void putFiltered(not_null<HistoryItem*> item, const Data::Group *group, bool res) {
-	std::lock_guard lock(mutex);
+bool hasFilteredMessages(not_null<PeerData*> peer) {
+	std::lock_guard lock(filteredMessagesMutex);
+	if (dialogsWithHiddenBlockedMessages.contains(peer->id.value)) {
+		return true;
+	}
+	const auto dialogIt = filteredMessages.find(peer->id.value);
+	if (dialogIt == filteredMessages.end()) {
+		return false;
+	}
+	for (const auto &entry : dialogIt->second) {
+		if (entry.second) {
+			return true;
+		}
+	}
+	return false;
+}
+
+void putHiddenBlockedMessage(not_null<HistoryItem*> item) {
+	std::lock_guard lock(filteredMessagesMutex);
+	dialogsWithHiddenBlockedMessages.insert(item->history()->peer->id.value);
+}
+
+void putFiltered(
+		not_null<HistoryItem*> item,
+		const Data::Group *group,
+		bool res,
+		const std::shared_ptr<const Cache> &matchedCache) {
+	std::lock_guard cacheLock(cacheMutex);
+	if (cache != matchedCache) {
+		return;
+	}
+
+	std::lock_guard filteredLock(filteredMessagesMutex);
 	filteredMessages[item->history()->peer->id.value][item->id.bare] = res;
 	if (group && res) {
 		for (const auto& groupItem : group->items) {
@@ -137,7 +214,7 @@ void invalidateSingle(not_null<HistoryItem*> item) {
 }
 
 void invalidate(not_null<HistoryItem*> item) {
-	std::lock_guard lock(mutex);
+	std::lock_guard lock(filteredMessagesMutex);
 	if (const auto group = item->history()->owner().groups().find(item)) {
 		for (const auto& groupItem : group->items) {
 			invalidateSingle(groupItem);
@@ -145,38 +222,6 @@ void invalidate(not_null<HistoryItem*> item) {
 	} else {
 		invalidateSingle(item);
 	}
-}
-
-std::optional<std::vector<ReversiblePattern>> getPatternsByDialogId(uint64 dialogId) {
-	if (!patternsByDialogId.has_value()) {
-		rebuildCache();
-	}
-	const auto it = patternsByDialogId.value().find(dialogId);
-	if (it == patternsByDialogId.value().end()) {
-		return std::nullopt;
-	}
-
-	return it->second;
-}
-
-std::optional<const std::unordered_set<HashablePattern, PatternHasher>> getExclusionsByDialogId(long long dialogId) {
-	std::lock_guard lock(mutex);
-
-	if (!exclusionsByDialogId.has_value()) {
-		rebuildCache();
-	}
-	const auto it = exclusionsByDialogId.value().find(dialogId);
-	if (it == exclusionsByDialogId.value().end()) {
-		return std::nullopt;
-	}
-	return it->second;
-}
-
-const std::vector<HashablePattern> &getSharedPatterns() {
-	if (!sharedPatterns.has_value()) {
-		rebuildCache();
-	}
-	return sharedPatterns.value();
 }
 
 }

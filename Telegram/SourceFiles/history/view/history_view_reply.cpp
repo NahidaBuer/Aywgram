@@ -35,6 +35,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/painter.h"
 #include "ui/power_saving.h"
 #include "window/window_session_controller.h"
+#include "ayu/features/filters/filters_controller.h"
 #include "styles/style_chat.h"
 #include "styles/style_dialogs.h"
 #include "styles/style_polls.h"
@@ -392,10 +393,12 @@ void Reply::update(
 		|| (externalMedia && externalMedia->hasReplyPreview())
 		|| (pollMediaPtr
 			&& (pollMediaPtr->photo || pollMediaPtr->document));
-	_hasPreview = hasPreview ? 1 : 0;
-	_displaying = data->displaying() ? 1 : 0;
+	const auto filtered = message
+		&& FiltersController::filtered(message);
+	_filtered = filtered ? 1 : 0;
+	_hasPreview = (hasPreview && !filtered) ? 1 : 0;
+	_displaying = (data->displaying() || filtered) ? 1 : 0;
 	_multiline = data->multiline() ? 1 : 0;
-	_replyToStory = (fields.storyId != 0);
 	const auto hasQuoteIcon = _displaying
 		&& fields.manualQuote
 		&& !fields.quote.empty();
@@ -407,6 +410,8 @@ void Reply::update(
 		.repaint = repaint,
 	}));
 	const auto text = (!_displaying && data->unavailable())
+		? TextWithEntities()
+		: filtered
 		? TextWithEntities()
 		: task
 		? Ui::Text::Colorized(task->completionDate
@@ -423,12 +428,18 @@ void Reply::update(
 			.image = MakePollAnswerImage(),
 			.margin = QMargins(0, st::lineWidth, st::lineWidth, 0),
 		})).append(pollAnswer->text)
+		: messagePoll
+		? Ui::Text::Colorized(
+			Ui::Text::IconEmoji(&st::historyPollReplyIcon)
+		).append(messagePoll->question)
 		: (message && (fields.quote.empty() || !fields.manualQuote))
 		? message->inReplyText()
 		: !fields.quote.empty()
 		? fields.quote
 		: story
-		? story->inReplyText()
+		? Ui::Text::Colorized(
+			Ui::Text::IconEmoji(&st::historyReplyStoryIcon)
+		).append(story->inReplyText())
 		: externalMedia
 		? externalMedia->toPreview({
 			.hideSender = true,
@@ -642,22 +653,28 @@ void Reply::updateName(
 			- st::historyReplyPadding.left())
 		: 0;
 	auto nameFull = TextWithEntities();
-	if (displayAsExternal && !groupNameAdded && !fields.storyId) {
-		nameFull.append(PeerEmoji(sender));
-	}
-	nameFull.append(name);
-	if (groupNameAdded) {
-		nameFull.append(' ').append(PeerEmoji(externalPeer));
-		nameFull.append(externalPeer->name());
-	} else if (originalNameAdded) {
-		nameFull.append(' ').append(
-			st::historyReplyForward
-		).append(forwarded->originalSender
-			? forwarded->originalSender->name()
-			: forwarded->originalHiddenSenderInfo->name);
-	}
-	if (!viaBotUsername.isEmpty()) {
-		nameFull.append(u" @"_q).append(viaBotUsername);
+	const auto filtered = message
+		&& FiltersController::filtered(message);
+	if (filtered) {
+		nameFull.append(u"\U0001F47B"_q);
+	} else {
+		if (displayAsExternal && !groupNameAdded && !fields.storyId) {
+			nameFull.append(PeerEmoji(sender));
+		}
+		nameFull.append(name);
+		if (groupNameAdded) {
+			nameFull.append(' ').append(PeerEmoji(externalPeer));
+			nameFull.append(externalPeer->name());
+		} else if (originalNameAdded) {
+			nameFull.append(' ').append(
+				st::historyReplyForward
+			).append(forwarded->originalSender
+				? forwarded->originalSender->name()
+				: forwarded->originalHiddenSenderInfo->name);
+		}
+		if (!viaBotUsername.isEmpty()) {
+			nameFull.append(u" @"_q).append(viaBotUsername);
+		}
 	}
 	const auto context = Core::TextContext({
 		.session = &history->session(),
@@ -677,15 +694,10 @@ void Reply::updateName(
 		+ (_hasQuoteIcon
 			? st::messageTextStyle.blockquote.icon.width()
 			: 0);
-	const auto storySkip = fields.storyId
-		? (st::dialogsMiniReplyStory.skipText
-			+ st::dialogsMiniReplyStory.icon.icon.width())
-		: 0;
 	const auto optimalTextSize = _multiline
 		? countMultilineOptimalSize(previewSkip)
 		: QSize(
 			(previewSkip
-				+ storySkip
 				+ std::min(_text.maxWidth(), st::maxSignatureSize)),
 			st::normalFont->height);
 	_maxWidth = std::max(nameMaxWidth, optimalTextSize.width());
@@ -798,13 +810,15 @@ void Reply::paint(
 	y += st::historyReplyTop;
 	const auto rect = QRect(x, y, w, _height);
 	const auto selected = context.selected();
-	const auto backgroundEmojiId = _colorPeer
+	const auto backgroundEmojiId = (_colorPeer && !_filtered)
 		? _colorPeer->backgroundEmojiId()
 		: DocumentId();
-	const auto colorIndexPlusOne = _colorPeer
+	const auto colorIndexPlusOne = _filtered
+		? 0
+		: _colorPeer
 		? (_colorPeer->colorIndex() + 1)
 		: _hiddenSenderColorIndexPlusOne;
-	const auto &colorCollectible = _colorPeer
+	const auto &colorCollectible = (_colorPeer && !_filtered)
 		? _colorPeer->colorCollectible()
 		: nullptr;
 	const auto useColorCollectible = colorCollectible && !context.outbg;
@@ -1018,16 +1032,6 @@ void Reply::paint(
 					owned.emplace(cache->icon);
 					copy->linkFg = owned->color();
 					replyToTextPalette = &*copy;
-				}
-				if (_replyToStory) {
-					st::dialogsMiniReplyStory.icon.icon.paint(
-						p,
-						textLeft + firstLineSkip,
-						textTop,
-						w + 2 * x,
-						replyToTextPalette->linkFg->c);
-					firstLineSkip += st::dialogsMiniReplyStory.skipText
-						+ st::dialogsMiniReplyStory.icon.icon.width();
 				}
 				_text.draw(p, {
 					.position = { textLeft, textTop },

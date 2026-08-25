@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/timer_rpl.h"
 #include "settings/settings_builder.h"
 #include "settings/sections/settings_advanced.h"
+#include "settings/sections/settings_local_storage.h"
 #include "settings/sections/settings_main.h"
 #include "settings/sections/settings_privacy_security.h"
 #include "settings/settings_experimental.h"
@@ -26,7 +27,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/background_box.h"
 #include "boxes/background_preview_box.h"
 #include "boxes/download_path_box.h"
-#include "boxes/local_storage_box.h"
 #include "dialogs/ui/dialogs_quick_action_context.h"
 #include "dialogs/dialogs_quick_action.h"
 #include "ui/boxes/choose_font_box.h"
@@ -91,6 +91,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QAction>
 
 // AyuGram includes
+#include "ayu/ayu_settings.h"
 #include "ayu/features/message_shot/message_shot.h"
 #include "window/themes/window_theme_preview.h"
 
@@ -104,11 +105,7 @@ const auto kSchemesList = Window::Theme::EmbeddedThemes();
 constexpr auto kCustomColorButtonParts = 7;
 
 [[nodiscard]] bool IsSystemAccentColorSupported() {
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-	return true;
-#else
-	return !Platform::IsWindows() || !Platform::IsWindows8OrGreater();
-#endif
+	return Window::Theme::SystemAccentColor().has_value();
 }
 
 class ColorsPalette final {
@@ -199,6 +196,7 @@ ColorsPalette::Button::Button(
 , _colors(std::move(colors))
 , _selected(selected) {
 	_widget.show();
+	_widget.setIsListItem(true);
 	_widget.resize(st::settingsAccentColorSize, st::settingsAccentColorSize);
 	_widget.paintRequest(
 	) | rpl::on_next([=] {
@@ -1815,6 +1813,19 @@ void SetupMessages(
 		} });
 	}
 
+	const auto pullToNext = inner->add(
+		object_ptr<Ui::Checkbox>(
+			inner,
+			tr::lng_settings_pull_to_next_channel(tr::now),
+			Core::App().settings().pullToNextChannel(),
+			st::settingsCheckbox),
+		st::settingsCheckboxPadding);
+	pullToNext->checkedChanges(
+	) | rpl::on_next([=](bool checked) {
+		Core::App().settings().setPullToNextChannel(checked);
+		Core::App().saveSettingsDelayed();
+	}, inner->lifetime());
+
 	Ui::AddSkip(inner);
 }
 
@@ -1880,7 +1891,9 @@ void SetupLocalStorage(
 		tr::lng_settings_manage_local_storage(),
 		st::settingsButton,
 		{ &st::menuIconStorage }
-	)->addClickHandler([=] { LocalStorageBox::Show(controller); });
+	)->addClickHandler([=] {
+		controller->showSettings(LocalStorageId());
+	});
 }
 
 void SetupDataStorage(
@@ -2097,8 +2110,7 @@ void SetupChatBackground(
 
 	adaptive->entity()->checkedChanges(
 	) | rpl::on_next([=](bool checked) {
-		Core::App().settings().setAdaptiveForWide(checked);
-		Core::App().saveSettingsDelayed();
+		AyuSettings::getInstance().setWideScreenMessagesLeftAligned(checked);
 	}, adaptive->lifetime());
 	if (highlights) {
 		highlights->push_back({ u"chat/adaptive-layout"_q, {

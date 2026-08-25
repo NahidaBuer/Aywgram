@@ -10,6 +10,7 @@
 #include "ayu/ayu_settings.h"
 #include "ayu/data/ayu_database.h"
 #include "ayu/features/filters/filters_cache_controller.h"
+#include "ayu/ui/toasts.h"
 #include "base/event_filter.h"
 #include "base/platform/base_platform_info.h"
 #include "boxes/delete_messages_box.h"
@@ -30,7 +31,6 @@
 #include "ui/widgets/fields/input_field.h"
 #include "ui/wrap/slide_wrap.h"
 #include "ui/wrap/vertical_layout.h"
-
 
 namespace Settings {
 
@@ -134,10 +134,12 @@ void RegexEditBuilder(
 	RegexFilter data;
 
 	if (filter) {
-		box->setTitle(tr::ayu_RegexFiltersEdit());
+		box->setTitle(showToast ? tr::ayu_RegexFiltersAdd() : tr::ayu_RegexFiltersEdit());
 		data = *filter;
 	} else {
 		box->setTitle(tr::ayu_RegexFiltersAdd());
+		data.enabled = true;
+		data.caseInsensitive = true;
 		data.reversed = false;
 	}
 
@@ -218,26 +220,26 @@ void RegexEditBuilder(
 				FiltersCacheController::fireUpdate();
 
 				if (showToast) {
-					const auto onClick = [=](const auto &...) mutable
-					{
-						newFilter.dialogId = dialogId;
-
-						AyuDatabase::updateRegexFilter(newFilter);
-						FiltersCacheController::rebuildCache();
-						FiltersCacheController::fireUpdate();
-
-						return true;
-					};
-					// todo: custom toast with "Move to shared" button
-					// based on `PaidReactionToast`
-					Ui::Toast::Show(Ui::Toast::Config{
+					auto config = Ui::Toast::Config{
 						.text = tr::ayu_RegexFilterBulletinText(
 							tr::now,
-							tr::rich
-						),
-						.filter = onClick,
-						.adaptive = true
-					});
+							tr::rich),
+						.adaptive = true,
+					};
+					if (dialogId.has_value()) {
+						Ayu::Ui::ShowToastWithAction(
+							std::move(config),
+							tr::ayu_RegexFilterBulletinAction(tr::now),
+							[=]() mutable {
+								newFilter.dialogId = dialogId;
+
+								AyuDatabase::updateRegexFilter(newFilter);
+								FiltersCacheController::rebuildCache();
+								FiltersCacheController::fireUpdate();
+							});
+					} else {
+						Ui::Toast::Show(std::move(config));
+					}
 				}
 			});
 		});

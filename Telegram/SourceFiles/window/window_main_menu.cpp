@@ -68,11 +68,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_peer_menu.h"
 #include "window/window_session_controller.h"
 #include "styles/style_chat.h" // popupMenuExpandedSeparator
-#include "styles/style_info.h" // infoTopBarMenu
-#include "styles/style_layers.h"
+#include "styles/style_info.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_settings.h"
 #include "styles/style_window.h"
+#include "styles/style_window_main_menu.h"
 
 #include <QtGui/QWindow>
 #include <QtGui/QScreen>
@@ -84,7 +84,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ayu/ayu_settings.h"
 #include "ayu/utils/telegram_helpers.h"
 #include "boxes/abstract_box.h"
-#include "ayu/features/streamer_mode/streamer_mode.h"
 #include "styles/style_ayu_icons.h"
 #include "lang_auto.h"
 #include "ayu/ui/settings/settings_main.h"
@@ -391,8 +390,8 @@ MainMenu::MainMenu(
 	parentResized();
 
 	_telegram->setMarkedText(tr::link(
-		u"AyuGram Desktop"_q,
-		u"https://ayugram.one"_q));
+		u"AywGram Desktop"_q,
+		u"https://github.com/NahidaBuer/AywGram"_q));
 	_telegram->setLinksTrusted();
 	_version->setMarkedText(
 		tr::link(
@@ -791,11 +790,10 @@ void MainMenu::setupMenu() {
 				MarkAsReadChatList(chats);
 
 				// slight delay for forums to send packets
-				dispatchToMainThread([=]() mutable
-				{
+				dispatchToMainThread(crl::guard(controller, [=] {
 					auto &ghost = AyuSettings::ghost(&controller->session());
 					ghost.setSendReadMessages(prev);
-				}, 200);
+				}), 200);
 				close();
 			};
 
@@ -911,17 +909,13 @@ void MainMenu::setupMenu() {
 		const auto streamerModeToggle = addAction(
 			tr::ayu_StreamerModeToggle(),
 			{&st::ayuStreamerModeMenuIcon}
-		)->toggleOn(rpl::single(AyuFeatures::StreamerMode::isEnabled()));
+		)->toggleOn(AyuSettings::getInstance().streamerModeValue());
 
 		streamerModeToggle->toggledChanges(
 		) | rpl::on_next(
 			[=](bool enabled)
 			{
-				if (enabled) {
-					AyuFeatures::StreamerMode::enable();
-				} else {
-					AyuFeatures::StreamerMode::disable();
-				}
+				AyuSettings::getInstance().setStreamerMode(enabled);
 			},
 			streamerModeToggle->lifetime());
 	}
@@ -972,10 +966,28 @@ void MainMenu::chooseEmojiStatus() {
 	if (_controller->showFrozenError()) {
 		return;
 	} else if (const auto widget = _badge->widget()) {
+		setupEmojiStatusDismiss();
 		_emojiStatusPanel->show(_controller, widget, _badge->sizeTag());
 	} else {
 		ShowPremiumPreviewBox(_controller, PremiumFeature::EmojiStatus);
 	}
+}
+
+void MainMenu::setupEmojiStatusDismiss() {
+	if (_emojiStatusDismissSetup) {
+		return;
+	}
+	_emojiStatusDismissSetup = true;
+
+	base::install_event_filter(this, parentWidget(), [=](
+			not_null<QEvent*> e) {
+		if (e->type() != QEvent::MouseButtonPress
+			|| !_emojiStatusPanel->shown()) {
+			return base::EventFilterResult::Continue;
+		}
+		_emojiStatusPanel->hideAnimated();
+		return base::EventFilterResult::Cancel;
+	});
 }
 
 bool MainMenu::eventHook(QEvent *event) {
@@ -987,6 +999,10 @@ bool MainMenu::eventHook(QEvent *event) {
 		QGuiApplication::sendEvent(_inner, event);
 	}
 	return RpWidget::eventHook(event);
+}
+
+void MainMenu::hideEvent(QHideEvent *e) {
+	_emojiStatusPanel->hideFast();
 }
 
 void MainMenu::paintEvent(QPaintEvent *e) {
@@ -1072,7 +1088,7 @@ void MainMenu::initResetScaleButton() {
 
 OthersUnreadState OtherAccountsUnreadStateCurrent(
 		not_null<Main::Account*> current) {
-	auto &domain = Core::App().domain();
+	const auto &domain = Core::App().domain();
 	auto counter = 0;
 	auto allMuted = true;
 	for (const auto &[index, account] : domain.accounts()) {
@@ -1158,8 +1174,8 @@ void MainMenu::setupSwipe() {
 		}
 	};
 
-	auto init = [=](int, Qt::LayoutDirection direction) {
-		if (direction != Qt::LeftToRight) {
+	auto init = [=](Ui::Controls::SwipeHandlerInitData data) {
+		if (data.direction != Qt::LeftToRight) {
 			return Ui::Controls::SwipeHandlerFinishData();
 		}
 		if (_emojiStatusPanel && _emojiStatusPanel->hasFocus()) {

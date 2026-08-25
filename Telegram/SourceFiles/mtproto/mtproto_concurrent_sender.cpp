@@ -102,6 +102,10 @@ void ConcurrentSender::RequestBuilder::setFailSkipPolicy(
 	_failSkipPolicy = policy;
 }
 
+void ConcurrentSender::RequestBuilder::setHandleMigrateErrors() noexcept {
+	_handleMigrateErrors = true;
+}
+
 void ConcurrentSender::RequestBuilder::setAfter(
 		mtpRequestId requestId) noexcept {
 	_afterRequestId = requestId;
@@ -112,6 +116,7 @@ mtpRequestId ConcurrentSender::RequestBuilder::send() {
 	const auto dcId = _dcId;
 	const auto msCanWait = _canWait;
 	const auto afterRequestId = _afterRequestId;
+	const auto handleMigrateErrors = _handleMigrateErrors;
 
 	_sender->senderRequestRegister(requestId, std::move(_handlers));
 	_sender->with_instance([
@@ -126,7 +131,11 @@ mtpRequestId ConcurrentSender::RequestBuilder::send() {
 		instance->sendSerialized(
 			requestId,
 			std::move(request),
-			ResponseHandler{ std::move(done), std::move(fail) },
+			ResponseHandler{
+				std::move(done),
+				std::move(fail),
+				handleMigrateErrors,
+			},
 			dcId,
 			msCanWait,
 			afterRequestId);

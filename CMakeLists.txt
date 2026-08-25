@@ -19,8 +19,8 @@ endif()
 project(Telegram
     LANGUAGES C CXX
     VERSION ${desktop_app_version_cmake}
-    DESCRIPTION "AyuGram Desktop"
-    HOMEPAGE_URL "https://ayugram.one"
+    DESCRIPTION "AywGram Desktop"
+    HOMEPAGE_URL "https://github.com/NahidaBuer/AywGram"
 )
 
 if (APPLE)
@@ -63,4 +63,8 @@ set(desktop_app_skip_libs
 )
 
 add_subdirectory(cmake)
+if (MSVC)
+    target_compile_options(libcmark-gfm_static PRIVATE /utf-8)
+    target_compile_options(libcmark-gfm-extensions_static PRIVATE /utf-8)
+endif()
 add_subdirectory(Telegram)

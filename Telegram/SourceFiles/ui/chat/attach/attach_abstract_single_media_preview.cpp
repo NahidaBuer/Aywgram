@@ -18,6 +18,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_boxes.h"
 #include "styles/style_chat.h"
 #include "styles/style_chat_helpers.h"
+#include "styles/style_chat_style.h"
 #include "styles/style_layers.h"
 
 namespace Ui {
@@ -68,8 +69,27 @@ void AbstractSingleMediaPreview::setSpoiler(bool spoiler) {
 	update();
 }
 
+void AbstractSingleMediaPreview::setModifyAllowed(bool value) {
+	_modifyAllowed = value;
+}
+
 void AbstractSingleMediaPreview::setCanShowHighQualityBadge(bool value) {
 	_canShowHighQualityBadge = value;
+	update();
+}
+
+void AbstractSingleMediaPreview::setCanShowAnimatedBadge(bool value) {
+	_canShowAnimatedBadge = value;
+	update();
+}
+
+void AbstractSingleMediaPreview::setVideoQuality(int quality) {
+	_videoQuality = quality;
+	update();
+}
+
+void AbstractSingleMediaPreview::setTtlSeconds(crl::time ttlSeconds) {
+	_ttlSeconds = ttlSeconds;
 	update();
 }
 
@@ -175,8 +195,19 @@ void AbstractSingleMediaPreview::paintEvent(QPaintEvent *e) {
 		}
 	});
 
+	auto hq = std::optional<PainterHighQualityEnabler>();
 	if (drawBackground()) {
 		const auto &padding = st::boxPhotoPadding;
+		const auto bgRect = QRect(
+			padding.left(),
+			0,
+			width() - padding.left() - padding.right(),
+			height());
+		const auto radius = st::bubbleRadiusSmall;
+		auto clipPath = QPainterPath();
+		clipPath.addRoundedRect(bgRect, radius, radius);
+		hq.emplace(p);
+		p.setClipPath(clipPath);
 		if (_previewLeft > padding.left()) {
 			p.fillRect(
 				padding.left(),
@@ -243,6 +274,24 @@ void AbstractSingleMediaPreview::paintEvent(QPaintEvent *e) {
 			_st,
 			QRect(_previewLeft, _previewTop, _previewWidth, _previewHeight));
 	}
+	if (_canShowAnimatedBadge) {
+		PaintAnimatedBadge(
+			p,
+			_st,
+			QRect(_previewLeft, _previewTop, _previewWidth, _previewHeight));
+	}
+	if (_videoQuality && _sendWay.sendImagesAsPhotos()) {
+		PaintVideoQualityBadge(
+			p,
+			QRect(_previewLeft, _previewTop, _previewWidth, _previewHeight),
+			_videoQuality);
+	}
+	if (_ttlSeconds && _sendWay.sendImagesAsPhotos()) {
+		PaintMediaTtlBadge(
+			p,
+			QRect(_previewLeft, _previewTop, _previewWidth, _previewHeight),
+			_ttlSeconds);
+	}
 }
 
 void AbstractSingleMediaPreview::mousePressEvent(QMouseEvent *e) {
@@ -252,17 +301,23 @@ void AbstractSingleMediaPreview::mousePressEvent(QMouseEvent *e) {
 }
 
 void AbstractSingleMediaPreview::mouseMoveEvent(QMouseEvent *e) {
-	applyCursor((isPhoto() && isOverPreview(e->pos()))
+	applyCursor((canModify() && isOverPreview(e->pos()))
 		? style::cur_pointer
 		: style::cur_default);
 }
 
 void AbstractSingleMediaPreview::mouseReleaseEvent(QMouseEvent *e) {
 	if (base::take(_pressed) && isOverPreview(e->pos())) {
-		if (e->button() == Qt::LeftButton && isPhoto()) {
+		if (e->button() == Qt::LeftButton && canModify()) {
 			_photoEditorRequests.fire({});
 		}
 	}
+}
+
+bool AbstractSingleMediaPreview::canModify() const {
+	// Video edits only apply when the file is sent as a video.
+	return isPhoto()
+		|| (_modifyAllowed && _sendWay.sendImagesAsPhotos());
 }
 
 void AbstractSingleMediaPreview::applyCursor(style::cursor cursor) {

@@ -31,13 +31,11 @@ void processIcon(QString shortcut, QString iconPath) {
 	if (SUCCEEDED(hr)) {
 		hr = pShellLink->QueryInterface(IID_IPersistFile, (void**) &pPersistFile);
 		if (SUCCEEDED(hr)) {
-			WCHAR wszShortcutPath[MAX_PATH];
-			shortcut.toWCharArray(wszShortcutPath);
-			wszShortcutPath[shortcut.length()] = '\0';
+			const auto shortcutPath = shortcut.toStdWString();
 
-			if (SUCCEEDED(pPersistFile->Load(wszShortcutPath, STGM_READWRITE))) {
+			if (SUCCEEDED(pPersistFile->Load(shortcutPath.c_str(), STGM_READWRITE))) {
 				pShellLink->SetIconLocation(iconPath.toStdWString().c_str(), 0);
-				pPersistFile->Save(wszShortcutPath, TRUE);
+				pPersistFile->Save(shortcutPath.c_str(), TRUE);
 			}
 
 			pPersistFile->Release();
@@ -49,9 +47,9 @@ void processIcon(QString shortcut, QString iconPath) {
 
 void processLegacy(const QString &iconPath) {
 	const auto appdata = QDir::fromNativeSeparators(qgetenv("APPDATA"));
-	auto shortcut = appdata + "/Microsoft/Internet Explorer/Quick Launch/User Pinned/TaskBar/AyuGram Desktop.lnk";
+	auto shortcut = appdata + "/Microsoft/Internet Explorer/Quick Launch/User Pinned/TaskBar/AywGram Desktop.lnk";
 	if (!QFile::exists(shortcut)) {
-		shortcut = appdata + "/Microsoft/Internet Explorer/Quick Launch/User Pinned/TaskBar/AyuGram.lnk";
+		shortcut = appdata + "/Microsoft/Internet Explorer/Quick Launch/User Pinned/TaskBar/AywGram.lnk";
 	}
 	if (!QFile::exists(shortcut)) {
 		return;
@@ -141,16 +139,21 @@ void processNewShortcuts(const QString &iconPath) {
 		return;
 	}
 
-	const auto shortcut = path + u"AyuGram Desktop/AyuGram.lnk"_q;
-	const auto native = QDir::toNativeSeparators(path).toStdWString();
+	const auto shortcuts = {
+		path + u"AywGram Desktop/AywGram.lnk"_q,
+		path + u"AywGram/AywGram.lnk"_q,
+		path + u"AywGram.lnk"_q,
+	};
+	for (const auto &shortcut : shortcuts) {
+		const auto native = QDir::toNativeSeparators(shortcut).toStdWString();
 
-	DWORD attributes = GetFileAttributes(native.c_str());
-	if (attributes >= 0xFFFFFFF) {
-		return; // file does not exist
+		DWORD attributes = GetFileAttributes(native.c_str());
+		if (attributes >= 0xFFFFFFF) {
+			continue;
+		}
+
+		processIcon(QString::fromStdWString(native), iconPath);
 	}
-
-	const auto normalizedPath = QString::fromStdWString(native);
-	processIcon(normalizedPath, iconPath);
 }
 
 void reloadAppIconFromTaskBar() {

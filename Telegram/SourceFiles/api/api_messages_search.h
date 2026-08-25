@@ -7,7 +7,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
+#include "api/api_messages_search_state.h"
 #include "base/qt/qt_compare.h"
+#include "base/timer.h"
 #include "data/data_message_reaction_id.h"
 
 class HistoryItem;
@@ -20,11 +22,45 @@ struct ReactionId;
 
 namespace Api {
 
-struct FoundMessages {
-	int total = -1;
-	MessageIdsList messages;
-	QString nextToken;
+enum class SearchFilter {
+	NoFilter,
+	Photos,
+	Videos,
+	Files,
+	Links,
+	Music,
+	VoiceMessages,
+	VideoMessages,
+	Gifs,
+	Polls,
+	MyMentions,
+	Locations,
+	Pinned,
 };
+
+enum class SearchSelectionChange {
+	Sender,
+	Filter,
+};
+
+struct SearchSelectionNormalization {
+	bool clearSender = false;
+	bool clearFilter = false;
+};
+
+[[nodiscard]] MTPMessagesFilter PrepareSearchFilter(SearchFilter filter);
+[[nodiscard]] QString SearchFilterLabel(SearchFilter filter);
+[[nodiscard]] const std::vector<SearchFilter> &SearchFilters();
+[[nodiscard]] SearchSelectionNormalization NormalizeSearchSelection(
+	SearchSelectionChange change,
+	bool senderSelected,
+	SearchFilter filter,
+	bool exactIntersection);
+[[nodiscard]] bool ShouldUseSearchIntersection(
+	bool enabled,
+	bool fixedFilter,
+	bool senderSelected,
+	SearchFilter filter);
 
 class MessagesSearch final {
 public:
@@ -33,6 +69,7 @@ public:
 		PeerData *from = nullptr;
 		std::vector<Data::ReactionId> tags;
 		MsgId topMsgId;
+		SearchFilter filter = SearchFilter::NoFilter;
 
 		friend inline bool operator==(
 			const Request &,
@@ -45,18 +82,47 @@ public:
 	explicit MessagesSearch(not_null<History*> history);
 	~MessagesSearch();
 
-	void searchMessages(Request request);
-	void searchMore();
+	[[nodiscard]] SearchGeneration searchMessages(
+		Request request,
+		SearchGeneration generation = 0);
+	[[nodiscard]] SearchGeneration searchMore(
+		SearchGeneration generation = 0);
+	void cancel();
 
-	[[nodiscard]] rpl::producer<FoundMessages> messagesFounds() const;
+	[[nodiscard]] SearchGeneration generation() const;
+	[[nodiscard]] rpl::producer<SearchOutcome> outcomes() const;
 
 private:
 	using TLMessages = MTPmessages_Messages;
-	void searchRequest();
+
+	[[nodiscard]] SearchGeneration start(
+		Request request,
+		MsgId offsetId,
+		SearchGeneration generation,
+		SearchPage page);
+	[[nodiscard]] mtpRequestId sendRequest(
+		Request request,
+		MsgId offsetId,
+		QString nextToken,
+		SearchGeneration generation,
+		SearchPage page,
+		Fn<void()> finish);
 	void searchReceived(
 		const TLMessages &result,
 		mtpRequestId requestId,
-		const QString &nextToken);
+		QString nextToken,
+		SearchGeneration generation,
+		SearchPage page,
+		bool cached);
+	void searchFailed(
+		QString rpcType,
+		int rpcCode,
+		mtpRequestId requestId,
+		SearchGeneration generation);
+	int takeRequestOwnership();
+	void publishTerminal(SearchOutcome outcome, int logicalId = 0);
+	void timeout();
+	void abandon();
 
 	const not_null<History*> _history;
 
@@ -64,12 +130,22 @@ private:
 
 	Request _request;
 	MsgId _offsetId;
+	SearchOperationState _state;
+	base::Timer _watchdog;
 
-	int _searchInHistoryRequest = 0; // Not real mtpRequestId.
+	int _searchInHistoryRequest = 0;
 	mtpRequestId _requestId = 0;
 
-	rpl::event_stream<FoundMessages> _messagesFounds;
+	rpl::event_stream<SearchOutcome> _outcomes;
 
 };
+
+struct SearchIntersectionRequests {
+	MessagesSearch::Request sender;
+	MessagesSearch::Request filter;
+};
+
+[[nodiscard]] SearchIntersectionRequests PrepareSearchIntersectionRequests(
+	const MessagesSearch::Request &request);
 
 } // namespace Api

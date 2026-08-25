@@ -2,6 +2,82 @@
 
 This guide defines repository-wide instructions for coding agents working with the Telegram Desktop codebase.
 
+## Fork Lineage and Upstream Integration
+
+
+```text
+AywGram Desktop
+  -> AyuGram Desktop
+    -> Telegram Desktop
+```
+
+Preserve the distribution-specific patches and the existing AyuGram feature set as the
+product baseline. Upstream integration should move the fork closer to AyuGram
+and Telegram Desktop only where the incoming changes are useful and compatible
+with that baseline; upstream parity by itself is not a reason to remove or
+weaken fork-specific behavior.
+
+For recurring upstream maintenance:
+
+- Use the repository-owned `.agents/skills/ayugram-upstream-sync` workflow for
+  recurring audits and integrations, and preserve it when resolving upstream
+  agent-workflow conflicts. Continue to ignore unrelated skills or agent
+  pipelines introduced by upstream.
+- Start from a clean worktree and fetch the relevant remotes before comparing
+  commits. In this checkout, `ayugram` is the public AyuGram source, `telegram`
+  is the official Telegram Desktop source, and `origin` is the distribution
+  fork's publishing remote. Verify their URLs and record the fetched branch
+  tips in each maintenance report
+- Review AyuGram and Telegram Desktop separately. Select changes based on the
+  requested product needs, security and correctness fixes, compatibility, and
+  the value of reducing future divergence. Do not bulk-merge an upstream branch
+  without first understanding its unique commits and affected files.
+- Integrate on a dedicated branch in stages: distribution patches first, then the
+  selected AyuGram changes, then the selected Telegram Desktop changes and
+  follow-up compatibility fixes. Adjust the order when commit ancestry requires
+  it, and explain the reason in the plan.
+- Before resolving conflicts, identify the intent on all sides. Preserve the
+  current distribution and AyuGram behavior while adapting it to upstream APIs and
+  structural changes. Never resolve a conflict by blindly choosing one side for
+  a file containing fork-specific features.
+- Treat submodule pointers, generated sources, API schemas, settings
+  serialization, styles, and localization as explicit integration risks. Keep
+  related main-repository and submodule changes aligned, and report any
+  referenced submodule commit that is unavailable from its configured remote.
+- After each integration stage, inspect the resulting diff for lost AyuGram or
+  distribution features and run focused checks appropriate to the touched areas.
+  Follow the repository build restrictions in this guide; do not build unless
+  the user explicitly overrides the repository-wide no-build instruction.
+- Deliver a maintenance summary containing the compared commit ranges, grouped
+  incoming changes, selected and deferred patches with reasons, conflicts and
+  resolutions, feature-preservation checks, unresolved risks, and the proposed
+  next integration baseline.
+
+Avoid building the project.
+
+If you're asked to create a Pull Request, then clearly state in PR description that it was AI generated.
+
+## Working from Codex on Windows + WSL
+
+This checkout may be opened in Codex Desktop through the Windows UNC path `\\wsl.localhost\{distro}\home\{user}\Telegram\tdesktop`, while the real Linux path is `/home/{user}/Telegram/tdesktop`. Treat it as a WSL/Linux checkout first, not as a native Windows checkout.
+
+- Prefer running repository-aware commands through WSL:
+
+```powershell
+wsl.exe -d {distro} --cd /home/{user}/Telegram/tdesktop -- <command>
+```
+
+- PowerShell can read and write files through the UNC path, but native Windows tools may see different ownership, path, executable, or line-ending behavior than Linux tools.
+- Git from PowerShell over `\\wsl.localhost\...` can fail with `detected dubious ownership`. Use WSL Git instead. Do not change global Git `safe.directory` settings unless the user explicitly asks for that.
+- Keep path styles matched to the shell. Use `/home/{user}/Telegram/tdesktop/...` with WSL commands, and quoted `\\wsl.localhost\{distro}\home\{user}\Telegram\tdesktop\...` paths with native Windows commands. Avoid passing UNC paths to Linux tools or Linux paths to native Windows tools unless the tool explicitly supports them.
+- If a command behaves strangely from the PowerShell UNC working directory, retry the same command through `wsl.exe -d {distro} --cd /home/{user}/Telegram/tdesktop -- ...` before concluding the repository or command is broken.
+- Recursive searches and repo inspection are usually faster and more faithful through WSL, for example `wsl.exe -d {distro} --cd /home/{user}/Telegram/tdesktop -- rg ...`.
+- Do not assume the WSL host has the build toolchain installed directly. In this setup, WSL may not have `cmake`, while Windows may have `cmake`, and the configured `out/` tree may still target the Linux Docker toolchain. Do not run native Windows `cmake --build out` against a Linux/Docker build tree.
+- For WSL/Linux builds, use the Docker build entry point from the repository root: `Telegram/build/docker/centos_env/build_debug.sh`. The Docker daemon must be reachable from WSL; checking `docker info` is fine, but do not start a build unless the user asked for one.
+- Existing build outputs may be Linux binaries, for example `out/Debug/Telegram` as an ELF executable, not `Telegram.exe`. Verify the build tree before assuming which platform produced it.
+- Be careful with text file line endings. In a WSL/Linux checkout, files should remain LF-only unless the file already uses another convention. CRLF finishing applies only to native, non-WSL Windows runs/checkouts. Do not let PowerShell or Windows tools silently rewrite WSL files to CRLF. If a file becomes mixed, normalize it back to the convention appropriate for the current checkout, without adding a UTF-8 BOM.
+- When using the local `task-think` skill from this WSL checkout, keep `.ai/...` artifacts and edited project text files LF-only. Treat the skill's Windows text-normalization phase as not applicable to WSL, except to record that line endings were checked and kept LF/no-BOM. Run CRLF normalization for `task-think` only in a native, non-WSL Windows checkout.
+
 ## Build System Structure
 
 The build system expects this directory layout:
@@ -18,6 +94,11 @@ Dependencies are located relative to the repository: `../Libraries`, `../win64/L
 
 ## Build Configuration
 
+Keep every generated configure, build, and compiler intermediate under the
+repository-root `out/` directory. Do not create sibling output trees such as
+`build/` or `cmake-build-*`; configure tools explicitly with `-B out` when
+needed.
+
 ### Build Commands
 
 **From repository root, run:**
@@ -28,12 +109,18 @@ cmake --build out --config Debug --target Telegram
 
 That's it. The `out/` directory is already configured. The executable will be at `out/Debug/Telegram.exe`.
 
+**From WSL, run through the Linux Docker build environment:**
+
+```bash
+Telegram/build/docker/centos_env/build_debug.sh
+```
+
 **Important:** When running cmake from a shell that doesn't support `cd`, use quoted absolute paths:
 ```bash
 cmake --build "l:\Telegram\tx64\out" --config Debug --target Telegram
 ```
 
-**Never build Release** - it's extremely heavy and not needed for testing changes.
+**Only build Release when explicitly requested by the user** - it's extremely heavy and not needed for testing changes.
 
 ## Platform-Specific Requirements
 
@@ -102,6 +189,13 @@ Retrying builds wastes time and context. The ONLY fix is for the user to close t
 - Do not save source, header, build/config, style, or localization files as UTF-8 with BOM. Use UTF-8 without BOM.
 - When rewriting project text files for normalization, preserve file content otherwise and do not introduce a BOM.
 
+## Commits
+
+- Subject: one concise, plain-language line summarizing the change, ~50-60 characters, matching the style of recent `git log` subjects. This is usually the entire message.
+- Add a short plain-language body only when the subject can't carry it (what was done, not the technical how) — a line or two at most.
+- Never add a `Co-Authored-By:` line or any tool/assistant attribution trailer.
+- Never add `Autotask:`/attempt or other workflow markers — commits read like normal history.
+
 ## Local Storage Serialization
 
 Both app-level (`Core::Settings`) and session-level (`Main::SessionSettings`) use sequential binary serialization via `QDataStream`. Key rules:
@@ -155,6 +249,80 @@ auto nameProducer = GetNameProducer();
 QString currentTitle = tr::lng_settings_title(tr::now);
 rpl::producer<QString> nameProducer = GetNameProducer();
 ```
+
+**Use trailing return types only when the normal form is too long:**
+
+Prefer the normal return type form when the opening line fits comfortably, roughly around 77 characters or less:
+
+```cpp
+// GOOD:
+[[nodiscard]] TextWithEntities FlattenSummaryBlocks(
+	const std::vector<Block> &blocks);
+```
+
+Do not use one-line trailing return types, or put the trailing return type after `)` on the same line. If it fits on one line with trailing syntax, the normal form would be shorter and easier to read:
+
+```cpp
+// BAD:
+auto ComputeTitle() -> QString;
+
+// BAD:
+[[nodiscard]] auto FlattenSummaryBlocks(
+	const std::vector<Block> &blocks) -> TextWithEntities;
+```
+
+Use `auto` with a trailing return type only when the normal opening line
+`{attributes} {return-type} {class-name::}{function-name(}` would be too long, or would force the return type onto its own line. Put the arrow and return type on the next line so the return type remains easy to find:
+
+```cpp
+// BAD:
+not_null<HistoryView::Controls::ComposeAiButton*>
+HistoryView::Controls::SetupCaptionAiButton(SetupCaptionAiButtonArgs &&args);
+```
+
+```cpp
+// GOOD:
+auto HistoryView::Controls::SetupCaptionAiButton(
+		SetupCaptionAiButtonArgs &&args)
+-> not_null<HistoryView::Controls::ComposeAiButton*>;
+```
+
+This applies to both declarations and definitions.
+
+**Use `_q` for QString literals:**
+
+Prefer the project literal `u"..."_q` instead of the verbose `QStringLiteral("...")` macro when creating `QString` values:
+
+```cpp
+// Prefer this:
+auto text = u"Settings"_q;
+
+// Instead of this:
+auto text = QStringLiteral("Settings");
+```
+
+**Never use `Q_OS_LINUX` for platform checks in new code:**
+
+Telegram Desktop distinguishes at most three platforms: Windows / macOS / all-other. The "all-other" branch covers Linux, the BSD variants and more — and this is almost always the branch you want. `Q_OS_LINUX` narrows it to Linux alone, silently excluding the non-Linux Unix platforms, which is almost never intended. For the all-other branch use `!defined Q_OS_WIN && !defined Q_OS_MAC` at compile time, or its runtime equivalent `Platform::IsLinux()` — which, despite the name, means exactly `!defined Q_OS_WIN && !defined Q_OS_MAC` ("everything except Windows and macOS"), not Linux specifically:
+
+```cpp
+// BAD - excludes FreeBSD and other non-Linux Unix:
+#ifdef Q_OS_LINUX
+UnixSpecificCode();
+#endif // Q_OS_LINUX
+
+// GOOD - the all-other branch, compile time:
+#if !defined Q_OS_WIN && !defined Q_OS_MAC
+UnixSpecificCode();
+#endif // !Q_OS_WIN && !Q_OS_MAC
+
+// GOOD - the all-other branch, runtime (same meaning, NOT Linux-only):
+if (Platform::IsLinux()) {
+	UnixSpecificCode();
+}
+```
+
+`Q_OS_LINUX` is only for the rare case where you genuinely want exactly Linux and not the other Unix-like systems — usually you don't. The few existing uses (`Telegram/SourceFiles/core/sandbox.cpp`, `Telegram/SourceFiles/platform/linux/specific_linux.cpp`) are such genuinely Linux-only code paths and stay as-is.
 
 ## API Usage
 
@@ -212,6 +380,7 @@ api().request(MTPnamespace_MethodName(
   ```
 - For single constructors, use `.data()` shortcut
 - Include `.handleFloodErrors()` before `.send()` in rare cases where you want special case flood error handling
+- Silently ignore HTTP 406 errors in UI: the server uses 406 to mean "show nothing to the user". Guard toasts with `MTP::IgnoreError(error)` or use `MTP::ShowErrorFallback(show, error)` (both in `mtproto/mtproto_response.h`) which shows `error.type()` as a toast unless the error should be ignored.
 
 ## UI Styling
 
@@ -246,7 +415,7 @@ primaryButton: MyButtonStyle(defaultButton) {
 - `pixels` - Pixel values with `px` suffix (e.g., `10px`)
 - `color` - Named colors from `ui/colors.palette`
 - `icon` - Inline icon definition: `icon{{ "path/stem", color }}`
-- `margins` - Four values: `margins(top, right, bottom, left)`
+- `margins` - Four values: `margins(left, top, right, bottom)`
 - `size` - Two values: `size(width, height)`
 - `point` - Two values: `point(x, y)`
 - `align` - Alignment: `align(center)`, `align(left)`
@@ -307,6 +476,9 @@ void MyWidget::paintEvent(QPaintEvent *e) {
 ```
 
 ## Localization
+
+Keep `Telegram/Resources/langs/zh-hans.lproj/zh-hans.json` in sync when an
+`ayu_` key in `Telegram/Resources/langs/lang.strings` is mirrored there.
 
 ### String Definitions
 
@@ -448,4 +620,3 @@ The `Error` template parameter defaults to `rpl::no_error`: `rpl::producer<Type,
 - Pass `rpl::lifetime` to `on_...` methods or store returned lifetime
 - Use `rpl::duplicate(producer)` to reuse a producer multiple times
 - Combined producers automatically unpack tuples in lambdas (works with `rpl::map`, `rpl::filter`, and `rpl::on_next`)
-

@@ -20,6 +20,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lottie/lottie_single_player.h"
 #include "media/audio/media_audio.h"
 #include "media/clip/media_clip_reader.h"
+#include "media/media_common.h"
 #include "media/player/media_player_instance.h"
 #include "history/history_location_manager.h"
 #include "history/view/history_view_cursor_state.h"
@@ -31,18 +32,21 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/painter.h"
 #include "main/main_session.h"
 #include "lang/lang_keys.h"
+#include "styles/style_chat_style.h"
 #include "styles/style_overview.h"
 #include "styles/style_chat.h"
 #include "styles/style_chat_helpers.h"
-#include "styles/style_widgets.h"
 
 namespace InlineBots {
 namespace Layout {
 namespace internal {
+namespace {
 
 using TextState = HistoryView::TextState;
 
 constexpr auto kMaxInlineArea = 1280 * 720;
+
+using ::Media::ValidFrameSize;
 
 [[nodiscard]] QSize ScaleDown(int w, int h, int maxW, int maxH) {
 	if (w * maxH > h * maxW) {
@@ -60,9 +64,10 @@ constexpr auto kMaxInlineArea = 1280 * 720;
 }
 
 [[nodiscard]] bool CanPlayInline(not_null<DocumentData*> document) {
-	const auto dimensions = document->dimensions;
-	return dimensions.width() * dimensions.height() <= kMaxInlineArea;
+	return ValidFrameSize(document->dimensions, kMaxInlineArea);
 }
+
+} // namespace
 
 FileBase::FileBase(not_null<Context*> context, std::shared_ptr<Result> result)
 : ItemBase(context, std::move(result)) {
@@ -314,6 +319,13 @@ void Gif::clickHandlerActiveChanged(const ClickHandlerPtr &p, bool active) {
 QSize Gif::countFrameSize() const {
 	bool animating = (_gif && _gif->ready());
 	int32 framew = animating ? _gif->width() : content_width(), frameh = animating ? _gif->height() : content_height(), height = st::inlineMediaHeight;
+	if (framew <= 0 || frameh <= 0) {
+		framew = content_width();
+		frameh = content_height();
+	}
+	if (framew <= 0 || frameh <= 0) {
+		return { _width, height };
+	}
 	if (framew * height > frameh * _width) {
 		if (framew < st::maxStickerSize || frameh > height) {
 			if (frameh > height || (framew * height / frameh) <= st::maxStickerSize) {
@@ -430,10 +442,11 @@ void Gif::clipCallback(Media::Clip::Notification notification) {
 			if (_gif->state() == State::Error) {
 				_gif.setBad();
 			} else if (_gif->ready() && !_gif->started()) {
-				if (_gif->width() * _gif->height() > kMaxInlineArea) {
-					getShownDocument()->dimensions = QSize(
-						_gif->width(),
-						_gif->height());
+				const auto size = QSize(_gif->width(), _gif->height());
+				if (!ValidFrameSize(size, kMaxInlineArea)) {
+					if (!size.isEmpty()) {
+						getShownDocument()->dimensions = size;
+					}
 					_gif.reset();
 				} else {
 					_gif->start({
@@ -678,11 +691,10 @@ void Photo::initDimensions() {
 	const auto photo = getShownPhoto();
 	int32 w = photo->width(), h = photo->height();
 	if (w <= 0 || h <= 0) {
-		_maxw = 0;
-	} else {
-		w = w * st::inlineMediaHeight / h;
-		_maxw = qMax(w, int32(st::inlineResultsMinWidth));
+		w = h = 1;
 	}
+	w = w * st::inlineMediaHeight / h;
+	_maxw = qMax(w, int32(st::inlineResultsMinWidth));
 	_minh = st::inlineMediaHeight + st::inlineResultsSkip;
 }
 
@@ -723,6 +735,22 @@ PhotoData *Photo::getShownPhoto() const {
 QSize Photo::countFrameSize() const {
 	const auto photo = getShownPhoto();
 	int32 framew = photo->width(), frameh = photo->height(), height = st::inlineMediaHeight;
+	if ((framew <= 0 || frameh <= 0) && _photoMedia) {
+		using PhotoSize = Data::PhotoSize;
+		if (const auto image = _photoMedia->image(PhotoSize::Thumbnail)) {
+			framew = image->width();
+			frameh = image->height();
+		} else if (const auto image = _photoMedia->image(PhotoSize::Small)) {
+			framew = image->width();
+			frameh = image->height();
+		} else if (const auto image = _photoMedia->thumbnailInline()) {
+			framew = image->width();
+			frameh = image->height();
+		}
+	}
+	if (framew <= 0 || frameh <= 0) {
+		return { _width, height };
+	}
 	if (framew * height > frameh * _width) {
 		if (framew < st::maxStickerSize || frameh > height) {
 			if (frameh > height || (framew * height / frameh) <= st::maxStickerSize) {
@@ -787,7 +815,7 @@ void Photo::prepareThumbnail(QSize size, QSize frame) const {
 Video::Video(not_null<Context*> context, std::shared_ptr<Result> result)
 : FileBase(context, std::move(result))
 , _link(getResultPreviewHandler())
-, _title(st::emojiPanWidth - st::emojiScroll.width - st::inlineResultsLeft - st::inlineThumbSize - st::inlineThumbSkip)
+, _title(1)
 , _description(st::emojiPanWidth - st::emojiScroll.width - st::inlineResultsLeft - st::inlineThumbSize - st::inlineThumbSkip) {
 	if (int duration = content_duration()) {
 		_duration = Ui::FormatDurationText(duration);
@@ -1431,8 +1459,8 @@ Article::Article(
 , _url(getResultUrlHandler())
 , _link(getResultPreviewHandler())
 , _withThumb(withThumb)
-, _title(st::emojiPanWidth / 2)
-, _description(st::emojiPanWidth - st::emojiScroll.width - st::inlineResultsLeft - st::inlineThumbSize - st::inlineThumbSkip) {
+, _title(1)
+, _description(1) {
 	if (!_link) {
 		if (const auto point = _result->getLocationPoint()) {
 			_link = std::make_shared<LocationClickHandler>(*point);
@@ -1441,44 +1469,54 @@ Article::Article(
 	_thumbLetter = getResultThumbLetter();
 }
 
+int Article::textLeft() const {
+	return _withThumb
+		? (st::inlineThumbSize + st::inlineThumbSkip)
+		: (st::defaultEmojiPan.headerLeft - st::inlineResultsLeft);
+}
+
+int Article::countHeight(int textWidth) const {
+	int32 titleHeight = qMin(_title.countHeight(textWidth), 2 * st::semiboldFont->height);
+
+	int32 descriptionLines = (_withThumb || _url) ? 2 : 3;
+	int32 descriptionHeight = qMin(_description.countHeight(textWidth), descriptionLines * st::normalFont->height);
+
+	int32 result = titleHeight + descriptionHeight;
+	if (_url) result += st::normalFont->height;
+	if (_withThumb) result = qMax(result, int32(st::inlineThumbSize));
+	return result + st::inlineRowMargin * 2 + st::inlineRowBorder;
+}
+
 void Article::initDimensions() {
 	_maxw = st::emojiPanWidth - st::emojiScroll.width - st::inlineResultsLeft;
-	int32 textWidth = _maxw - (_withThumb ? (st::inlineThumbSize + st::inlineThumbSkip) : (st::defaultEmojiPan.headerLeft - st::inlineResultsLeft));
+	const auto textWidth = _maxw - textLeft();
 	TextParseOptions titleOpts = { 0, textWidth, 2 * st::semiboldFont->height, Qt::LayoutDirectionAuto };
 	_title.setText(st::semiboldTextStyle, TextUtilities::SingleLine(_result->getLayoutTitle()), titleOpts);
-	int32 titleHeight = qMin(_title.countHeight(textWidth), 2 * st::semiboldFont->height);
 
 	int32 descriptionLines = (_withThumb || _url) ? 2 : 3;
 	QString description = _result->getLayoutDescription();
 	TextParseOptions descriptionOpts = { TextParseMultiline, textWidth, descriptionLines * st::normalFont->height, Qt::LayoutDirectionAuto };
 	_description.setText(st::defaultTextStyle, description, descriptionOpts);
-	int32 descriptionHeight = qMin(_description.countHeight(textWidth), descriptionLines * st::normalFont->height);
-
-	_minh = titleHeight + descriptionHeight;
-	if (_url) _minh += st::normalFont->height;
-	if (_withThumb) _minh = qMax(_minh, int32(st::inlineThumbSize));
-	_minh += st::inlineRowMargin * 2 + st::inlineRowBorder;
 }
 
 int Article::resizeGetHeight(int width) {
 	_width = qMin(width, _maxw);
+	const auto textWidth = _width - textLeft();
 	if (_url) {
 		_urlText = getResultUrl();
 		_urlWidth = st::normalFont->width(_urlText);
-		int32 textWidth = _width - (_withThumb ? (st::inlineThumbSize + st::inlineThumbSkip) : (st::defaultEmojiPan.headerLeft - st::inlineResultsLeft));
 		if (_urlWidth > textWidth) {
 			_urlText = st::normalFont->elided(_urlText, textWidth);
 			_urlWidth = st::normalFont->width(_urlText);
 		}
 	}
-	_height = _minh;
+	_height = countHeight(textWidth);
 	return _height;
 }
 
 void Article::paint(Painter &p, const QRect &clip, const PaintContext *context) const {
-	int32 left = st::defaultEmojiPan.headerLeft - st::inlineResultsLeft;
+	const auto left = textLeft();
 	if (_withThumb) {
-		left = st::inlineThumbSize + st::inlineThumbSkip;
 		prepareThumbnail(st::inlineThumbSize, st::inlineThumbSize);
 		QRect rthumb(style::rtlrect(0, st::inlineRowMargin, st::inlineThumbSize, st::inlineThumbSize, _width));
 		if (_thumb.isNull()) {
@@ -1532,11 +1570,21 @@ TextState Article::getState(
 	auto left = _withThumb ? (st::inlineThumbSize + st::inlineThumbSkip) : 0;
 	if (QRect(left, 0, _width - left, _height).contains(point)) {
 		if (_url) {
-			auto left = st::inlineThumbSize + st::inlineThumbSkip;
-			auto titleHeight = qMin(_title.countHeight(_width - left), st::semiboldFont->height * 2);
-			auto descriptionLines = 2;
-			auto descriptionHeight = qMin(_description.countHeight(_width - left), st::normalFont->height * descriptionLines);
-			if (style::rtlrect(left, st::inlineRowMargin + titleHeight + descriptionHeight, _urlWidth, st::normalFont->height, _width).contains(point)) {
+			const auto textWidth = _width - textLeft();
+			const auto titleHeight = qMin(
+				_title.countHeight(textWidth),
+				st::semiboldFont->height * 2);
+			const auto descriptionLines = 2;
+			const auto descriptionHeight = qMin(
+				_description.countHeight(textWidth),
+				st::normalFont->height * descriptionLines);
+			const auto urlRect = style::rtlrect(
+				textLeft(),
+				st::inlineRowMargin + titleHeight + descriptionHeight,
+				_urlWidth,
+				st::normalFont->height,
+				_width);
+			if (urlRect.contains(point)) {
 				return { nullptr, _url };
 			}
 		}
@@ -1634,8 +1682,8 @@ void Article::unloadHeavyPart() {
 
 Game::Game(not_null<Context*> context, std::shared_ptr<Result> result)
 : ItemBase(context, std::move(result))
-, _title(st::emojiPanWidth - st::emojiScroll.width - st::inlineResultsLeft - st::inlineThumbSize - st::inlineThumbSkip)
-, _description(st::emojiPanWidth - st::emojiScroll.width - st::inlineResultsLeft - st::inlineThumbSize - st::inlineThumbSkip) {
+, _title(1)
+, _description(1) {
 	countFrameSize();
 }
 
@@ -1667,21 +1715,32 @@ void Game::countFrameSize() {
 	}
 }
 
+int Game::countHeight(int textWidth) const {
+	int32 titleHeight = qMin(_title.countHeight(textWidth), 2 * st::semiboldFont->height);
+
+	int32 descriptionLines = 2;
+	int32 descriptionHeight = qMin(_description.countHeight(textWidth), descriptionLines * st::normalFont->height);
+
+	int32 result = titleHeight + descriptionHeight;
+	accumulate_max(result, st::inlineThumbSize);
+	return result + st::inlineRowMargin * 2 + st::inlineRowBorder;
+}
+
 void Game::initDimensions() {
 	_maxw = st::emojiPanWidth - st::emojiScroll.width - st::inlineResultsLeft;
 	TextParseOptions titleOpts = { 0, _maxw, 2 * st::semiboldFont->height, Qt::LayoutDirectionAuto };
 	_title.setText(st::semiboldTextStyle, TextUtilities::SingleLine(_result->getLayoutTitle()), titleOpts);
-	int32 titleHeight = qMin(_title.countHeight(_maxw), 2 * st::semiboldFont->height);
 
 	int32 descriptionLines = 2;
 	QString description = _result->getLayoutDescription();
 	TextParseOptions descriptionOpts = { TextParseMultiline, _maxw, descriptionLines * st::normalFont->height, Qt::LayoutDirectionAuto };
 	_description.setText(st::defaultTextStyle, description, descriptionOpts);
-	int32 descriptionHeight = qMin(_description.countHeight(_maxw), descriptionLines * st::normalFont->height);
+}
 
-	_minh = titleHeight + descriptionHeight;
-	accumulate_max(_minh, st::inlineThumbSize);
-	_minh += st::inlineRowMargin * 2 + st::inlineRowBorder;
+int Game::resizeGetHeight(int width) {
+	_width = qMin(width, _maxw);
+	_height = countHeight(_width - (st::inlineThumbSize + st::inlineThumbSkip));
+	return _height;
 }
 
 void Game::setPosition(int32 position) {
@@ -1900,10 +1959,11 @@ void Game::clipCallback(Media::Clip::Notification notification) {
 			if (_gif->state() == State::Error) {
 				_gif.setBad();
 			} else if (_gif->ready() && !_gif->started()) {
-				if (_gif->width() * _gif->height() > kMaxInlineArea) {
-					getResultDocument()->dimensions = QSize(
-						_gif->width(),
-						_gif->height());
+				const auto size = QSize(_gif->width(), _gif->height());
+				if (!ValidFrameSize(size, kMaxInlineArea)) {
+					if (!size.isEmpty()) {
+						getResultDocument()->dimensions = size;
+					}
 					_gif.reset();
 				} else {
 					_gif->start({

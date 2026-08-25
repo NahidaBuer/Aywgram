@@ -97,7 +97,8 @@ void Account::watchProxyChanges() {
 	Core::App().proxyChanges(
 	) | rpl::on_next([=](const ProxyChange &change) {
 		const auto key = [&](const MTP::ProxyData &proxy) {
-			return (proxy.type == MTP::ProxyData::Type::Mtproto)
+			return (proxy.type == MTP::ProxyData::Type::Mtproto
+				|| proxy.type == MTP::ProxyData::Type::Web)
 				? std::make_pair(proxy.host, proxy.port)
 				: std::make_pair(QString(), uint32(0));
 		};
@@ -141,6 +142,28 @@ void Account::createSession(
 		settings ? std::move(settings) : std::make_unique<SessionSettings>());
 }
 
+void Account::applyImportedAuthorization(
+		MTP::Instance::Fields &&fields,
+		const MTPUser &user) {
+	Expects(!sessionExists());
+	Expects(fields.config != nullptr);
+	Expects(fields.mainDcId > 0);
+	Expects(!fields.keys.empty());
+	Expects(user.type() == mtpc_user);
+	Expects(user.c_user().is_self());
+	Expects(user.c_user().vid().v != 0);
+
+	_mtp = nullptr;
+	_mtpFields = std::move(fields);
+	auto config = base::take(_mtpFields.config);
+	startMtp(std::move(config));
+	createSession(user);
+	local().enforceModernStorageIdBots();
+	local().writeMtpData();
+	appConfig().refresh();
+	Local::sync();
+}
+
 void Account::createSession(
 		UserId id,
 		QByteArray serialized,
@@ -175,7 +198,8 @@ void Account::createSession(
 			MTPPeerColor(), // profile_color
 			MTPint(), // bot_active_users
 			MTPlong(), // bot_verification_icon
-			MTPlong()), // send_paid_messages_stars
+			MTPlong(), // send_paid_messages_stars
+			MTPlong()), // linked_community_id
 		serialized,
 		streamVersion,
 		std::move(settings));
@@ -462,6 +486,7 @@ void Account::startMtp(std::unique_ptr<MTP::Config> config) {
 	_mtp->setStateChangedHandler([=](MTP::ShiftedDcId dc, int32 state) {
 		if (dc == _mtp->mainDcId()) {
 			Core::App().settings().proxy().connectionTypeChangesNotify();
+			Core::App().checkProxyRotation(this, state);
 		}
 	});
 	_mtp->setSessionResetHandler([=](MTP::ShiftedDcId shiftedDcId) {

@@ -20,14 +20,17 @@
 #include "main/main_session.h"
 #include "settings/settings_builder.h"
 #include "settings/settings_common.h"
+#include "styles/style_ayu_icons.h"
 #include "styles/style_ayu_styles.h"
 #include "styles/style_chat.h"
 #include "styles/style_chat_helpers.h"
 #include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_settings.h"
+#include "styles/style_window.h"
 #include "ui/painter.h"
 #include "ui/vertical_list.h"
+#include "ui/boxes/single_choice_box.h"
 #include "ui/text/text.h"
 #include "ui/toast/toast.h"
 #include "ui/widgets/buttons.h"
@@ -50,16 +53,59 @@ struct GhostPickerState {
 	Fn<void()> refreshCheckboxes;
 };
 
+struct AccountUserpicGeometry {
+	QRect outer;
+	QRect inner;
+};
+
+[[nodiscard]] AccountUserpicGeometry AccountUserpic(int height) {
+	const auto line = st::mainMenuAccountLine;
+	const auto skip = 2 * line + st::lineWidth;
+	const auto full = st::mainMenuAccountSize + 2 * skip;
+	const auto outer = QRect(
+		st::defaultWhoRead.photoLeft
+			+ (st::defaultWhoRead.photoSize - full) / 2,
+		(height - full) / 2,
+		full,
+		full);
+	return {
+		.outer = outer,
+		.inner = QRect(
+			outer.x() + skip,
+			outer.y() + skip,
+			st::mainMenuAccountSize,
+			st::mainMenuAccountSize),
+	};
+}
+
+void PaintAccountOutline(Painter &p, QRect outer) {
+	const auto line = st::mainMenuAccountLine;
+	const auto shift = st::lineWidth + (line * 0.5);
+	const auto rect = QRectF(outer).marginsRemoved(QMarginsF(
+		shift,
+		shift,
+		shift,
+		shift));
+	auto hq = PainterHighQualityEnabler(p);
+	auto pen = st::windowBgActive->p;
+	pen.setWidthF(line);
+	p.setPen(pen);
+	p.setBrush(Qt::NoBrush);
+	AyuUserpic::PaintShape(p, rect);
+}
+
 class AccountAction final : public Ui::Menu::ItemBase {
 public:
 	AccountAction(
 		not_null<Ui::Menu::Menu*> parent,
 		const style::Menu &st,
 		UserData *user,
+		bool active,
 		Fn<void()> callback)
 	: ItemBase(parent, st)
 	, _dummyAction(Ui::CreateChild<QAction>(parent.get()))
 	, _user(user)
+	, _active(active)
 	, _st(st)
 	, _height(st::defaultWhoRead.photoSkip * 2 + st::defaultWhoRead.photoSize) {
 		setAcceptBoth(true);
@@ -99,10 +145,17 @@ private:
 			paintRipple(p, 0, 0);
 		}
 
-		const auto photoSize = st::defaultWhoRead.photoSize;
-		const auto photoLeft = st::defaultWhoRead.photoLeft;
-		const auto photoTop = (_height - photoSize) / 2;
-		_user->paintUserpicLeft(p, _userpicView, photoLeft, photoTop, width(), photoSize);
+		const auto userpic = AccountUserpic(_height);
+		_user->paintUserpicLeft(
+			p,
+			_userpicView,
+			userpic.inner.x(),
+			userpic.inner.y(),
+			width(),
+			userpic.inner.width());
+		if (_active) {
+			PaintAccountOutline(p, userpic.outer);
+		}
 
 		p.setPen(selected ? _st.itemFgOver : _st.itemFg);
 		_text.drawLeftElided(
@@ -116,6 +169,7 @@ private:
 	const not_null<QAction*> _dummyAction;
 	UserData *_user = nullptr;
 	mutable Ui::PeerUserpicView _userpicView;
+	const bool _active = false;
 	const style::Menu &_st;
 	Ui::Text::String _text;
 	const int _height;
@@ -127,9 +181,11 @@ public:
 		not_null<Ui::Menu::Menu*> parent,
 		const style::Menu &st,
 		const QString &text,
+		bool active,
 		Fn<void()> callback)
 	: ItemBase(parent, st)
 	, _dummyAction(Ui::CreateChild<QAction>(parent.get()))
+	, _active(active)
 	, _st(st)
 	, _height(st::defaultWhoRead.photoSkip * 2 + st::defaultWhoRead.photoSize) {
 		setAcceptBoth(true);
@@ -169,12 +225,10 @@ private:
 			paintRipple(p, 0, 0);
 		}
 
-		const auto photoSize = st::defaultWhoRead.photoSize;
-		const auto photoLeft = st::defaultWhoRead.photoLeft;
-		const auto photoTop = (_height - photoSize) / 2;
+		const auto userpic = AccountUserpic(_height);
 		{
 			auto hq = PainterHighQualityEnabler(p);
-			auto rect = QRectF(photoLeft, photoTop, photoSize, photoSize);
+			auto rect = QRectF(userpic.inner);
 			auto gradient = QLinearGradient(rect.topLeft(), rect.bottomLeft());
 			gradient.setStops({
 				{ 0., st::historyPeer5UserpicBg->c },
@@ -185,16 +239,13 @@ private:
 			AyuUserpic::PaintShape(p, rect);
 		}
 		{
-			const auto fontsize = (photoSize * 13) / 33;
-			auto font = st::historyPeerUserpicFont->f;
-			font.setPixelSize(fontsize);
-			p.setFont(font);
-			p.setBrush(Qt::NoBrush);
-			p.setPen(st::historyPeerUserpicFg);
-			p.drawText(
-				QRect(photoLeft, photoTop, photoSize, photoSize),
-				u"GS"_q,
-				QTextOption(style::al_center));
+			auto hq = PainterHighQualityEnabler(p);
+			p.drawImage(
+				userpic.inner,
+				st::ayuGhostModeGlobalIcon.instance(st::historyPeerUserpicFg->c));
+		}
+		if (_active) {
+			PaintAccountOutline(p, userpic.outer);
 		}
 
 		p.setPen(selected ? _st.itemFgOver : _st.itemFg);
@@ -207,6 +258,7 @@ private:
 	}
 
 	const not_null<QAction*> _dummyAction;
+	const bool _active = false;
 	const style::Menu &_st;
 	Ui::Text::String _text;
 	const int _height;
@@ -276,6 +328,7 @@ void BuildGhostEssentials(SectionBuilder &builder) {
 				dst.setMarkReadAfterAction(src.markReadAfterAction());
 				dst.setUseScheduledMessages(src.useScheduledMessages());
 				dst.setSendWithoutSound(src.sendWithoutSound());
+				dst.setSuggestGhostModeBeforeViewingStory(src.suggestGhostModeBeforeViewingStory());
 				dst.setSendReadMessagesLocked(src.sendReadMessagesLocked());
 				dst.setSendReadStoriesLocked(src.sendReadStoriesLocked());
 				dst.setSendOnlinePacketsLocked(src.sendOnlinePacketsLocked());
@@ -370,7 +423,11 @@ void BuildGhostEssentials(SectionBuilder &builder) {
 			};
 
 			auto collapsible = AddCollapsibleToggle(
-				container, tr::ayu_GhostModeToggle(), std::move(checkboxes), true);
+				container,
+				tr::ayu_GhostModeToggle(),
+				std::move(checkboxes),
+				true,
+				tr::ayu_GhostModeOptionShiftDescription(tr::now));
 			state->refreshCheckboxes = std::move(collapsible.refresh);
 			if (wctx.highlights && collapsible.widget) {
 				wctx.highlights->push_back(std::make_pair(
@@ -444,33 +501,75 @@ void BuildGhostEssentials(SectionBuilder &builder) {
 			AddDividerText(container, tr::ayu_UseScheduledMessagesDescription());
 
 			AddSkip(container);
-			const auto silentButton = AddButtonWithIcon(
+			const auto silentOptions = std::vector<QString>{
+				tr::ayu_SendWithoutSoundByDefaultNever(tr::now),
+				tr::ayu_SendWithoutSoundByDefaultInGhostMode(tr::now),
+				tr::ayu_SendWithoutSoundByDefaultAlways(tr::now),
+			};
+			const auto silentOptionText = state->selectedUserId.value(
+			) | rpl::map([=](uint64 id) {
+				return AyuSettings::ghost(id).sendWithoutSoundValue(
+				) | rpl::map([=](SendWithoutSoundOption value) {
+					return silentOptions[static_cast<int>(value)];
+				});
+			}) | rpl::flatten_latest();
+			const auto silentButton = AddButtonWithLabel(
 				container,
 				tr::ayu_SendWithoutSoundByDefault(),
-				st::settingsButtonNoIcon
-			);
+				std::move(silentOptionText),
+				st::settingsButtonNoIcon);
 			if (wctx.highlights) {
 				wctx.highlights->push_back(std::make_pair(
 					u"ayu/sendWithoutSound"_q,
 					HighlightEntry{ silentButton.get(), {} }));
 			}
-			silentButton->toggleOn(
+			silentButton->addClickHandler([=] {
+				controller->show(Box([=](not_null<Ui::GenericBox*> box) {
+					const auto save = [=](int index) {
+						AyuSettings::ghost(state->selectedUserId.current()
+						).setSendWithoutSound(
+							static_cast<SendWithoutSoundOption>(index));
+					};
+					SingleChoiceBox(box, {
+						.title = tr::ayu_SendWithoutSoundByDefault(),
+						.options = silentOptions,
+						.initialSelection = static_cast<int>(
+							AyuSettings::ghost(state->selectedUserId.current()
+							).sendWithoutSound()),
+						.callback = save,
+					});
+				}));
+			});
+			AddSkip(container);
+			AddDividerText(container, tr::ayu_SendWithoutSoundByDefaultDescription());
+
+			AddSkip(container);
+			const auto suggestGhostModeButton = AddButtonWithIcon(
+				container,
+				tr::ayu_SuggestGhostModeBeforeViewingStory(),
+				st::settingsButtonNoIcon);
+			if (wctx.highlights) {
+				wctx.highlights->push_back(std::make_pair(
+					u"ayu/suggestGhostModeBeforeViewingStory"_q,
+					HighlightEntry{ suggestGhostModeButton.get(), {} }));
+			}
+			suggestGhostModeButton->toggleOn(
 				state->selectedUserId.value()
 				| rpl::map([](uint64 id) {
-					return AyuSettings::ghost(id).sendWithoutSoundValue();
+					return AyuSettings::ghost(id).suggestGhostModeBeforeViewingStoryValue();
 				}) | rpl::flatten_latest()
 			)->toggledValue(
 			) | rpl::filter(
 				[=](bool enabled) {
-					return enabled != AyuSettings::ghost(state->selectedUserId.current()).sendWithoutSound();
+					return enabled != AyuSettings::ghost(state->selectedUserId.current()).suggestGhostModeBeforeViewingStory();
 				}
 			) | on_next(
 				[=](bool enabled) {
-					AyuSettings::ghost(state->selectedUserId.current()).setSendWithoutSound(enabled);
+					AyuSettings::ghost(state->selectedUserId.current()).setSuggestGhostModeBeforeViewingStory(enabled);
 				},
 				container->lifetime());
 			AddSkip(container);
-			AddDividerText(container, tr::ayu_SendWithoutSoundByDefaultDescription());
+			AddDividerText(container, tr::ayu_SuggestGhostModeBeforeViewingStoryDescription());
 
 			auto showMenu = [=] {
 				state->menu = base::make_unique_q<Ui::PopupMenu>(
@@ -482,6 +581,7 @@ void BuildGhostEssentials(SectionBuilder &builder) {
 						state->menu->menu(),
 						st::defaultPopupMenu.menu,
 						tr::ayu_GhostModeGlobalSettings(tr::now),
+						state->selectedUserId.current() == 0,
 						[=] { selectGhostProfile(state, 0); }));
 
 				for (const auto &account : Core::App().domain().orderedAccounts()) {
@@ -495,6 +595,7 @@ void BuildGhostEssentials(SectionBuilder &builder) {
 							state->menu->menu(),
 							st::defaultPopupMenu.menu,
 							user,
+							state->selectedUserId.current() == id,
 							[=] { selectGhostProfile(state, id); }));
 				}
 
@@ -523,6 +624,11 @@ void BuildGhostEssentials(SectionBuilder &builder) {
 			sctx.entries->push_back({
 				.id = u"ayu/sendWithoutSound"_q,
 				.title = tr::ayu_SendWithoutSoundByDefault(tr::now),
+				.section = sctx.sectionId,
+			});
+			sctx.entries->push_back({
+				.id = u"ayu/suggestGhostModeBeforeViewingStory"_q,
+				.title = tr::ayu_SuggestGhostModeBeforeViewingStory(tr::now),
 				.section = sctx.sectionId,
 			});
 		});
@@ -575,7 +681,7 @@ void BuildOther(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 const auto kMeta = BuildHelper({
 	.id = AyuGhost::Id(),
 	.parentId = AyuMain::Id(),
-	.title = u"AyuGram"_q,
+	.title = u"AywGram"_q,
 	.icon = &st::menuIconGroupReactions,
 }, [](SectionBuilder &builder) {
 	auto ayu = AyuSectionBuilder(builder);
@@ -594,7 +700,7 @@ const auto kMeta = BuildHelper({
 } // namespace
 
 rpl::producer<QString> AyuGhost::title() {
-	return rpl::single(QString("AyuGram"));
+	return rpl::single(QString("AywGram"));
 }
 
 AyuGhost::AyuGhost(

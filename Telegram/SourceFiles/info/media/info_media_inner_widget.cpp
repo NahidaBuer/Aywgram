@@ -176,9 +176,6 @@ void InnerWidget::saveState(not_null<Memento*> memento) {
 
 void InnerWidget::restoreState(not_null<Memento*> memento) {
 	_list->restoreState(memento);
-	if (const auto id = memento->jumpToMessageId()) {
-		jumpToMessage(id);
-	}
 }
 
 rpl::producer<SelectedItems> InnerWidget::selectedListValue() const {
@@ -248,7 +245,27 @@ rpl::producer<Ui::ScrollToRequest> InnerWidget::scrollToRequests() const {
 	return _scrollToRequests.events();
 }
 
-void InnerWidget::jumpToMessage(MsgId msgId) {
+bool InnerWidget::processZoomWheel(not_null<QWheelEvent*> e) {
+	return _list->processZoomWheel(e);
+}
+
+void InnerWidget::zoomIn() {
+	_list->zoomIn();
+}
+
+void InnerWidget::zoomOut() {
+	_list->zoomOut();
+}
+
+bool InnerWidget::canZoomIn() const {
+	return _list->canZoomIn();
+}
+
+bool InnerWidget::canZoomOut() const {
+	return _list->canZoomOut();
+}
+
+void InnerWidget::jumpToMessage(FullMsgId msgId) {
 	_empty->setLoading(true);
 	_emptyHeightThreshold = st::semiboldFont->height;
 	_list->jumpToMessage(msgId);

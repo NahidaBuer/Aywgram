@@ -382,10 +382,25 @@ int MessageView::countWidth() const {
 			* (st::dialogsMiniPreview + st::dialogsMiniPreviewSkip))
 			+ st::dialogsMiniPreviewRight;
 	}
-	if (_unreadMedia) {
-		result += st::dialogsUnreadMediaSize + st::dialogsUnreadMediaSkip;
-	}
 	return result + _textCache.maxWidth();
+}
+
+bool MessageView::hasAnimatedContent() const {
+	if (_textCache.hasCustomEmoji()
+		|| _textCache.hasSpoilers()
+		|| _senderCache.hasCustomEmoji()) {
+		return true;
+	}
+	for (const auto &image : _imagesCache) {
+		if (image.hasSpoiler()) {
+			return true;
+		}
+	}
+	return false;
+}
+
+void MessageView::resetLastPaintGeometry() {
+	_lastPaintGeometry = QRect();
 }
 
 void MessageView::paint(
@@ -395,6 +410,7 @@ void MessageView::paint(
 	if (geometry.isEmpty()) {
 		return;
 	}
+	_lastPaintGeometry = geometry;
 	p.setFont(st::dialogsTextFont);
 	p.setPen(context.active
 		? st::dialogsTextFgActive
@@ -508,31 +524,6 @@ void MessageView::paint(
 		rect.setLeft(rect.x() + st::dialogsMiniPreviewRight);
 	}
 	// Style of _textCache.
-	if (_unreadMedia && rect.width()
-		>= st::dialogsUnreadMediaSize + st::dialogsUnreadMediaSkip) {
-		{
-			PainterHighQualityEnabler hq(p);
-			p.setPen(Qt::NoPen);
-			p.setBrush(context.active
-				? st::dialogsTextFgServiceActive
-				: context.selected
-				? st::dialogsTextFgServiceOver
-				: st::dialogsTextFgService);
-			p.drawEllipse(
-				rect.x(),
-				rect.y() + st::dialogsUnreadMediaTop,
-				st::dialogsUnreadMediaSize,
-				st::dialogsUnreadMediaSize);
-		}
-		p.setPen(context.active
-			? st::dialogsTextFgActive
-			: context.selected
-			? st::dialogsTextFgOver
-			: st::dialogsTextFg);
-		rect.setLeft(rect.x()
-			+ st::dialogsUnreadMediaSize
-			+ st::dialogsUnreadMediaSkip);
-	}
 	static const auto ellipsisWidth = st::dialogsTextStyle.font->width(
 		kQEllipsis);
 	if (rect.width() > ellipsisWidth) {
