@@ -559,8 +559,8 @@ bool Account::loggingOut() const {
 
 void Account::forcedLogOut() {
 	if (sessionExists()) {
-		resetAuthorizationKeys();
 		loggedOut();
+		resetAuthorizationKeys();
 	}
 }
 

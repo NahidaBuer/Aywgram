@@ -498,6 +498,9 @@ HostInput::HostInput(
 	rpl::producer<QString> placeholder,
 	const QString &val)
 : MaskedInputField(parent, st, std::move(placeholder), val) {
+	setInputMethodHints(Qt::ImhUrlCharactersOnly
+		| Qt::ImhNoAutoUppercase
+		| Qt::ImhNoPredictiveText);
 }
 
 void HostInput::correctValue(
@@ -541,6 +544,10 @@ Base64UrlInput::Base64UrlInput(
 	rpl::producer<QString> placeholder,
 	const QString &val)
 : MaskedInputField(parent, st, std::move(placeholder), val) {
+	setInputMethodHints(Qt::ImhLatinOnly
+		| Qt::ImhNoAutoUppercase
+		| Qt::ImhNoPredictiveText
+		| Qt::ImhSensitiveData);
 	static const auto RegExp = QRegularExpression("^[a-zA-Z0-9_\\-]+$");
 	if (!RegExp.match(val).hasMatch()) {
 		setText(QString());
@@ -1616,13 +1623,19 @@ void ProxyBox::setupTypes() {
 				label),
 			st::proxyEditTypePadding);
 	}
+	auto warning = _type->value(
+	) | rpl::map([](Type type) {
+		return (type == Type::Web)
+			? tr::lng_proxy_web_warning(tr::now)
+			: tr::lng_proxy_sponsor_warning(tr::now);
+	});
 	_aboutSponsored = _content->add(object_ptr<Ui::SlideWrap<>>(
 		_content,
 		object_ptr<Ui::PaddingWrap<>>(
 			_content,
 			object_ptr<Ui::FlatLabel>(
 				_content,
-				tr::lng_proxy_sponsor_warning(tr::now),
+				std::move(warning),
 				st::boxDividerLabel),
 			st::proxyAboutSponsorPadding)));
 }
@@ -1674,6 +1687,9 @@ void ProxyBox::setupWebAddress(const ProxyData &data) {
 			tr::lng_proxy_web_host_ph(),
 			(data.type == Type::Web) ? data.host : QString()),
 		st::proxyEditInputPadding);
+	_webHost->setInputMethodHints(Qt::ImhUrlCharactersOnly
+		| Qt::ImhNoAutoUppercase
+		| Qt::ImhNoPredictiveText);
 }
 
 void ProxyBox::setupCredentials(const ProxyData &data) {
@@ -1690,6 +1706,8 @@ void ProxyBox::setupCredentials(const ProxyData &data) {
 			tr::lng_connection_user_ph(),
 			data.user),
 		st::proxyEditInputPadding);
+	_user->setInputMethodHints(Qt::ImhNoAutoUppercase
+		| Qt::ImhNoPredictiveText);
 
 	auto passwordWrap = object_ptr<Ui::RpWidget>(credentials);
 	_password = Ui::CreateChild<Ui::PasswordInput>(
@@ -2075,7 +2093,9 @@ void ProxiesBoxController::ShowApplyConfirmation(
 			table->addRow(
 				object_ptr<Ui::FlatLabel>(
 					table,
-					tr::lng_proxy_sponsor_warning(),
+					(type == Type::Web)
+						? tr::lng_proxy_web_warning()
+						: tr::lng_proxy_sponsor_warning(),
 					st::proxyApplyBoxSponsorLabel),
 				object_ptr<Ui::RpWidget>(nullptr),
 				st::proxyApplyBoxSponsorMargin,
