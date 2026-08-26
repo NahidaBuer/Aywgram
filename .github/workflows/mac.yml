@@ -1,0 +1,147 @@
+name: MacOS.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - '*'
+
+permissions:
+  contents: read
+
+jobs:
+
+  prepare-libraries:
+    name: Prepare Libraries
+    runs-on: macos-latest
+
+    strategy:
+      matrix:
+        defines:
+          - ""
+    env:
+      REPO_NAME: ${{ github.event.repository.name }}
+      UPLOAD_ARTIFACT: "true"
+      ONLY_CACHE: "false"
+      PREPARE_PATH: "Telegram/build/prepare/prepare.py"
+      API_ID: ${{ secrets.API_ID }}
+      API_HASH: ${{ secrets.API_HASH }}
+
+    steps:
+      - name: Clone.
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          path: ${{ env.REPO_NAME }}
+
+      - name: First set up.
+        run: |
+          sudo chown -R `whoami`:admin /usr/local/share
+
+          brew update
+          brew upgrade || true
+          brew install automake libtool meson nasm ninja pkg-config
+
+          # Disable spotlight.
+          sudo mdutil -a -i off
+
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+          sudo sed -i '' '/CMAKE_${lang}_FLAGS_DEBUG_INIT/s/ -g//' /opt/homebrew/share/cmake/Modules/Compiler/GNU.cmake
+
+      - name: Libraries cache.
+        id: cache-libs
+        uses: actions/cache@v6
+        with:
+          path: |
+            Libraries
+            ThirdParty
+          key: ${{ runner.OS }}-libs-${{ hashFiles(format('{0}/{1}', env.REPO_NAME, env.PREPARE_PATH)) }}
+          restore-keys: ${{ runner.OS }}-libs-
+
+      - name: Libraries.
+        run: |
+          ./$REPO_NAME/Telegram/build/prepare/mac.sh skip-debug silent
+
+      - name: Free up some disk space.
+        run: find Libraries '(' '(' ! '(' -name '*.a' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -perm +111 ')' -type f ')' -o -empty ')' -delete
+
+  build:
+    name: MacOS
+    runs-on: macos-latest
+    needs: prepare-libraries
+
+    strategy:
+      matrix:
+        arch: [arm64, x86_64]
+        defines:
+          - ""
+    env:
+      REPO_NAME: ${{ github.event.repository.name }}
+      UPLOAD_ARTIFACT: "true"
+      ONLY_CACHE: "false"
+      PREPARE_PATH: "Telegram/build/prepare/prepare.py"
+
+    steps:
+      - name: Clone.
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          path: ${{ env.REPO_NAME }}
+
+      - name: Libraries cache.
+        id: cache-libs
+        uses: actions/cache@v6
+        with:
+          path: |
+            Libraries
+            ThirdParty
+          key: ${{ runner.OS }}-libs-${{ hashFiles(format('{0}/{1}', env.REPO_NAME, env.PREPARE_PATH)) }}
+          restore-keys: ${{ runner.OS }}-libs-
+
+      - name: Configure.
+        run: |
+          cd $REPO_NAME/Telegram
+          API_ARGS=(-D TDESKTOP_API_TEST=ON)
+          if [ -n "$API_ID" ] && [ -n "$API_HASH" ]; then
+            API_ARGS=(-D TDESKTOP_API_ID="$API_ID" -D TDESKTOP_API_HASH="$API_HASH")
+          fi
+
+          ./configure.sh \
+          -D CMAKE_CONFIGURATION_TYPES=Release \
+          -D CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
+          "${API_ARGS[@]}" \
+          -D DESKTOP_APP_MAC_ARCH=${{ matrix.arch }} \
+          -D DESKTOP_APP_DISABLE_AUTOUPDATE=OFF \
+          -D CMAKE_EXE_LINKER_FLAGS="-Wl,-x"
+
+      - name: Telegram Desktop build.
+        if: env.ONLY_CACHE == 'false'
+        run: |
+          cd $REPO_NAME/Telegram
+          cmake --build ../out --config Release --parallel
+
+      - name: Move artifact.
+        id: prepare-artifact
+        if: env.UPLOAD_ARTIFACT == 'true'
+        run: |
+          cd $REPO_NAME
+          VERSION=$(grep 'AppVersionStr' Telegram/SourceFiles/core/version.h | cut -d '"' -f 2)
+          cd out/Release
+          mkdir artifact
+          mv AywGram.app artifact/
+          mv Updater artifact/
+          if [ "${{ matrix.arch }}" == "arm64" ]; then
+            PLATFORM="AppleSilicon"
+          else
+            PLATFORM="Intel"
+          fi
+          echo "name=AywGram_v${VERSION}_${PLATFORM}" >> $GITHUB_OUTPUT
+
+      - uses: actions/upload-artifact@v7
+        if: env.UPLOAD_ARTIFACT == 'true'
+        name: Upload artifact.
+        with:
+          name: ${{ steps.prepare-artifact.outputs.name }}
+          path: ${{ env.REPO_NAME }}/out/Release/artifact/
+          retention-days: 1

@@ -1,0 +1,244 @@
+name: Windows.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - '*'
+
+permissions:
+  contents: read
+
+jobs:
+
+  windows:
+    name: Windows
+    runs-on: ${{ matrix.arch == 'arm64' && 'windows-11-arm' || 'windows-latest' }}
+
+    strategy:
+      matrix:
+        arch: [x64, arm64]
+        qt: ["", qt6]
+        generator: [""]
+        exclude:
+          - arch: arm64
+            qt: ""
+
+    env:
+      UPLOAD_ARTIFACT: "true"
+      ONLY_CACHE: "false"
+      PREPARE_PATH: "Telegram/build/prepare/prepare.py"
+      API_ID: ${{ secrets.API_ID }}
+      API_HASH: ${{ secrets.API_HASH }}
+
+    defaults:
+      run:
+        shell: cmd
+
+    steps:
+      - name: Prepare directories.
+        run: |
+          if "${{ matrix.arch }}"=="x64" (
+            set "TBUILD_TARGET=D:\TBuild"
+          ) else (
+            set "TBUILD_TARGET=%userprofile%\TBuild"
+          )
+          if not exist "%TBUILD_TARGET%\Libraries" mkdir "%TBUILD_TARGET%\Libraries"
+          if not exist "%TBUILD_TARGET%\tmp" mkdir "%TBUILD_TARGET%\tmp"
+          mklink /d "%GITHUB_WORKSPACE%\TBuild" "%TBUILD_TARGET%"
+          echo TBUILD=%GITHUB_WORKSPACE%\TBuild>>%GITHUB_ENV%
+          echo LibrariesPath=%GITHUB_WORKSPACE%\TBuild\Libraries${{ matrix.arch == 'x64' && '\win64' || '' }}>>%GITHUB_ENV%
+          echo TEMP=%TBUILD_TARGET%\tmp>>%GITHUB_ENV%
+          echo TMP=%TBUILD_TARGET%\tmp>>%GITHUB_ENV%
+          echo TMPDIR=%TBUILD_TARGET%\tmp>>%GITHUB_ENV%
+
+      - name: Get repository name.
+        shell: bash
+        run: echo "REPO_NAME=${GITHUB_REPOSITORY##*/}" >> $GITHUB_ENV
+
+      - name: Clone.
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          path: ${{ env.TBUILD }}\${{ env.REPO_NAME }}
+
+      - name: First set up.
+        shell: bash
+        run: |
+          DOCPATH=$TBUILD/$REPO_NAME/docs/building-win.md
+          SDK="$(grep "SDK version" $DOCPATH | sed -r 's/.*\*\*(.*)\*\* SDK version.*/\1/')"
+          echo "SDK=$SDK" >> $GITHUB_ENV
+
+          sed -i '/CMAKE_${lang}_FLAGS_DEBUG_INIT/s/${_Zi}//' "$PROGRAMFILES"/CMake/share/cmake*/Modules/Platform/Windows-MSVC.cmake
+
+          echo "$(sha256sum $TBUILD/$REPO_NAME/$PREPARE_PATH | awk '{ print $1 }')" >> CACHE_KEY.txt
+          echo "$SDK" >> CACHE_KEY.txt
+          echo "CACHE_KEY=$(sha256sum CACHE_KEY.txt | awk '{ print $1 }')" >> $GITHUB_ENV
+
+          echo "Configurate git for cherry-picks."
+          git config --global user.email "you@example.com"
+          git config --global user.name "Sample"
+
+      - name: Install VS 2026 Build Tools.
+        if: matrix.arch == 'arm64'
+        shell: pwsh
+        run: |
+          $exe = Join-Path $env:RUNNER_TEMP 'vs_buildtools.exe'
+          Invoke-WebRequest -Uri https://aka.ms/vs/18/stable/vs_buildtools.exe -OutFile $exe
+          $p = Start-Process -FilePath $exe -Wait -PassThru -ArgumentList `
+            '--quiet','--wait','--norestart','--nocache', `
+            '--add','Microsoft.VisualStudio.Workload.VCTools', `
+            '--add','Microsoft.VisualStudio.Component.VC.Tools.ARM64', `
+            '--add','Microsoft.VisualStudio.Component.VC.ATL.ARM64'
+          Remove-Item $exe -Force -ErrorAction SilentlyContinue
+          if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) { exit $p.ExitCode }
+
+      - uses: Eden-CI/msvc-dev-cmd@master
+        name: Native Tools Command Prompt.
+        with:
+          arch: ${{ matrix.arch }}
+          sdk: ${{ env.SDK }}
+          toolset: ${{ case(matrix.arch == 'arm64', '', '14.44') }}
+
+      - name: NuGet sources.
+        run: |
+          nuget sources Disable -Name "Microsoft Visual Studio Offline Packages"
+          nuget sources Add -Source https://api.nuget.org/v3/index.json & exit 0
+
+      - name: ThirdParty cache.
+        id: cache-third-party
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.TBUILD }}\ThirdParty
+          key: ${{ runner.OS }}-${{ runner.arch }}-third-party-${{ env.CACHE_KEY }}
+          restore-keys: ${{ runner.OS }}-${{ runner.arch }}-third-party-
+
+      - name: Libraries cache.
+        id: cache-libs
+        uses: actions/cache@v6
+        with:
+          path: |
+            ${{ env.LibrariesPath }}\*
+            !${{ env.LibrariesPath }}\cache_keys
+            !${{ env.LibrariesPath }}\[qQ]t[_-]*
+            ${{ env.LibrariesPath }}\cache_keys\*
+            !${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
+          key: ${{ runner.OS }}-${{ matrix.arch }}-libs-v2-${{ env.CACHE_KEY }}
+          restore-keys: ${{ runner.OS }}-${{ matrix.arch }}-libs-v2-
+
+      - name: Qt cache.
+        id: cache-qt
+        uses: actions/cache@v6
+        with:
+          path: |
+            ${{ env.LibrariesPath }}\[qQ]t[_-]*
+            ${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
+          key: ${{ runner.OS }}-${{ matrix.arch }}-${{ matrix.qt || 'qt' }}-${{ env.CACHE_KEY }}
+          restore-keys: ${{ runner.OS }}-${{ matrix.arch }}-${{ matrix.qt || 'qt' }}-
+
+      - name: Libraries.
+        run: |
+          %TBUILD%\%REPO_NAME%\Telegram\build\prepare\win.bat skip-debug skip-dump-syms silent ${{ matrix.qt }}
+
+      - name: Read configuration matrix.
+        shell: bash
+        run: |
+          cd "$TBUILD/$REPO_NAME"
+          ARTIFACT_NAME="AywGram"
+          VERSION=$(grep 'AppVersionStr' Telegram/SourceFiles/core/version.h | cut -d '"' -f 2)
+
+          ARCH=""
+          if [ -n "${{ matrix.arch }}" ]; then
+            case "${{ matrix.arch }}" in
+              x64_x86) ARCH="x86";;
+              arm64) ARCH="arm";;
+              *) ARCH="${{ matrix.arch }}";;
+            esac
+            echo "Architecture from matrix: $ARCH"
+            ARTIFACT_NAME="${ARTIFACT_NAME}_v${VERSION}_${ARCH}"
+          fi
+
+          if [ -n "${{ matrix.qt }}" ]; then
+            ARTIFACT_NAME="${ARTIFACT_NAME}_${{ matrix.qt }}"
+          fi
+
+          GENERATOR=""
+          if [ -n "${{ matrix.generator }}" ]; then
+            GENERATOR="-G \"${{ matrix.generator }}\""
+            echo "Generator from matrix: $GENERATOR"
+            ARTIFACT_NAME="${ARTIFACT_NAME}_v${VERSION}_${ARCH}_${{ matrix.generator }}"
+          fi
+          echo "TDESKTOP_BUILD_GENERATOR=$GENERATOR" >> $GITHUB_ENV
+
+          [ -n "$GENERATOR" ] && ARCH=""
+          echo "TDESKTOP_BUILD_ARCH=$ARCH" >> $GITHUB_ENV
+
+          API="-D TDESKTOP_API_TEST=ON"
+          if [ -n "$API_ID" ] && [ -n "$API_HASH" ]; then
+            API="-D TDESKTOP_API_ID=\"$API_ID\" -D TDESKTOP_API_HASH=\"$API_HASH\""
+          fi
+          echo "ARTIFACT_NAME=$ARTIFACT_NAME" >> $GITHUB_ENV
+          echo "TDESKTOP_BUILD_API=$API" >> $GITHUB_ENV
+
+      - name: Free up some disk space.
+        shell: pwsh
+        run: |
+          bash -lc 'find "$LibrariesPath" \( \( ! \( -name "*.lib" -o -name "*.a" -o -name "*.exe" -o -name "*.h" -o -name "*.hpp" -o -name "*.inc" -o -name "*.cmake" -o -path "*/include/*" -o -path "*/gas-preprocessor/*" -o -path "*/local/lib/pkgconfig/*" -o -path "*/nv-codec-headers/*" -o -path "*/objects-*" -o -path "*/cache_keys/*" -o -path "*/patches/*" \) -type f \) -o -empty \) -delete'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $cacheDirectories = @(
+            "$env:TBUILD\ThirdParty\msys64\var\cache\pacman\pkg",
+            "$env:TBUILD\ThirdParty\msys64\tmp",
+            "$env:USERPROFILE\.nuget\packages",
+            "$env:LOCALAPPDATA\NuGet\http-cache",
+            "$env:LOCALAPPDATA\NuGet\plugins-cache",
+            "$env:LOCALAPPDATA\NuGet\v3-cache",
+            "$env:LOCALAPPDATA\pip\Cache",
+            "$env:LOCALAPPDATA\npm-cache",
+            "$env:ProgramData\chocolatey\cache"
+          )
+          foreach ($path in $cacheDirectories) {
+            if (Test-Path -LiteralPath $path) {
+              Get-ChildItem -LiteralPath $path -Force -ErrorAction SilentlyContinue |
+                Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+            }
+          }
+          Get-PSDrive -PSProvider FileSystem |
+            Select-Object Name,
+              @{ Name = 'FreeGiB'; Expression = { [math]::Round($_.Free / 1GB, 2) } },
+              @{ Name = 'UsedGiB'; Expression = { [math]::Round($_.Used / 1GB, 2) } } |
+            Format-Table -AutoSize
+
+      - name: Telegram Desktop build.
+        if: env.ONLY_CACHE == 'false'
+        run: |
+          cd %TBUILD%\%REPO_NAME%\Telegram
+
+          call configure.bat ^
+          %TDESKTOP_BUILD_GENERATOR% ^
+          %TDESKTOP_BUILD_ARCH% ^
+          ${{ matrix.qt }} ^
+          %TDESKTOP_BUILD_API% ^
+          -D CMAKE_C_FLAGS="/WX" ^
+          -D CMAKE_CXX_FLAGS="/WX" ^
+          -D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT:STRING= ^
+          -D DESKTOP_APP_DISABLE_AUTOUPDATE=ON ^
+          -D DESKTOP_APP_DISABLE_CRASH_REPORTS=OFF ^
+          -D DESKTOP_APP_NO_PDB=ON -U DESKTOP_APP_DISABLE_X11_INTEGRATION
+
+          cmake --build ..\out --config Release --parallel
+
+      - name: Move artifact.
+        if: env.UPLOAD_ARTIFACT == 'true'
+        run: |
+          set OUT=%TBUILD%\%REPO_NAME%\out\Release
+          mkdir artifact
+          move %OUT%\AywGram.exe artifact/
+
+      - uses: actions/upload-artifact@v7
+        name: Upload artifact.
+        if: env.UPLOAD_ARTIFACT == 'true'
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: artifact\
+          retention-days: 1
