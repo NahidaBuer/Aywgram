@@ -254,7 +254,7 @@ base::expected<Envelope, Error> DecodeEnvelope(const QByteArray &json) {
 		? QDateTime::fromString(createdAt.toString(), Qt::ISODateWithMs)
 		: QDateTime();
 	if (!timestamp.isValid() && legacy) {
-		timestamp = QDateTime::fromMSecsSinceEpoch(0, QTimeZone::UTC);
+		timestamp = QDateTime::fromMSecsSinceEpoch(0, Qt::UTC);
 	} else if (!timestamp.isValid()) {
 		return Failure(ErrorCode::InvalidEnvelope, u"createdAt"_q);
 	}

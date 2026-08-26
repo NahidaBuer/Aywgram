@@ -1,19 +1,72 @@
 name: Linux.
 
 on:
+  workflow_call:
+    inputs:
+      distribute:
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        required: false
+        default: ''
+        type: string
   workflow_dispatch:
-  push:
-    tags:
-      - '*'
+    inputs:
+      distribute:
+        description: Upload to an existing prerelease and notify Telegram.
+        required: true
+        default: false
+        type: boolean
+      release_tag:
+        description: Existing prerelease tag; required when distribute is enabled.
+        required: false
+        type: string
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+
+  validate-distribution:
+    name: Validate distribution target
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate prerelease and secrets.
+        if: ${{ inputs.distribute == true }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "$RELEASE_TAG" ]; then
+            echo '::error::release_tag is required when distribute is enabled.'
+            exit 1
+          fi
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHANNEL_ID" ]; then
+            echo '::error::Configure TELEGRAM_BOT_TOKEN and TELEGRAM_CHANNEL_ID repository secrets.'
+            exit 1
+          fi
+          is_prerelease="$(
+            gh release view "$RELEASE_TAG" \
+              --repo "$GH_REPO" \
+              --json isPrerelease \
+              --jq .isPrerelease
+          )"
+          if [ "$is_prerelease" != true ]; then
+            echo "::error::Release $RELEASE_TAG is not a prerelease."
+            exit 1
+          fi
 
   linux:
     name: Rocky Linux 8
     runs-on: ubuntu-latest
+    needs: validate-distribution
 
     strategy:
       matrix:
@@ -87,6 +140,15 @@ jobs:
           rm -rf ${{ runner.temp }}/.buildx-cache
           mv ${{ runner.temp }}/.buildx-cache{-new,}
 
+      - name: Save libraries cache.
+        if: steps.cache-libs.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ${{ runner.temp }}/.buildx-cache
+            ${{ runner.temp }}/.mount-cache
+          key: ${{ runner.OS }}-libs-${{ hashFiles('Telegram/build/docker/centos_env/**') }}
+
       - name: Restore Telegram Desktop cache.
         id: cache-tdesktop
         if: env.ONLY_CACHE == 'false'
@@ -118,14 +180,12 @@ jobs:
           docker run --rm \
           -u $(id -u) \
           -v $PWD:/usr/src/tdesktop \
+          -v ${{ env.CCACHE_DIR }}:/var/cache/ccache \
           -e CONFIG=Release \
-          tdesktop:centos_env \
-          /usr/src/tdesktop/Telegram/build/docker/centos_env/build.sh \
-          -D CMAKE_INTERPROCEDURAL_OPTIMIZATION=ON \
-          -D CMAKE_C_FLAGS_DEBUG="-O0 -fuse-ld=lld" \
-          -D CMAKE_CXX_FLAGS_DEBUG="-O0 -fuse-ld=lld" \
-          -D CMAKE_COMPILE_WARNING_AS_ERROR=ON \
-          -D CMAKE_EXE_LINKER_FLAGS="-s" \
+          -e CCACHE_SLOPPINESS=pch_defines,time_macros \
+          $IMAGE_TAG \
+          env -u CCACHE_DISABLE /usr/src/tdesktop/Telegram/build/docker/centos_env/build.sh \
+          -D CMAKE_CONFIGURATION_TYPES=Release \
           "${API_ARGS[@]}" \
           -D DESKTOP_APP_DISABLE_AUTOUPDATE=ON \
           -D DESKTOP_APP_DISABLE_CRASH_REPORTS=OFF \
@@ -133,7 +193,7 @@ jobs:
 
       - name: Count ccache misses.
         id: ccache-stats
-        if: env.ONLY_CACHE == 'false'
+        if: ${{ !cancelled() && env.ONLY_CACHE == 'false' }}
         run: |
           MISSES=$(ccache --print-stats | sed -n 's/^cache_miss\t//p' | head -1)
           case "$MISSES" in (*[!0-9]*|'') MISSES=0;; esac
@@ -142,15 +202,18 @@ jobs:
 
       - name: Trim Telegram Desktop cache.
         if: >
-          env.ONLY_CACHE == 'false'
+          !cancelled()
+            && env.ONLY_CACHE == 'false'
             && github.ref_name == github.event.repository.default_branch
+            && steps.ccache-stats.outcome == 'success'
             && fromJSON(steps.ccache-stats.outputs.misses) > 300
         run: ccache --evict-older-than 1d
 
       - name: Save Telegram Desktop cache.
         if: >
-          env.ONLY_CACHE == 'false'
-            && github.ref_name == github.event.repository.default_branch
+          !cancelled()
+            && env.ONLY_CACHE == 'false'
+            && steps.ccache-stats.outcome == 'success'
             && fromJSON(steps.ccache-stats.outputs.misses) > 300
         uses: actions/cache/save@v6
         with:
@@ -171,10 +234,38 @@ jobs:
             exit 1
           fi
 
+      - name: Package distribution.
+        id: package
+        if: env.ONLY_CACHE == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(grep 'AppVersionStr' Telegram/SourceFiles/core/version.h | cut -d '"' -f 2)"
+          asset_name="AywGram-v${version}-linux-x86_64.tar.gz"
+          asset_path="dist/${asset_name}"
+          mkdir -p dist
+          tar -czf "$asset_path" -C out/Release AywGram
+          echo "asset_name=$asset_name" >> "$GITHUB_OUTPUT"
+          echo "asset_path=$asset_path" >> "$GITHUB_OUTPUT"
+
       - uses: actions/upload-artifact@v7
-        if: env.UPLOAD_ARTIFACT == 'true'
+        if: env.UPLOAD_ARTIFACT == 'true' && inputs.distribute != true
         name: Upload artifact.
         with:
-          name: ${{ env.ARTIFACT_NAME }}
-          path: out/Release/AywGram
+          name: ${{ steps.package.outputs.asset_name }}
+          path: ${{ steps.package.outputs.asset_path }}
           retention-days: 1
+
+      - name: Publish prerelease asset and notify Telegram.
+        if: ${{ inputs.distribute == true }}
+        shell: bash
+        env:
+          ASSET_NAME: ${{ steps.package.outputs.asset_name }}
+          ASSET_PATH: ${{ steps.package.outputs.asset_path }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          TELEGRAM_TAGS: '#aywgram #linux #ci'
+        run: bash .github/scripts/publish-prerelease.sh

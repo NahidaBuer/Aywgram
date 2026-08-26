@@ -1,19 +1,92 @@
 name: MacOS.
 
 on:
+  workflow_call:
+    inputs:
+      arch:
+        required: false
+        default: arm64
+        type: string
+      distribute:
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        required: false
+        default: ''
+        type: string
   workflow_dispatch:
-  push:
-    tags:
-      - '*'
+    inputs:
+      arch:
+        description: mac architecture to build.
+        required: true
+        default: arm64
+        type: choice
+        options:
+          - arm64
+          - x86_64
+      distribute:
+        description: Upload to an existing prerelease and notify Telegram.
+        required: true
+        default: false
+        type: boolean
+      release_tag:
+        description: Existing prerelease tag; required when distribute is enabled.
+        required: false
+        type: string
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+
+  validate-distribution:
+    name: Validate build inputs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate architecture, prerelease and secrets.
+        shell: bash
+        env:
+          ARCH: ${{ inputs.arch }}
+          DISTRIBUTE: ${{ inputs.distribute }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+        run: |
+          set -euo pipefail
+          case "$ARCH" in
+            arm64|x86_64) ;;
+            *) echo "::error::Unsupported mac architecture: $ARCH"; exit 1;;
+          esac
+          if [ "$DISTRIBUTE" != true ]; then
+            exit 0
+          fi
+          if [ -z "$RELEASE_TAG" ]; then
+            echo '::error::release_tag is required when distribute is enabled.'
+            exit 1
+          fi
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHANNEL_ID" ]; then
+            echo '::error::Configure TELEGRAM_BOT_TOKEN and TELEGRAM_CHANNEL_ID repository secrets.'
+            exit 1
+          fi
+          is_prerelease="$(
+            gh release view "$RELEASE_TAG" \
+              --repo "$GH_REPO" \
+              --json isPrerelease \
+              --jq .isPrerelease
+          )"
+          if [ "$is_prerelease" != true ]; then
+            echo "::error::Release $RELEASE_TAG is not a prerelease."
+            exit 1
+          fi
 
   prepare-libraries:
     name: Prepare Libraries
     runs-on: macos-latest
+    needs: validate-distribution
 
     strategy:
       matrix:
@@ -24,8 +97,6 @@ jobs:
       UPLOAD_ARTIFACT: "true"
       ONLY_CACHE: "false"
       PREPARE_PATH: "Telegram/build/prepare/prepare.py"
-      API_ID: ${{ secrets.API_ID }}
-      API_HASH: ${{ secrets.API_HASH }}
 
     steps:
       - name: Clone.
@@ -64,23 +135,19 @@ jobs:
           ./$REPO_NAME/Telegram/build/prepare/mac.sh skip-debug silent
 
       - name: Free up some disk space.
-        run: find Libraries '(' '(' ! '(' -name '*.a' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -perm +111 ')' -type f ')' -o -empty ')' -delete
+        run: find Libraries '(' '(' ! '(' -name '*.a' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -name '*.pc' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -perm +111 ')' -type f ')' -o -empty ')' -delete
 
   build:
-    name: MacOS
+    name: mac (${{ inputs.arch }})
     runs-on: macos-latest
     needs: prepare-libraries
-
-    strategy:
-      matrix:
-        arch: [arm64, x86_64]
-        defines:
-          - ""
     env:
       REPO_NAME: ${{ github.event.repository.name }}
       UPLOAD_ARTIFACT: "true"
       ONLY_CACHE: "false"
       PREPARE_PATH: "Telegram/build/prepare/prepare.py"
+      API_ID: ${{ secrets.API_ID }}
+      API_HASH: ${{ secrets.API_HASH }}
 
     steps:
       - name: Clone.
@@ -111,7 +178,7 @@ jobs:
           -D CMAKE_CONFIGURATION_TYPES=Release \
           -D CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
           "${API_ARGS[@]}" \
-          -D DESKTOP_APP_MAC_ARCH=${{ matrix.arch }} \
+          -D DESKTOP_APP_MAC_ARCH=${{ inputs.arch }} \
           -D DESKTOP_APP_DISABLE_AUTOUPDATE=OFF \
           -D CMAKE_EXE_LINKER_FLAGS="-Wl,-x"
 
@@ -121,27 +188,39 @@ jobs:
           cd $REPO_NAME/Telegram
           cmake --build ../out --config Release --parallel
 
-      - name: Move artifact.
-        id: prepare-artifact
+      - name: Package distribution.
+        id: package
         if: env.UPLOAD_ARTIFACT == 'true'
+        shell: bash
         run: |
-          cd $REPO_NAME
+          set -euo pipefail
+          cd "$REPO_NAME"
           VERSION=$(grep 'AppVersionStr' Telegram/SourceFiles/core/version.h | cut -d '"' -f 2)
-          cd out/Release
-          mkdir artifact
-          mv AywGram.app artifact/
-          mv Updater artifact/
-          if [ "${{ matrix.arch }}" == "arm64" ]; then
-            PLATFORM="AppleSilicon"
-          else
-            PLATFORM="Intel"
-          fi
-          echo "name=AywGram_v${VERSION}_${PLATFORM}" >> $GITHUB_OUTPUT
+          ASSET_NAME="AywGram-v${VERSION}-mac-${{ inputs.arch }}.zip"
+          ASSET_PATH="$GITHUB_WORKSPACE/dist/$ASSET_NAME"
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          ditto -c -k --sequesterRsrc --keepParent out/Release/AywGram.app "$ASSET_PATH"
+          echo "asset_name=$ASSET_NAME" >> "$GITHUB_OUTPUT"
+          echo "asset_path=$ASSET_PATH" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v7
-        if: env.UPLOAD_ARTIFACT == 'true'
+        if: env.UPLOAD_ARTIFACT == 'true' && inputs.distribute != true
         name: Upload artifact.
         with:
-          name: ${{ steps.prepare-artifact.outputs.name }}
-          path: ${{ env.REPO_NAME }}/out/Release/artifact/
+          name: ${{ steps.package.outputs.asset_name }}
+          path: ${{ steps.package.outputs.asset_path }}
           retention-days: 1
+
+      - name: Publish prerelease asset and notify Telegram.
+        if: ${{ inputs.distribute == true }}
+        shell: bash
+        env:
+          ASSET_NAME: ${{ steps.package.outputs.asset_name }}
+          ASSET_PATH: ${{ steps.package.outputs.asset_path }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          TELEGRAM_TAGS: '#aywgram #mac #ci'
+        run: bash "$REPO_NAME/.github/scripts/publish-prerelease.sh"

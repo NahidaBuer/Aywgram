@@ -60,6 +60,8 @@ usedPrefix = os.path.realpath(os.path.join(libsDir, 'local'))
 optionsList = [
     'qt6',
     'skip-release',
+    'skip-debug',
+    'skip-dump-syms',
     'build-stackwalk',
     'qt-asserts',
 ]
@@ -251,6 +253,16 @@ def filterByPlatform(commands):
             #     inscope = True
             if 'release' in scopes:
                 if 'skip-release' in options:
+                    inscope = False
+                elif len(scopes) == 1:
+                    continue
+            if 'debug' in scopes:
+                if 'skip-debug' in options:
+                    inscope = False
+                elif len(scopes) == 1:
+                    continue
+            if 'dumpsyms' in scopes:
+                if 'skip-dump-syms' in options:
                     inscope = False
                 elif len(scopes) == 1:
                     continue
@@ -527,7 +539,7 @@ win:
     SET "ToolsetProp="
 winarm:
     SET "ToolsetProp=/property:PlatformToolset=v145"
-win:
+win_debug:
     msbuild -m LzmaLib.sln /property:Configuration=Debug /property:Platform="$X8664" %ToolsetProp%
 release:
     msbuild -m LzmaLib.sln /property:Configuration=Release /property:Platform="$X8664" %ToolsetProp%
@@ -699,14 +711,16 @@ release:
 !win:
     mkdir Debug
     cd Debug
+mac_debug:
     cmake ../.. \\
         -D CMAKE_BUILD_TYPE=Debug \\
         -D CMAKE_OSX_ARCHITECTURES="x86_64;arm64"
     cmake --build .
-release:
+!win:
     cd ..
     mkdir Release
     cd Release
+mac_release:
     cmake ../.. \\
         -D CMAKE_BUILD_TYPE=Release \\
         -D CMAKE_OSX_ARCHITECTURES="x86_64;arm64"
@@ -1091,6 +1105,7 @@ winarm:
     SET "TOOLCHAIN=arm64-win64-vs17-v145"
 win:
 depends:patches/build_libvpx_win.sh
+    %THIRDPARTY_DIR%\\msys64\\usr\\bin\\sed.exe -i 's/-j8/-j%NUMBER_OF_PROCESSORS%/g' ../patches/build_libvpx_win.sh
     bash --login ../patches/build_libvpx_win.sh
 mac:
     find ../patches/libvpx -type f -print0 | sort -z | xargs -0 git apply
@@ -1192,6 +1207,7 @@ winarm:
     SET "ARCH_PARAM=--arch=aarch64"
 win:
 depends:patches/build_ffmpeg_win.sh
+    %THIRDPARTY_DIR%\\msys64\\usr\\bin\\sed.exe -i 's/-j8/-j%NUMBER_OF_PROCESSORS%/g' ../patches/build_ffmpeg_win.sh
     bash --login ../patches/build_ffmpeg_win.sh
 mac:
     export PKG_CONFIG_PATH=$USED_PREFIX/lib/pkgconfig
@@ -1424,9 +1440,11 @@ depends:python/Scripts/activate.bat
     cd src\\client\\windows
     gyp --no-circular-check breakpad_client.gyp --format=ninja
     cd ..\\..
+win_debug:
     ninja -C out/Debug%FolderPostfix% common crash_generation_client exception_handler
-release:
+win_release:
     ninja -C out/Release%FolderPostfix% common crash_generation_client exception_handler
+win32_win64_release_dumpsyms:
     cd tools\\windows\\dump_syms
     gyp dump_syms.gyp --format=msvs
     msbuild -m dump_syms.vcxproj /property:Configuration=Release /property:Platform="x64" %ToolsetProp%
@@ -1438,8 +1456,9 @@ mac:
     git checkout e1e7b0ad8e
     cd ../../..
     cd src/client/mac
+mac_debug:
     xcodebuild -project Breakpad.xcodeproj -target Breakpad -configuration Debug build
-release:
+mac_release:
     xcodebuild -project Breakpad.xcodeproj -target Breakpad -configuration Release build
     cd ../../tools/mac/dump_syms
     xcodebuild -project dump_syms.xcodeproj -target dump_syms -configuration Release build
@@ -1456,6 +1475,7 @@ mac:
     ZLIB_LIB=$USED_PREFIX/lib/libz.a
     mkdir out
     cd out
+mac_debug:
     mkdir Debug.x86_64
     cd Debug.x86_64
     cmake \
@@ -1479,7 +1499,7 @@ mac:
     mkdir Debug
     lipo -create Debug.arm64/crashpad_handler Debug.x86_64/crashpad_handler -output Debug/crashpad_handler
     lipo -create Debug.arm64/libcrashpad_client.a Debug.x86_64/libcrashpad_client.a -output Debug/libcrashpad_client.a
-release:
+mac_release:
     mkdir Release.x86_64
     cd Release.x86_64
     cmake \
@@ -1647,7 +1667,7 @@ win:
     SET CONFIGURATIONS=-debug
     SET ASSERTS=
 release:
-    SET CONFIGURATIONS=-debug-and-release
+    SET CONFIGURATIONS=-release
 win_asserts:
     SET ASSERTS=-force-asserts
 win:
@@ -1661,7 +1681,6 @@ win:
     configure -prefix "%LIBS_DIR%\\Qt-%QT%" ^
         %CONFIGURATIONS% ^
         %ASSERTS% ^
-        -force-debug-info ^
         -opensource ^
         -confirm-license ^
         -static ^
@@ -1698,8 +1717,10 @@ win:
         -D LCMS2_INCLUDE_DIR="%LCMS2_DIR%\\include" ^
         -D LCMS2_LIBRARIES="%LCMS2_DIR%\\out\\Release\\src\\liblcms2.a"
 
+win_debug:
     cmake --build . --config Debug
     cmake --install . --config Debug
+win_release:
     cmake --build .
     cmake --install .
 """)
@@ -1726,8 +1747,9 @@ win:
         -DTG_OWT_LIBVPX_INCLUDE_PATH=$LIBVPX_PATH \
         -DTG_OWT_OPENH264_INCLUDE_PATH=$OPENH264_PATH \
         -DTG_OWT_FFMPEG_INCLUDE_PATH=$FFMPEG_PATH
+win_debug:
     cmake --build out --config Debug
-release:
+win_release:
     cmake --build out --config Release
 mac:
     MOZJPEG_PATH=$USED_PREFIX/include
@@ -1737,6 +1759,7 @@ mac:
     FFMPEG_PATH=$USED_PREFIX/include
     mkdir out
     cd out
+mac_debug:
     mkdir Debug.x86_64
     cd Debug.x86_64
     cmake \
@@ -1769,7 +1792,7 @@ mac:
     cd ..
     mkdir Debug
     lipo -create Debug.arm64/libtg_owt.a Debug.x86_64/libtg_owt.a -output Debug/libtg_owt.a
-release:
+mac_release:
     mkdir Release.x86_64
     cd Release.x86_64
     cmake \
@@ -1811,7 +1834,9 @@ win:
         -D ADA_TOOLS=OFF ^
         -D ADA_INCLUDE_URL_PATTERN=OFF ^
         -D CMAKE_MSVC_RUNTIME_LIBRARY="MultiThreaded$<$<CONFIG:Debug>:Debug>"
+win_debug:
     cmake --build out --config Debug
+win_release:
     cmake --build out --config Release
 mac:
     CFLAGS="$UNGUARDED" CPPFLAGS="$UNGUARDED" cmake -B build . \\
@@ -1834,6 +1859,7 @@ win:
     %THIRDPARTY_DIR%\\msys64\\usr\\bin\\sed -i "s/STREQUAL/MATCHES/" td/generate/CMakeLists.txt
     mkdir out
     cd out
+win_debug:
     mkdir Debug
     cd Debug
     cmake ^
@@ -1854,8 +1880,8 @@ win:
         -DTD_E2E_ONLY=ON ^
         ../..
     cmake --build . --config Debug
-release:
     cd ..
+win_release:
     mkdir Release
     cd Release
     cmake ^
@@ -1895,9 +1921,9 @@ mac:
         cmake --build .
         cd ../..
     }
-
+mac_debug:
     buildTd Debug
-release:
+mac_release:
     buildTd Release
 """)
 
