@@ -1474,6 +1474,7 @@ void MainWidget::showHistory(
 		session().data().hideShownSpoilers();
 		if (params.activation != anim::activation::background) {
 			_controller->window().activate();
+			_controller->window().hideSettingsAndLayer();
 		}
 		return;
 	} else if (showHistoryInDifferentWindow(peerId, params, showAtMsgId)) {

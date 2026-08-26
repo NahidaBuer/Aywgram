@@ -826,7 +826,11 @@ void ListWidget::refreshRows(const Data::MessagesSlice &old) {
 	Expects(_viewsCapacity.empty());
 
 	if (_thanosController) {
-		_thanosController->clearPreCaptured();
+		// Main history drops the view before itemRemoved() fires.
+		_thanosController->commitAnnouncedRemovals([&](FullMsgId id) {
+			return ranges::find(_slice.ids, id) == end(_slice.ids);
+		});
+		_thanosController->resetScrollBaseline();
 	}
 
 	saveScrollState();
@@ -844,6 +848,19 @@ void ListWidget::refreshRows(const Data::MessagesSlice &old) {
 		int(end(_slice.ids) - addedToEndFrom),
 		1
 	) - 1;
+
+	auto shiftAnchor = (HistoryItem*)nullptr;
+	auto shiftAnchorBottom = 0;
+	if (_thanosController && !_thanosController->renderGaps().empty()) {
+		for (const auto &view : _items) {
+			const auto id = view->data()->fullId();
+			if (ranges::find(_slice.ids, id) != end(_slice.ids)) {
+				shiftAnchor = view->data();
+				shiftAnchorBottom = view->y() + view->height();
+				break;
+			}
+		}
+	}
 
 	auto destroyingBarElement = _bar.element;
 	auto clearingOverElement = _overElement;
@@ -894,6 +911,14 @@ void ListWidget::refreshRows(const Data::MessagesSlice &old) {
 	updateAroundPositionFromNearest(nearestIndex);
 
 	updateItemsGeometry();
+
+	if (shiftAnchor) {
+		// Prepended slice moves every item, gap coordinate follows it.
+		if (const auto view = viewForItem(shiftAnchor)) {
+			_thanosController->shiftGaps(
+				view->y() + view->height() - shiftAnchorBottom);
+		}
+	}
 
 	if (clearingOverElement) {
 		_overElement = nullptr;
@@ -1262,7 +1287,18 @@ void ListWidget::showAtPosition(
 			return showAtPositionNow(position, params, done);
 		});
 	} else if (!showAtPositionNow(position, params, done)) {
+		const auto targetAbove = isBelowPosition(position);
+		const auto targetBelow = isAbovePosition(position);
 		showAroundPosition(position, [=] {
+			if ((targetAbove || targetBelow)
+				&& (params.animated != anim::type::instant)) {
+				if (const auto to = scrollTopForPosition(position)) {
+					const auto screen = _visibleBottom - _visibleTop;
+					_delegate->listScrollTo(targetAbove
+						? (*to + screen)
+						: (*to - screen));
+				}
+			}
 			return showAtPositionNow(position, params, done);
 		});
 	}
@@ -2699,6 +2735,9 @@ void ListWidget::resizeToWidth(int newWidth, int minHeight) {
 	_minHeight = minHeight;
 	RpWidget::resizeToWidth(newWidth);
 	restoreScrollPosition();
+	if (_thanosController) {
+		_thanosController->pinScroll();
+	}
 }
 
 void ListWidget::startItemRevealAnimations() {
@@ -2829,7 +2868,7 @@ int ListWidget::resizeGetHeight(int newWidth) {
 	_itemsWidth = newWidth;
 	_itemsHeight = newHeight - _itemsRevealHeight;
 	if (_thanosController) {
-		_thanosController->clearRemovalHeight();
+		_thanosController->flushRemovals(_itemsHeight);
 	}
 	const auto collapseGapTotal = collapseGapsTotal();
 	const auto about = aboutView();
@@ -3031,10 +3070,6 @@ void ListWidget::paintEvent(QPaintEvent *e) {
 		std::min(st::msgMaxWidth / 2, width() / 2));
 
 	auto clip = e->rect();
-
-	if (_thanosController) {
-		_thanosController->clearRemovalHeight();
-	}
 
 	auto collapseGapTotal = 0;
 	for (const auto &gap : collapseGaps()) {
@@ -3879,8 +3914,8 @@ void ListWidget::keyPressEvent(QKeyEvent *e) {
 			|| (key == Qt::Key_PageDown))) {
 		_scrollKeyEvents.fire(std::move(e));
 	} else if (((key == Qt::Key_O)
-		&& (e->modifiers() == Qt::ControlModifier))
-		|| (!(e->modifiers() & ~Qt::ShiftModifier)
+		&& (modifiers == Qt::ControlModifier))
+		|| (!(modifiers & ~Qt::ShiftModifier)
 			&& key != Qt::Key_Shift)) {
 		_delegate->listTryProcessKeyInput(e);
 	} else {
@@ -5446,9 +5481,6 @@ int ListWidget::collapseGapsTotal() const {
 	for (const auto &gap : collapseGaps()) {
 		result += gap.height;
 	}
-	if (_thanosController) {
-		result = std::max(result - _thanosController->removalHeight(), 0);
-	}
 	return result;
 }
 
@@ -5521,6 +5553,7 @@ void ListWidget::setupThanosEffect() {
 			.visibleAreaTop = [=] { return _visibleTop; },
 			.visibleAreaBottom = [=] { return _visibleBottom; },
 			.contentWidth = [=] { return width(); },
+			.contentHeight = [=] { return _itemsHeight; },
 			.preparePaintContext = [=](QRect clip) {
 				return preparePaintContext(clip);
 			},
@@ -5531,7 +5564,7 @@ void ListWidget::setupThanosEffect() {
 				return scroll;
 			},
 			.scrollToY = [=](int y) {
-				scroll->scrollToY(y);
+				_delegate->listScrollTo(y);
 			},
 			.collapseGapsUpdated = [=] { collapseGapsUpdated(); },
 		},
