@@ -1,0 +1,220 @@
+name: Prerelease.
+
+on:
+  push:
+    tags:
+      - 'pre-release-*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prerelease-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+
+  prepare:
+    name: Prepare prerelease
+    runs-on: ubuntu-latest
+
+    outputs:
+      linux_previous_asset_id: ${{ steps.release.outputs.linux_previous_asset_id }}
+      mac_previous_asset_id: ${{ steps.release.outputs.mac_previous_asset_id }}
+      release_tag: ${{ steps.release.outputs.release_tag }}
+      started_at: ${{ steps.release.outputs.started_at }}
+      version: ${{ steps.release.outputs.version }}
+      windows_previous_asset_id: ${{ steps.release.outputs.windows_previous_asset_id }}
+
+    steps:
+      - name: Clone.
+        uses: actions/checkout@v7
+
+      - name: Create or update prerelease.
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          release_tag="$GITHUB_REF_NAME"
+          started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          version="$(grep 'AppVersionStr' Telegram/SourceFiles/core/version.h | cut -d '"' -f 2)"
+          title="AywGram v${version} CI"
+          notes="$RUNNER_TEMP/prerelease-notes.md"
+
+          cat > "$notes" <<EOF
+          Automated CI prerelease for AywGram v${version}.
+
+          - Source version: \`${version}\`
+          - Trigger tag: \`${release_tag}\`
+          - Commit: [\`${GITHUB_SHA}\`](https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA})
+          - Workflow: [${GITHUB_RUN_ID}](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})
+          - Started: \`${started_at}\`
+
+          ## Build status
+
+          | Target | Asset | Status |
+          | --- | --- | --- |
+          | Linux x86_64 | \`AywGram-v${version}-linux-x86_64.tar.gz\` | ⏳ Building |
+          | mac ARM64 | \`AywGram-v${version}-mac-arm64.zip\` | ⏳ Building |
+          | Windows ARM64 | \`AywGram-v${version}-windows-arm64.zip\` | ⏳ Building |
+          EOF
+
+          if gh release view "$release_tag" --repo "$GH_REPO" >/dev/null 2>&1; then
+            is_prerelease="$(
+              gh release view "$release_tag" \
+                --repo "$GH_REPO" \
+                --json isPrerelease \
+                --jq .isPrerelease
+            )"
+            if [ "$is_prerelease" != true ]; then
+              echo "::error::Release $release_tag already exists and is not a prerelease."
+              exit 1
+            fi
+            gh release edit "$release_tag" \
+              --repo "$GH_REPO" \
+              --prerelease \
+              --title "$title" \
+              --notes-file "$notes"
+          else
+            gh release create "$release_tag" \
+              --repo "$GH_REPO" \
+              --verify-tag \
+              --prerelease \
+              --latest=false \
+              --title "$title" \
+              --notes-file "$notes"
+          fi
+
+          release_json="$RUNNER_TEMP/release.json"
+          gh api "repos/${GH_REPO}/releases/tags/${release_tag}" > "$release_json"
+          linux_asset="AywGram-v${version}-linux-x86_64.tar.gz"
+          mac_asset="AywGram-v${version}-mac-arm64.zip"
+          windows_asset="AywGram-v${version}-windows-arm64.zip"
+          while IFS=$'\t' read -r asset_id asset_name; do
+            case "$asset_name" in
+              AywGram-v*-linux-x86_64.tar.gz|AywGram-v*-mac-arm64.zip|AywGram-v*-windows-arm64.zip)
+                if [ "$asset_name" != "$linux_asset" ] \
+                  && [ "$asset_name" != "$mac_asset" ] \
+                  && [ "$asset_name" != "$windows_asset" ]; then
+                  echo "Removing managed asset from another source version: $asset_name"
+                  gh api --method DELETE "repos/${GH_REPO}/releases/assets/${asset_id}"
+                fi
+                ;;
+            esac
+          done < <(jq -r '.assets[]? | [.id, .name] | @tsv' "$release_json")
+          gh api "repos/${GH_REPO}/releases/tags/${release_tag}" > "$release_json"
+
+          previous_asset_id() {
+            local name="$1"
+            jq -r --arg name "$name" \
+              '[.assets[]? | select(.name == $name) | .id][0] // ""' \
+              "$release_json"
+          }
+
+          echo "linux_previous_asset_id=$(previous_asset_id "AywGram-v${version}-linux-x86_64.tar.gz")" >> "$GITHUB_OUTPUT"
+          echo "mac_previous_asset_id=$(previous_asset_id "AywGram-v${version}-mac-arm64.zip")" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "started_at=$started_at" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "windows_previous_asset_id=$(previous_asset_id "AywGram-v${version}-windows-arm64.zip")" >> "$GITHUB_OUTPUT"
+
+  linux:
+    name: Linux x86_64
+    needs: prepare
+    uses: ./.github/workflows/linux.yml
+    with:
+      distribute: true
+      release_tag: ${{ needs.prepare.outputs.release_tag }}
+    secrets: inherit
+
+  mac:
+    name: mac ARM64
+    needs: prepare
+    uses: ./.github/workflows/mac.yml
+    with:
+      arch: arm64
+      distribute: true
+      release_tag: ${{ needs.prepare.outputs.release_tag }}
+    secrets: inherit
+
+  windows:
+    name: Windows ARM64
+    needs: prepare
+    uses: ./.github/workflows/win.yml
+    with:
+      distribute: true
+      release_tag: ${{ needs.prepare.outputs.release_tag }}
+    secrets: inherit
+
+  finalize:
+    name: Finalize prerelease status
+    if: ${{ always() && needs.prepare.result == 'success' }}
+    needs: [prepare, linux, mac, windows]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Update prerelease status.
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          GH_REPO: ${{ github.repository }}
+          LINUX_PREVIOUS_ASSET_ID: ${{ needs.prepare.outputs.linux_previous_asset_id }}
+          LINUX_RESULT: ${{ needs.linux.result }}
+          MAC_PREVIOUS_ASSET_ID: ${{ needs.prepare.outputs.mac_previous_asset_id }}
+          MAC_RESULT: ${{ needs.mac.result }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          STARTED_AT: ${{ needs.prepare.outputs.started_at }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          WINDOWS_PREVIOUS_ASSET_ID: ${{ needs.prepare.outputs.windows_previous_asset_id }}
+          WINDOWS_RESULT: ${{ needs.windows.result }}
+        run: |
+          set -euo pipefail
+          release_json="$RUNNER_TEMP/release.json"
+          notes="$RUNNER_TEMP/prerelease-notes.md"
+          gh api "repos/${GH_REPO}/releases/tags/${RELEASE_TAG}" > "$release_json"
+
+          asset_row() {
+            local target="$1"
+            local name="$2"
+            local workflow_result="$3"
+            local previous_asset_id="$4"
+            local asset asset_id url state
+            asset="$(jq -c --arg name "$name" '.assets[]? | select(.name == $name)' "$release_json" | head -n 1)"
+            if [ -z "$asset" ]; then
+              printf '| %s | `%s` | ❌ Missing | `%s` |\n' "$target" "$name" "$workflow_result"
+              return
+            fi
+            asset_id="$(jq -r .id <<<"$asset")"
+            url="$(jq -r .browser_download_url <<<"$asset")"
+            if [ -n "$previous_asset_id" ] && [ "$asset_id" = "$previous_asset_id" ]; then
+              state='⚠️ Stale from an earlier run'
+            else
+              state='✅ Refreshed'
+            fi
+            printf '| %s | [%s](%s) | %s | `%s` |\n' \
+              "$target" "$name" "$url" "$state" "$workflow_result"
+          }
+
+          {
+            printf 'Automated CI prerelease for AywGram v%s.\n\n' "$VERSION"
+            printf -- '- Source version: `%s`\n' "$VERSION"
+            printf -- '- Trigger tag: `%s`\n' "$RELEASE_TAG"
+            printf -- '- Commit: [`%s`](https://github.com/%s/commit/%s)\n' "$GITHUB_SHA" "$GITHUB_REPOSITORY" "$GITHUB_SHA"
+            printf -- '- Workflow: [%s](https://github.com/%s/actions/runs/%s)\n' "$GITHUB_RUN_ID" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+            printf -- '- Started: `%s`\n\n' "$STARTED_AT"
+            printf '## Build status\n\n'
+            printf '| Target | Asset | Asset status | Workflow result |\n'
+            printf '| --- | --- | --- | --- |\n'
+            asset_row 'Linux x86_64' "AywGram-v${VERSION}-linux-x86_64.tar.gz" "$LINUX_RESULT" "$LINUX_PREVIOUS_ASSET_ID"
+            asset_row 'mac ARM64' "AywGram-v${VERSION}-mac-arm64.zip" "$MAC_RESULT" "$MAC_PREVIOUS_ASSET_ID"
+            asset_row 'Windows ARM64' "AywGram-v${VERSION}-windows-arm64.zip" "$WINDOWS_RESULT" "$WINDOWS_PREVIOUS_ASSET_ID"
+          } > "$notes"
+
+          gh release edit "$RELEASE_TAG" \
+            --repo "$GH_REPO" \
+            --prerelease \
+            --title "AywGram v${VERSION} CI" \
+            --notes-file "$notes"
