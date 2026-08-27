@@ -1,6 +1,6 @@
 ---
 name: ayugram-upstream-sync
-description: Audit, plan, integrate, and build recurring upstream updates for this AywGram Desktop fork while preserving distribution-specific and Ayu behavior, resolving Telegram conflicts, keeping submodule gitlinks remotely reachable, and writing generated artifacts under out/. Use when asked to check upstream, origin, ayugram, or telegram changes; summarize supplemental commits; prepare or perform periodic upstream synchronization; resolve integration conflicts; validate preserved fork features; or build Debug and Release after an integration.
+description: Audit, plan, integrate, and build recurring upstream updates for this AywGram Desktop fork while preserving distribution-specific and Ayu behavior, resolving Telegram conflicts, keeping submodule gitlinks remotely reachable, and writing generated artifacts under out/. Use when asked to check upstream, origin, ayugram, or telegram changes; summarize supplemental commits; prepare or perform periodic upstream synchronization; resolve integration conflicts; validate preserved fork features; or build an explicitly authorized configuration after an integration.
 ---
 
 # AyuGram Upstream Sync
@@ -59,13 +59,14 @@ Also verify selected release tags and remote tips are ancestors of `HEAD`, inspe
 
 ## Build
 
-Build only when the user explicitly authorizes it. Use the configured repository-root `out/` tree. On this native Windows checkout, set UTF-8 compiler input and build Debug before Release:
+Build only when the user explicitly authorizes it. Use the configured repository-root `out/` tree. When the user authorizes a build without naming a configuration, build Release. On this native Windows checkout, set UTF-8 compiler input:
 
 ```powershell
 $env:CL = '/utf-8'
-cmake --build out --config Debug --target Telegram
 cmake --build out --config Release --target Telegram
 ```
+
+Build Debug only when the user explicitly requests it. If Debug becomes necessary for diagnosis, explain the need and obtain approval before running it. Never build Debug merely as a prerequisite for Release.
 
 Repair ordinary configure, compile, and link failures within the integration scope, committing focused compatibility fixes. If C1041, LNK1104, an executable/PDB access error, or another file-in-use error occurs, stop immediately and ask the user to close AywGram/Telegram and its debugger. Do not retry or delete locked files.
 

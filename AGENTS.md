@@ -73,8 +73,8 @@ wsl.exe -d {distro} --cd /home/{user}/Telegram/tdesktop -- <command>
 - If a command behaves strangely from the PowerShell UNC working directory, retry the same command through `wsl.exe -d {distro} --cd /home/{user}/Telegram/tdesktop -- ...` before concluding the repository or command is broken.
 - Recursive searches and repo inspection are usually faster and more faithful through WSL, for example `wsl.exe -d {distro} --cd /home/{user}/Telegram/tdesktop -- rg ...`.
 - Do not assume the WSL host has the build toolchain installed directly. In this setup, WSL may not have `cmake`, while Windows may have `cmake`, and the configured `out/` tree may still target the Linux Docker toolchain. Do not run native Windows `cmake --build out` against a Linux/Docker build tree.
-- For WSL/Linux builds, use the Docker build entry point from the repository root: `Telegram/build/docker/centos_env/build_debug.sh`. The Docker daemon must be reachable from WSL; checking `docker info` is fine, but do not start a build unless the user asked for one.
-- Existing build outputs may be Linux binaries, for example `out/Debug/Telegram` as an ELF executable, not `Telegram.exe`. Verify the build tree before assuming which platform produced it.
+- For WSL/Linux builds, use the Docker build environment from the repository root. The Docker daemon must be reachable from WSL; checking `docker info` is fine, but do not start a build unless the user asked for one.
+- Existing build outputs may be Linux binaries, for example `out/Release/Telegram` as an ELF executable, not `Telegram.exe`. Verify the build tree before assuming which platform produced it.
 - Be careful with text file line endings. In a WSL/Linux checkout, files should remain LF-only unless the file already uses another convention. CRLF finishing applies only to native, non-WSL Windows runs/checkouts. Do not let PowerShell or Windows tools silently rewrite WSL files to CRLF. If a file becomes mixed, normalize it back to the convention appropriate for the current checkout, without adding a UTF-8 BOM.
 - When using the local `task-think` skill from this WSL checkout, keep `.ai/...` artifacts and edited project text files LF-only. Treat the skill's Windows text-normalization phase as not applicable to WSL, except to record that line endings were checked and kept LF/no-BOM. Run CRLF normalization for `task-think` only in a native, non-WSL Windows checkout.
 
@@ -101,26 +101,26 @@ needed.
 
 ### Build Commands
 
-**From repository root, run:**
+**From repository root, after the user authorizes a build, run:**
 
 ```bash
-cmake --build out --config Debug --target Telegram
+cmake --build out --config Release --target Telegram
 ```
 
-That's it. The `out/` directory is already configured. The executable will be at `out/Debug/Telegram.exe`.
+That's it. The `out/` directory is already configured. The executable will be at `out/Release/Telegram.exe`.
 
 **From WSL, run through the Linux Docker build environment:**
 
 ```bash
-Telegram/build/docker/centos_env/build_debug.sh
+Telegram/build/docker/centos_env/run.sh bash -lc "cd /usr/src/tdesktop && cmake --build out --config Release --target Telegram"
 ```
 
 **Important:** When running cmake from a shell that doesn't support `cd`, use quoted absolute paths:
 ```bash
-cmake --build "l:\Telegram\tx64\out" --config Debug --target Telegram
+cmake --build "l:\Telegram\tx64\out" --config Release --target Telegram
 ```
 
-**Only build Release when explicitly requested by the user** - it's extremely heavy and not needed for testing changes.
+Build Debug only when the user explicitly requests it. If Debug becomes necessary for diagnosis, explain why and obtain the user's approval before building it. Never build Debug merely as a prerequisite for Release.
 
 ## Platform-Specific Requirements
 
@@ -180,8 +180,8 @@ Retrying builds wastes time and context. The ONLY fix is for the user to close t
 
 ## Best Practices
 
-1. **Always use Debug builds** - Release builds are extremely heavy
-2. **Don't build Release configuration** - it's too heavy for testing
+1. Use Release for an authorized build unless the user explicitly requests another configuration.
+2. Build Debug only on explicit request or after receiving approval for a stated diagnostic need.
 
 ## Text File Format
 
