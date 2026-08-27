@@ -731,7 +731,9 @@ stage('libiconv', """
 mac:
     VERSION=1.18
     rm -f libiconv.tar.gz
-    wget --timeout=30 --tries=2 -O libiconv.tar.gz ftp://ftp.gnu.org/gnu/libiconv/libiconv-$VERSION.tar.gz || wget -O libiconv.tar.gz https://ftp.gnu.org/pub/gnu/libiconv/libiconv-$VERSION.tar.gz
+    wget --timeout=30 --tries=3 -O libiconv.tar.gz https://ftpmirror.gnu.org/libiconv/libiconv-$VERSION.tar.gz || \\
+        wget --timeout=30 --tries=3 -O libiconv.tar.gz https://ftp.gnu.org/gnu/libiconv/libiconv-$VERSION.tar.gz
+    echo '3b08f5f4f9b4eb82f151a7040bfd6fe6c6fb922efe4b1659c66ea933276965e8  libiconv.tar.gz' | shasum -a 256 --check
     rm -rf libiconv-$VERSION
     tar -xvzf libiconv.tar.gz
     rm libiconv.tar.gz
