@@ -29,6 +29,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_inner_widget.h"
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
+#include "menu/menu_mark_as_read.h"
 #include "storage/storage_shared_media.h"
 #include "support/support_preload.h"
 #include "ui/chat/chat_style.h"
@@ -125,7 +126,7 @@ constexpr auto kBounceDuration = crl::time(400);
 		if (!topic || topic == current) {
 			continue;
 		}
-		if (Window::IsUnreadThread(topic)) {
+		if (MarkAsReadMenu::IsUnreadThread(topic)) {
 			return topic;
 		}
 	}
@@ -546,7 +547,7 @@ void PullToNextChannel::Indicator::paintEvent(QPaintEvent *e) {
 				? next->unreadCount()
 				: topic->chatListUnreadState().messages;
 			const auto badgeShown = (release > 0.)
-				&& (next ? (count > 0) : Window::IsUnreadThread(topic));
+				&& (next ? (count > 0) : MarkAsReadMenu::IsUnreadThread(topic));
 			const auto font = st::historyPullNextBadgeFont;
 			const auto badgeHeight = float64(st::historyPullNextBadge);
 			const auto string = (count > 0)
@@ -961,7 +962,7 @@ void PullToNextChannel::handleOverscroll(
 				&& (_nextTopic.get() == next)
 				&& (next != current)
 				&& (next->forum() == current->forum())
-				&& Window::IsUnreadThread(next)
+				&& MarkAsReadMenu::IsUnreadThread(next)
 				&& active()) {
 				_pulling = false;
 				_jumping = true;
@@ -1105,7 +1106,7 @@ void PullToNextChannel::jumpToTopic(
 		|| (_nextTopic.get() != next)
 		|| (next == current)
 		|| (next->forum() != current->forum())
-		|| !Window::IsUnreadThread(next)
+		|| !MarkAsReadMenu::IsUnreadThread(next)
 		|| !active()) {
 		reset();
 		return;
