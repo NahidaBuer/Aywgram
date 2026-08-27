@@ -4,12 +4,18 @@ on:
   push:
     tags:
       - 'pre-release-*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing pre-release-* tag to build and publish.
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: prerelease-${{ github.ref_name }}
+  group: prerelease-${{ inputs.release_tag || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -36,9 +42,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
           GH_REPO: ${{ github.repository }}
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
-          release_tag="$GITHUB_REF_NAME"
+          release_tag="${RELEASE_TAG_INPUT:-$GITHUB_REF_NAME}"
+          case "$release_tag" in
+            pre-release-*) ;;
+            *)
+              echo "::error::Prerelease tag must match pre-release-*; got $release_tag."
+              exit 1
+              ;;
+          esac
           started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           version="$(grep 'AppVersionStr' Telegram/SourceFiles/core/version.h | cut -d '"' -f 2)"
           title="AywGram v${version} CI"
@@ -60,6 +74,17 @@ jobs:
           | Linux x86_64 | \`AywGram-v${version}-linux-x86_64.tar.gz\` | ⏳ Building |
           | mac ARM64 | \`AywGram-v${version}-mac-arm64.zip\` | ⏳ Building |
           | Windows ARM64 | \`AywGram-v${version}-windows-arm64.zip\` | ⏳ Building |
+          | Windows x86_64 | \`AywGram-v${version}-windows-x86_64.zip\` | 📤 Upload manually |
+
+          ## Windows x86_64 manual upload
+
+          This workflow does not build Windows x86_64. The locally built Release archive should be uploaded to this prerelease.
+
+          Expected filename: \`AywGram-v${version}-windows-x86_64.zip\`
+
+          Upload it on the GitHub Release page or run:
+
+          \`gh release upload "${release_tag}" "AywGram-v${version}-windows-x86_64.zip" --clobber\`
           EOF
 
           if gh release view "$release_tag" --repo "$GH_REPO" >/dev/null 2>&1; then
@@ -198,6 +223,20 @@ jobs:
               "$target" "$name" "$url" "$state" "$workflow_result"
           }
 
+          manual_asset_row() {
+            local target="$1"
+            local name="$2"
+            local asset url
+            asset="$(jq -c --arg name "$name" '.assets[]? | select(.name == $name)' "$release_json" | head -n 1)"
+            if [ -z "$asset" ]; then
+              printf '| %s | `%s` | 📤 Upload manually | `manual` |\n' "$target" "$name"
+              return
+            fi
+            url="$(jq -r .browser_download_url <<<"$asset")"
+            printf '| %s | [%s](%s) | ✅ Manually uploaded | `manual` |\n' \
+              "$target" "$name" "$url"
+          }
+
           {
             printf 'Automated CI prerelease for AywGram v%s.\n\n' "$VERSION"
             printf -- '- Source version: `%s`\n' "$VERSION"
@@ -211,6 +250,12 @@ jobs:
             asset_row 'Linux x86_64' "AywGram-v${VERSION}-linux-x86_64.tar.gz" "$LINUX_RESULT" "$LINUX_PREVIOUS_ASSET_ID"
             asset_row 'mac ARM64' "AywGram-v${VERSION}-mac-arm64.zip" "$MAC_RESULT" "$MAC_PREVIOUS_ASSET_ID"
             asset_row 'Windows ARM64' "AywGram-v${VERSION}-windows-arm64.zip" "$WINDOWS_RESULT" "$WINDOWS_PREVIOUS_ASSET_ID"
+            manual_asset_row 'Windows x86_64' "AywGram-v${VERSION}-windows-x86_64.zip"
+            printf '\n## Windows x86_64 manual upload\n\n'
+            printf 'This workflow does not build Windows x86_64. The locally built Release archive should be uploaded to this prerelease.\n\n'
+            printf 'Expected filename: `AywGram-v%s-windows-x86_64.zip`\n\n' "$VERSION"
+            printf 'Upload it on the GitHub Release page or run:\n\n'
+            printf '`gh release upload "%s" "AywGram-v%s-windows-x86_64.zip" --clobber`\n' "$RELEASE_TAG" "$VERSION"
           } > "$notes"
 
           gh release edit "$RELEASE_TAG" \
