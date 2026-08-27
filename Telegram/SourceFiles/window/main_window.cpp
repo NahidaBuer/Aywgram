@@ -68,6 +68,13 @@ constexpr auto kSaveWindowPositionTimeout = crl::time(1000);
 
 using Core::WindowPosition;
 
+[[nodiscard]] QRect ScreenAvailableGeometry(not_null<const QWidget*> widget) {
+	// When the last monitor is removed Qt keeps delivering resize events
+	// while QGuiApplication has no screens at all, so screen() is nullptr.
+	const auto screen = widget->screen();
+	return screen ? screen->availableGeometry() : QRect();
+}
+
 [[nodiscard]] QPoint ChildSkip() {
 	const auto skipx = st::defaultDialogRow.padding.left()
 		+ st::defaultDialogRow.photoSize
@@ -542,8 +549,11 @@ bool MainWindow::computeIsActive() const {
 QRect MainWindow::desktopRect() const {
 	const auto now = crl::now();
 	if (!_monitorLastGot || now >= _monitorLastGot + crl::time(1000)) {
-		_monitorLastGot = now;
-		_monitorRect = computeDesktopRect();
+		const auto rect = computeDesktopRect();
+		if (!rect.isEmpty()) {
+			_monitorLastGot = now;
+			_monitorRect = rect;
+		}
 	}
 	return _monitorRect;
 }
@@ -892,7 +902,7 @@ void MainWindow::updateTitle() {
 }
 
 QRect MainWindow::computeDesktopRect() const {
-	return screen()->availableGeometry();
+	return ScreenAvailableGeometry(this);
 }
 
 void MainWindow::savePosition(Qt::WindowState state) {
@@ -1048,12 +1058,15 @@ void MainWindow::showRightColumn(object_ptr<Ui::RpWidget> widget) {
 }
 
 int MainWindow::maximalExtendBy() const {
-	auto desktop = screen()->availableGeometry();
+	const auto desktop = ScreenAvailableGeometry(this);
 	return std::max(desktop.width() - body()->width(), 0);
 }
 
 bool MainWindow::canExtendNoMove(int extendBy) const {
-	auto desktop = screen()->availableGeometry();
+	const auto desktop = ScreenAvailableGeometry(this);
+	if (desktop.isEmpty()) {
+		return false;
+	}
 	auto inner = body()->mapToGlobal(body()->rect());
 	auto innerRight = (inner.x() + inner.width() + extendBy);
 	auto desktopRight = (desktop.x() + desktop.width());
@@ -1061,7 +1074,11 @@ bool MainWindow::canExtendNoMove(int extendBy) const {
 }
 
 int MainWindow::tryToExtendWidthBy(int addToWidth) {
-	auto desktop = screen()->availableGeometry();
+	const auto desktop = ScreenAvailableGeometry(this);
+	if (desktop.isEmpty()) {
+		updateControlsGeometry();
+		return 0;
+	}
 	auto inner = body()->mapToGlobal(body()->rect());
 	accumulate_min(
 		addToWidth,

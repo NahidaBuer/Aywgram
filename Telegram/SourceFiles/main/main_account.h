@@ -78,6 +78,7 @@ public:
 	[[nodiscard]] bool sessionExists() const;
 	[[nodiscard]] Session &session() const;
 	[[nodiscard]] Session *maybeSession() const;
+	[[nodiscard]] bool destroyingSession() const;
 	[[nodiscard]] rpl::producer<Session*> sessionValue() const;
 	[[nodiscard]] rpl::producer<Session*> sessionChanges() const;
 
@@ -167,6 +168,7 @@ private:
 	MTP::Instance::Fields _mtpFields;
 	MTP::AuthKeysList _mtpKeysToDestroy;
 	bool _loggingOut = false;
+	bool _destroyingSession = false;
 
 	rpl::lifetime _lifetime;
 
