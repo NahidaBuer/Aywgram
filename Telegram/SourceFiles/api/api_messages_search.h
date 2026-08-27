@@ -43,6 +43,21 @@ enum class SearchSelectionChange {
 	Filter,
 };
 
+[[nodiscard]] bool MatchesSearchFilterLocally(
+	SearchFilter filter,
+	LocalSearchMessageFlags flags);
+[[nodiscard]] bool MatchesSearchSenderLocally(
+	PeerId actual,
+	PeerId expected);
+[[nodiscard]] bool MatchesSearchTraitsLocally(
+	const SearchMessageTraits &traits,
+	SearchFilter filter,
+	PeerId sender);
+[[nodiscard]] std::optional<MessageIdsList> SearchMessagesMatchingTraits(
+	const FoundMessages &found,
+	SearchFilter filter,
+	PeerId sender);
+
 struct SearchSelectionNormalization {
 	bool clearSender = false;
 	bool clearFilter = false;

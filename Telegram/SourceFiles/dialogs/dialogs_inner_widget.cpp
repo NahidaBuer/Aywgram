@@ -4645,14 +4645,6 @@ rpl::producer<> InnerWidget::changeSearchFromRequests() const {
 	return _changeSearchFromRequests.events();
 }
 
-rpl::producer<> InnerWidget::cancelSearchFilterRequests() const {
-	return _cancelSearchFilterRequests.events();
-}
-
-rpl::producer<> InnerWidget::changeSearchFilterTypeRequests() const {
-	return _changeSearchFilterTypeRequests.events();
-}
-
 rpl::producer<Ui::ScrollToRequest> InnerWidget::mustScrollTo() const {
 	return _mustScrollTo.events();
 }
@@ -5250,12 +5242,6 @@ void InnerWidget::updateSearchIn() {
 		_searchIn->changeFromRequests() | rpl::start_to_stream(
 			_changeSearchFromRequests,
 			_searchIn->lifetime());
-		_searchIn->changeFilterRequests() | rpl::start_to_stream(
-			_changeSearchFilterTypeRequests,
-			_searchIn->lifetime());
-		_searchIn->cancelFilterRequests() | rpl::start_to_stream(
-			_cancelSearchFilterRequests,
-			_searchIn->lifetime());
 		_searchIn->cancelFromRequests() | rpl::start_to_stream(
 			_cancelSearchFromRequests,
 			_searchIn->lifetime());
@@ -5331,12 +5317,6 @@ void InnerWidget::updateSearchIn() {
 	const auto fromName = _searchFromShown
 		? _searchFromShown->shortName()
 		: QString();
-	const auto filterIcon = (_searchState.messageFilter
-		== Api::SearchFilter::NoFilter)
-		? nullptr
-		: Ui::MakeIconThumbnail(st::menuIconTagFilter);
-	const auto filterName = Api::SearchFilterLabel(
-		_searchState.messageFilter);
 	_searchIn->apply({
 		{ ChatSearchTab::ThisTopic, topicIcon },
 		{ ChatSearchTab::ThisPeer, peerIcon },
@@ -5348,9 +5328,7 @@ void InnerWidget::updateSearchIn() {
 		_searchState.tab,
 		peerTabType,
 		fromImage,
-		fromName,
-		filterIcon,
-		filterName);
+		fromName);
 }
 
 void InnerWidget::repaintSearchResult(int index) {

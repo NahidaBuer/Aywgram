@@ -14,6 +14,7 @@ namespace Api {
 namespace {
 
 constexpr auto kIntersectionTimeout = crl::time(30000);
+constexpr auto kMinimumRequestInterval = crl::time(1000);
 
 [[nodiscard]] SearchCriteria CriteriaFromRequest(
 		const MessagesSearch::Request &request) {
@@ -38,7 +39,8 @@ MessagesSearchIntersection::MessagesSearchIntersection(
 : _history(history)
 , _senderSearch(history)
 , _filterSearch(history)
-, _watchdog([=] { timeout(); }) {
+, _watchdog([=] { timeout(); })
+, _requestThrottle([=] { sendDelayedRequest(); }) {
 	_senderSearch.firstOutcomes(
 	) | rpl::on_next([=](const SearchOutcome &outcome) {
 		childOutcome(SearchIntersectionLeg::Sender, outcome);
@@ -152,14 +154,52 @@ void MessagesSearchIntersection::childOutcome(
 	const auto &found = search.messages();
 	const auto exhausted = IsSuccessful(outcome.type)
 		&& SearchIntersectionExhausted(found);
-	execute(_state.accept(leg, outcome, exhausted));
+	auto matches = IsSuccessful(outcome.type)
+		? localMatches(outcome.found)
+		: std::make_optional(MessageIdsList());
+	if (!matches) {
+		execute(_state.accept(
+			leg,
+			SearchOutcome::RpcFailure(
+				outcome.generation,
+				outcome.page,
+				{},
+				u"SEARCH_RAW_TRAITS_MISSING"_q,
+				0),
+			{},
+			true));
+		return;
+	}
+	execute(_state.accept(
+		leg,
+		outcome,
+		std::move(*matches),
+		exhausted));
+}
+
+std::optional<MessageIdsList> MessagesSearchIntersection::localMatches(
+		const FoundMessages &found) const {
+	return SearchMessagesMatchingTraits(
+		found,
+		_request.filter,
+		_request.from->id);
 }
 
 void MessagesSearchIntersection::execute(SearchIntersectionAction action) {
 	if (action.cancelSender) {
+		if (_delayedRequest
+			&& _delayedRequest->leg == SearchIntersectionLeg::Sender) {
+			_delayedRequest.reset();
+			_requestThrottle.cancel();
+		}
 		_senderSearch.clear();
 	}
 	if (action.cancelFilter) {
+		if (_delayedRequest
+			&& _delayedRequest->leg == SearchIntersectionLeg::Filter) {
+			_delayedRequest.reset();
+			_requestThrottle.cancel();
+		}
 		_filterSearch.clear();
 	}
 	if (action.outcome) {
@@ -186,6 +226,20 @@ void MessagesSearchIntersection::executeRequest(
 	if (!_state.expects(leg, request.generation)) {
 		return;
 	}
+	const auto now = crl::now();
+	const auto delay = request.first
+		? 0
+		: SearchIntersectionRequestDelay(
+			_lastRequestAt,
+			now,
+			kMinimumRequestInterval);
+	if (delay) {
+		Expects(!_delayedRequest.has_value());
+		_delayedRequest = DelayedRequest{ leg, request };
+		_requestThrottle.callOnce(delay);
+		return;
+	}
+	_lastRequestAt = now;
 	auto &search = (leg == SearchIntersectionLeg::Sender)
 		? _senderSearch
 		: _filterSearch;
@@ -211,6 +265,12 @@ void MessagesSearchIntersection::executeRequest(
 	}
 }
 
+void MessagesSearchIntersection::sendDelayedRequest() {
+	if (const auto delayed = base::take(_delayedRequest)) {
+		executeRequest(delayed->leg, delayed->request);
+	}
+}
+
 void MessagesSearchIntersection::publish(SearchOutcome outcome) {
 	_watchdog.cancel();
 	if (outcome.page == SearchPage::First) {
@@ -226,6 +286,8 @@ void MessagesSearchIntersection::timeout() {
 
 void MessagesSearchIntersection::abandon() {
 	_watchdog.cancel();
+	_requestThrottle.cancel();
+	_delayedRequest.reset();
 	execute(_state.abandon());
 }
 

@@ -38,14 +38,22 @@ public:
 	[[nodiscard]] rpl::producer<SearchOutcome> nextOutcomes() const;
 
 private:
+	struct DelayedRequest {
+		SearchIntersectionLeg leg = SearchIntersectionLeg::Sender;
+		SearchIntersectionRequest request;
+	};
+
 	void childOutcome(
 		SearchIntersectionLeg leg,
 		const SearchOutcome &outcome);
+	[[nodiscard]] std::optional<MessageIdsList> localMatches(
+		const FoundMessages &found) const;
 	void execute(SearchIntersectionAction action);
 	void executeRequest(
 		SearchIntersectionLeg leg,
 		SearchIntersectionRequest request);
 	void publish(SearchOutcome outcome);
+	void sendDelayedRequest();
 	void timeout();
 	void abandon();
 
@@ -55,6 +63,9 @@ private:
 	SearchIntersectionState _state;
 	Request _request;
 	base::Timer _watchdog;
+	base::Timer _requestThrottle;
+	std::optional<DelayedRequest> _delayedRequest;
+	crl::time _lastRequestAt = 0;
 	bool _migratedDisabled = false;
 
 	rpl::event_stream<SearchOutcome> _firstOutcomes;

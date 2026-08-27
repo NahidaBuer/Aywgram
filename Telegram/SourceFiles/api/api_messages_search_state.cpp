@@ -114,6 +114,14 @@ void AppendMessages(MessageIdsList &to, const MessageIdsList &from) {
 	to.insert(end(to), begin(from), end(from));
 }
 
+void AppendTraits(
+		SearchMessageTraitsMap &to,
+		const SearchMessageTraitsMap &from) {
+	for (const auto &[id, traits] : from) {
+		to.insert_or_assign(id, traits);
+	}
+}
+
 [[nodiscard]] SearchNextBranch NextBranch(
 		int activeLoaded,
 		int activeTotal,
@@ -152,7 +160,11 @@ SearchOutcome SearchOutcome::Empty(
 		FoundMessages found) {
 	Expects(generation != 0);
 	Expects(found.messages.empty());
-	if (page == SearchPage::First || found.total < 0) {
+	const auto incomplete = found.hasMore
+		|| found.manualContinuation
+		|| found.partial;
+	if (!incomplete
+		&& (page == SearchPage::First || found.total < 0)) {
 		found.total = 0;
 	}
 	return {
@@ -181,9 +193,6 @@ SearchOutcome SearchOutcome::FromRpcError(
 		QString rpcType,
 		int rpcCode) {
 	Expects(generation != 0);
-	if (rpcType == u"SEARCH_QUERY_EMPTY"_q) {
-		return Empty(generation, page, criteria);
-	}
 	return RpcFailure(
 		generation,
 		page,
@@ -199,7 +208,6 @@ SearchOutcome SearchOutcome::RpcFailure(
 		QString rpcType,
 		int rpcCode) {
 	Expects(generation != 0);
-	Expects(rpcType != u"SEARCH_QUERY_EMPTY"_q);
 	return {
 		.generation = generation,
 		.page = page,
@@ -565,6 +573,9 @@ SearchCombinedMessages CombineSearchFirstPage(
 			AppendMessages(
 				result.committed.messages,
 				migrated->messages);
+			AppendTraits(
+				result.committed.traits,
+				migrated->traits);
 			result.committed.nextToken = migrated->nextToken;
 		} else {
 			result.heldMigrated = std::move(*migrated);
@@ -575,6 +586,7 @@ SearchCombinedMessages CombineSearchFirstPage(
 		result.activeTotal,
 		result.migratedLoaded,
 		result.migratedTotal);
+	result.committed.hasMore = (result.next != SearchNextBranch::None);
 	return result;
 }
 
@@ -596,15 +608,24 @@ SearchPageCombination CombineSearchPage(
 		AppendMessages(
 			result.combined.committed.messages,
 			page.messages);
+		AppendTraits(
+			result.combined.committed.traits,
+			page.traits);
 		result.combined.committed.nextToken = page.nextToken;
 		if (result.combined.activeLoaded >= result.combined.activeTotal
 			&& !result.combined.heldMigrated.messages.empty()) {
 			AppendMessages(
 				result.delta.messages,
 				result.combined.heldMigrated.messages);
+			AppendTraits(
+				result.delta.traits,
+				result.combined.heldMigrated.traits);
 			AppendMessages(
 				result.combined.committed.messages,
 				result.combined.heldMigrated.messages);
+			AppendTraits(
+				result.combined.committed.traits,
+				result.combined.heldMigrated.traits);
 			result.combined.committed.nextToken
 				= result.combined.heldMigrated.nextToken;
 			result.combined.heldMigrated = {};
@@ -620,6 +641,9 @@ SearchPageCombination CombineSearchPage(
 		AppendMessages(
 			result.combined.committed.messages,
 			page.messages);
+		AppendTraits(
+			result.combined.committed.traits,
+			page.traits);
 		result.combined.committed.nextToken = page.nextToken;
 	}
 	result.combined.committed.total = result.combined.activeTotal
@@ -630,6 +654,9 @@ SearchPageCombination CombineSearchPage(
 		result.combined.activeTotal,
 		result.combined.migratedLoaded,
 		result.combined.migratedTotal);
+	result.combined.committed.hasMore
+		= (result.combined.next != SearchNextBranch::None);
+	result.delta.hasMore = result.combined.committed.hasMore;
 	return result;
 }
 

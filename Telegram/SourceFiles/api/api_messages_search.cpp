@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "apiwrap.h"
 #include "data/data_channel.h"
+#include "data/data_document.h"
 #include "data/data_histories.h"
 #include "data/data_message_reaction_id.h"
 #include "data/data_peer.h"
@@ -24,19 +25,165 @@ namespace {
 constexpr auto kSearchPerPage = 50;
 constexpr auto kSearchTimeout = crl::time(15000);
 
-[[nodiscard]] MessageIdsList HistoryItemsFromTL(
+void AddSearchTrait(
+		LocalSearchMessageFlags &flags,
+		LocalSearchMessageFlag flag) {
+	flags |= static_cast<LocalSearchMessageFlags>(flag);
+}
+
+[[nodiscard]] bool IsSearchLinkEntity(
+		const MTPMessageEntity &entity) {
+	return entity.match(
+		[](const MTPDmessageEntityUrl &) { return true; },
+		[](const MTPDmessageEntityTextUrl &data) {
+			return !qs(data.vurl()).startsWith(
+				u"internal:"_q,
+				Qt::CaseInsensitive);
+		},
+		[](const MTPDmessageEntityPhone &) { return true; },
+		[](const MTPDmessageEntityBankCard &) { return true; },
+		[](const MTPDmessageEntityEmail &) { return true; },
+		[](const auto &) { return false; });
+}
+
+[[nodiscard]] LocalSearchMessageFlags SearchDocumentFlags(
+		not_null<Data::Session*> owner,
+		const MTPDmessageMediaDocument &media) {
+	if (media.vttl_seconds().has_value()) {
+		return 0;
+	}
+	const auto document = media.vdocument();
+	if (!document) {
+		return 0;
+	}
+	return document->match([&](const MTPDdocument &data) {
+		const auto parsed = owner->processDocument(
+			data,
+			media.valt_documents());
+		if (parsed->sticker()) {
+			return LocalSearchMessageFlags(0);
+		}
+		auto result = LocalSearchMessageFlags(0);
+		if (parsed->isVideoMessage()) {
+			AddSearchTrait(result, LocalSearchMessageFlag::VideoMessage);
+		} else if (parsed->isGifv()) {
+			AddSearchTrait(result, LocalSearchMessageFlag::Gif);
+		} else if (parsed->isVideoFile()) {
+			AddSearchTrait(result, LocalSearchMessageFlag::Video);
+		} else if (parsed->isVoiceMessage()) {
+			AddSearchTrait(result, LocalSearchMessageFlag::VoiceMessage);
+		} else if (parsed->isSharedMediaMusic()) {
+			AddSearchTrait(result, LocalSearchMessageFlag::Music);
+		} else {
+			AddSearchTrait(result, LocalSearchMessageFlag::File);
+		}
+		return result;
+	}, [](const MTPDdocumentEmpty &) {
+		return LocalSearchMessageFlags(0);
+	});
+}
+
+void AddSearchMediaTraits(
+		not_null<Data::Session*> owner,
+		LocalSearchMessageFlags &flags,
+		const MTPMessageMedia &media) {
+	media.match([&](const MTPDmessageMediaPhoto &data) {
+		if (data.vttl_seconds().has_value()) {
+			return;
+		}
+		if (const auto photo = data.vphoto()) {
+			photo->match([&](const MTPDphoto &) {
+				AddSearchTrait(flags, LocalSearchMessageFlag::Photo);
+			}, [](const MTPDphotoEmpty &) {
+			});
+		}
+	}, [&](const MTPDmessageMediaDocument &data) {
+		flags |= SearchDocumentFlags(owner, data);
+	}, [&](const MTPDmessageMediaWebPage &) {
+		AddSearchTrait(flags, LocalSearchMessageFlag::Link);
+	}, [&](const MTPDmessageMediaPoll &) {
+		AddSearchTrait(flags, LocalSearchMessageFlag::Poll);
+	}, [&](const MTPDmessageMediaGeo &) {
+		AddSearchTrait(flags, LocalSearchMessageFlag::Location);
+	}, [&](const MTPDmessageMediaGeoLive &) {
+		AddSearchTrait(flags, LocalSearchMessageFlag::Location);
+	}, [&](const MTPDmessageMediaVenue &) {
+		AddSearchTrait(flags, LocalSearchMessageFlag::Location);
+	}, [](const auto &) {
+	});
+}
+
+[[nodiscard]] SearchMessageTraits SearchTraitsFromTL(
+		not_null<Data::Session*> owner,
+		const MTPMessage &message) {
+	return message.match([&](const MTPDmessage &data) {
+		auto result = SearchMessageTraits{
+			.sender = data.vfrom_id()
+				? peerFromMTP(*data.vfrom_id())
+				: PeerFromMessage(message),
+		};
+		if (data.is_mentioned()) {
+			AddSearchTrait(
+				result.filterFlags,
+				LocalSearchMessageFlag::Mention);
+		}
+		if (data.is_pinned()) {
+			AddSearchTrait(
+				result.filterFlags,
+				LocalSearchMessageFlag::Pinned);
+		}
+		if (const auto media = data.vmedia()) {
+			AddSearchMediaTraits(owner, result.filterFlags, *media);
+		}
+		for (const auto &entity : data.ventities().value_or_empty()) {
+			if (IsSearchLinkEntity(entity)) {
+				AddSearchTrait(
+					result.filterFlags,
+					LocalSearchMessageFlag::Link);
+				break;
+			}
+		}
+		return result;
+	}, [&](const MTPDmessageService &data) {
+		auto result = SearchMessageTraits{
+			.sender = data.vfrom_id()
+				? peerFromMTP(*data.vfrom_id())
+				: PeerFromMessage(message),
+		};
+		if (data.is_mentioned()) {
+			AddSearchTrait(
+				result.filterFlags,
+				LocalSearchMessageFlag::Mention);
+		}
+		return result;
+	}, [&](const MTPDmessageEmpty &) {
+		return SearchMessageTraits{
+			.sender = PeerFromMessage(message),
+		};
+	});
+}
+
+struct SearchItemsFromTL {
+	MessageIdsList messages;
+	SearchMessageTraitsMap traits;
+};
+
+[[nodiscard]] SearchItemsFromTL HistoryItemsFromTL(
 		not_null<Data::Session*> data,
 		const QVector<MTPMessage> &messages) {
-	auto result = MessageIdsList();
+	auto result = SearchItemsFromTL();
 	for (const auto &message : messages) {
 		const auto peerId = PeerFromMessage(message);
 		if (data->peerLoaded(peerId)) {
 			if (DateFromMessage(message)) {
+				const auto traits = SearchTraitsFromTL(data, message);
 				const auto item = data->addNewMessage(
 					message,
 					MessageFlags(),
 					NewMessageType::Existing);
-				result.push_back(item->fullId());
+				const auto id = item->fullId();
+				result.messages.push_back(id);
+				result.traits.insert_or_assign(id, traits);
 			}
 		} else {
 			LOG(("API Error: search result has an unavailable peer."));
@@ -94,7 +241,13 @@ constexpr auto kSearchTimeout = crl::time(15000);
 		}
 		auto items = HistoryItemsFromTL(&owner, data.vmessages().v);
 		const auto total = int(data.vmessages().v.size());
-		return FoundMessages{ total, std::move(items), nextToken };
+		return FoundMessages{
+			.total = total,
+			.messages = std::move(items.messages),
+			.nextToken = nextToken,
+			.hasMore = false,
+			.traits = std::move(items.traits),
+		};
 	}, [&](const MTPDmessages_messagesSlice &data) {
 		if (!cached) {
 			owner.processUsers(data.vusers());
@@ -103,7 +256,14 @@ constexpr auto kSearchTimeout = crl::time(15000);
 		}
 		auto items = HistoryItemsFromTL(&owner, data.vmessages().v);
 		const auto total = int(data.vcount().v);
-		return FoundMessages{ total, std::move(items), nextToken };
+		const auto hasMore = int(items.messages.size()) < total;
+		return FoundMessages{
+			.total = total,
+			.messages = std::move(items.messages),
+			.nextToken = nextToken,
+			.hasMore = hasMore,
+			.traits = std::move(items.traits),
+		};
 	}, [&](const MTPDmessages_channelMessages &data) {
 		if (!cached) {
 			owner.processUsers(data.vusers());
@@ -118,7 +278,14 @@ constexpr auto kSearchTimeout = crl::time(15000);
 		}
 		auto items = HistoryItemsFromTL(&owner, data.vmessages().v);
 		const auto total = int(data.vcount().v);
-		return FoundMessages{ total, std::move(items), nextToken };
+		const auto hasMore = int(items.messages.size()) < total;
+		return FoundMessages{
+			.total = total,
+			.messages = std::move(items.messages),
+			.nextToken = nextToken,
+			.hasMore = hasMore,
+			.traits = std::move(items.traits),
+		};
 	}, [&](const MTPDmessages_messagesNotModified &) {
 		return FoundMessages{ 0, {}, nextToken };
 	});

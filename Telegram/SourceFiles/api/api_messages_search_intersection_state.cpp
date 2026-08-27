@@ -7,14 +7,42 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "api/api_messages_search_intersection_state.h"
 
-#include <algorithm>
-
 namespace Api {
 namespace {
 
 [[nodiscard]] bool IsSuccessful(SearchOutcomeType type) {
 	return (type == SearchOutcomeType::Success)
 		|| (type == SearchOutcomeType::Empty);
+}
+
+[[nodiscard]] SearchIntersectionLeg ChooseDriver(
+		const FoundMessages &sender,
+		const FoundMessages &filter) {
+	return (sender.total >= 0
+		&& filter.total >= 0
+		&& sender.total < filter.total)
+		? SearchIntersectionLeg::Sender
+		: SearchIntersectionLeg::Filter;
+}
+
+[[nodiscard]] MessageIdsList ReconcileFirstPageMatches(
+		const FoundMessages &driver,
+		const MessageIdsList &localMatches,
+		const FoundMessages &other) {
+	const auto local = std::set<FullMsgId>(
+		localMatches.begin(),
+		localMatches.end());
+	const auto authoritative = std::set<FullMsgId>(
+		other.messages.begin(),
+		other.messages.end());
+	auto result = MessageIdsList();
+	result.reserve(driver.messages.size());
+	for (const auto message : driver.messages) {
+		if (local.contains(message) || authoritative.contains(message)) {
+			result.push_back(message);
+		}
+	}
+	return result;
 }
 
 } // namespace
@@ -24,11 +52,24 @@ bool SearchIntersectionExhausted(const FoundMessages &committed) {
 		&& int(committed.messages.size()) >= committed.total;
 }
 
+crl::time SearchIntersectionRequestDelay(
+		crl::time lastRequestAt,
+		crl::time now,
+		crl::time minimumInterval) {
+	return (!lastRequestAt || now - lastRequestAt >= minimumInterval)
+		? 0
+		: minimumInterval - (now - lastRequestAt);
+}
+
 SearchIntersectionState::SearchIntersectionState(
 		SearchIntersectionLimits limits)
 : _limits(limits) {
+	if (_limits.maxPagesPerLeg > 0) {
+		_limits.maxDriverPages = _limits.maxPagesPerLeg;
+	}
 	Expects(_limits.pageSize > 0);
-	Expects(_limits.maxPagesPerLeg > 0);
+	Expects(_limits.maxDriverPages > 0);
+	Expects(_limits.automaticDriverPages >= 0);
 }
 
 SearchIntersectionAction SearchIntersectionState::begin(
@@ -55,7 +96,7 @@ SearchIntersectionAction SearchIntersectionState::begin(
 
 SearchIntersectionAction SearchIntersectionState::more(
 		SearchGeneration generation) {
-	if (_pending || !_canSearchMore || !generation
+	if (_pending || !_canSearchMore || !_driver || !generation
 		|| generation == _generation) {
 		return {};
 	}
@@ -64,12 +105,23 @@ SearchIntersectionAction SearchIntersectionState::more(
 	_pageMessages.clear();
 	_pending = true;
 	_canSearchMore = false;
-	return process();
+	auto &selected = leg(*_driver);
+	if (selected.pages >= _limits.maxDriverPages) {
+		return finishCapped();
+	}
+	auto result = SearchIntersectionAction();
+	if (*_driver == SearchIntersectionLeg::Sender) {
+		result.senderRequest = request(selected);
+	} else {
+		result.filterRequest = request(selected);
+	}
+	return result;
 }
 
 SearchIntersectionAction SearchIntersectionState::accept(
 		SearchIntersectionLeg which,
 		const SearchOutcome &outcome,
+		MessageIdsList matches,
 		bool exhausted) {
 	auto &accepted = leg(which);
 	if (!_pending
@@ -81,12 +133,20 @@ SearchIntersectionAction SearchIntersectionState::accept(
 	if (!IsSuccessful(outcome.type)) {
 		return fail(outcome);
 	}
-	if (!append(accepted, outcome.found.messages)) {
+	accepted.exhausted = exhausted;
+	if (!_driver) {
+		accepted.first = outcome.found;
+		accepted.firstMatches = std::move(matches);
+		accepted.received = true;
+	} else if (which != *_driver) {
+		return finishPartial(
+			SearchOutcomeType::RpcFailure,
+			SearchDiagnostic{ .rpcType = u"SEARCH_DRIVER_INVALID"_q });
+	} else if (!appendMatches(std::move(matches))) {
 		return finishPartial(
 			SearchOutcomeType::RpcFailure,
 			SearchDiagnostic{ .rpcType = u"SEARCH_ORDER_INVALID"_q });
 	}
-	accepted.exhausted = exhausted;
 	return process();
 }
 
@@ -132,6 +192,10 @@ bool SearchIntersectionState::canSearchMore() const {
 	return _canSearchMore;
 }
 
+std::optional<SearchIntersectionLeg> SearchIntersectionState::driver() const {
+	return _driver;
+}
+
 bool SearchIntersectionState::expects(
 		SearchIntersectionLeg which,
 		SearchGeneration generation) const {
@@ -148,53 +212,54 @@ const FoundMessages &SearchIntersectionState::messages() const {
 }
 
 SearchIntersectionAction SearchIntersectionState::process() {
-	while (int(_pageMessages.size()) < _limits.pageSize) {
-		while (available(_sender) && available(_filter)) {
-			const auto sender = _sender.buffer[_sender.offset];
-			const auto filter = _filter.buffer[_filter.offset];
-			if (sender == filter) {
-				++_sender.offset;
-				++_filter.offset;
-				if (_matched.emplace(sender).second) {
-					_pageMessages.push_back(sender);
-					if (int(_pageMessages.size()) >= _limits.pageSize) {
-						break;
-					}
-				}
-			} else if (newer(sender, filter)) {
-				++_sender.offset;
-			} else {
-				++_filter.offset;
-			}
-		}
-
-		const auto senderDone = !available(_sender) && _sender.exhausted;
-		const auto filterDone = !available(_filter) && _filter.exhausted;
-		if (senderDone || filterDone) {
-			return finishSuccess(true);
-		}
-		if (int(_pageMessages.size()) >= _limits.pageSize) {
-			return finishSuccess(false);
-		}
-
-		auto result = SearchIntersectionAction();
-		if (!available(_sender) && !_sender.pendingGeneration) {
-			if (_sender.pages >= _limits.maxPagesPerLeg) {
-				return finishSuccess(false, true);
-			}
-			result.senderRequest = request(_sender);
-		}
-		if (!available(_filter) && !_filter.pendingGeneration) {
-			if (_filter.pages >= _limits.maxPagesPerLeg) {
-				return finishSuccess(false, true);
-			}
-			result.filterRequest = request(_filter);
-		}
-		if (result.senderRequest.generation
-			|| result.filterRequest.generation) {
+	if (!_driver) {
+		if ((_sender.received && _sender.first.total == 0)
+			|| (_filter.received && _filter.first.total == 0)) {
+			auto result = finishSuccess(true);
+			result.cancelSender
+				= bool(base::take(_sender.pendingGeneration));
+			result.cancelFilter
+				= bool(base::take(_filter.pendingGeneration));
 			return result;
 		}
-		return {};
+		if (!_sender.received || !_filter.received) {
+			return {};
+		}
+		_driver = ChooseDriver(_sender.first, _filter.first);
+		auto &selected = leg(*_driver);
+		const auto &other = leg(
+			(*_driver == SearchIntersectionLeg::Sender)
+				? SearchIntersectionLeg::Filter
+				: SearchIntersectionLeg::Sender);
+		if (!appendMatches(ReconcileFirstPageMatches(
+			selected.first,
+			selected.firstMatches,
+			other.first))) {
+			return finishPartial(
+				SearchOutcomeType::RpcFailure,
+				SearchDiagnostic{ .rpcType = u"SEARCH_ORDER_INVALID"_q });
+		}
+	}
+
+	auto &selected = leg(*_driver);
+	if (selected.exhausted) {
+		return finishSuccess(true);
+	}
+	const auto automaticLimit = 1 + _limits.automaticDriverPages;
+	if (_page == SearchPage::First
+		&& int(_pageMessages.size()) < _limits.pageSize
+		&& selected.pages < automaticLimit
+		&& selected.pages < _limits.maxDriverPages) {
+		auto result = SearchIntersectionAction();
+		if (*_driver == SearchIntersectionLeg::Sender) {
+			result.senderRequest = request(selected);
+		} else {
+			result.filterRequest = request(selected);
+		}
+		return result;
+	}
+	if (selected.pages >= _limits.maxDriverPages) {
+		return finishCapped();
 	}
 	return finishSuccess(false);
 }
@@ -214,6 +279,7 @@ SearchIntersectionAction SearchIntersectionState::finishPartial(
 		.total = -1,
 		.messages = _pageMessages,
 		.hasMore = false,
+		.manualContinuation = false,
 		.partial = true,
 	};
 	auto outcome = (type == SearchOutcomeType::RpcFailure)
@@ -230,6 +296,7 @@ SearchIntersectionAction SearchIntersectionState::finishPartial(
 	appendCommitted();
 	_committed.total = -1;
 	_committed.hasMore = false;
+	_committed.manualContinuation = false;
 	_committed.partial = true;
 	_pending = false;
 	_canSearchMore = false;
@@ -241,31 +308,40 @@ SearchIntersectionAction SearchIntersectionState::finishPartial(
 }
 
 SearchIntersectionAction SearchIntersectionState::finishSuccess(
-		bool complete,
-		bool capped) {
+		bool complete) {
 	auto found = FoundMessages{
 		.total = complete
 			? int(_committed.messages.size() + _pageMessages.size())
 			: -1,
 		.messages = _pageMessages,
-		.hasMore = !complete && !capped,
-		.partial = capped,
+		.hasMore = false,
+		.manualContinuation = !complete,
+		.partial = false,
 	};
 	appendCommitted();
 	_committed.total = found.total;
-	_committed.hasMore = found.hasMore;
-	_committed.partial = found.partial;
+	_committed.hasMore = false;
+	_committed.manualContinuation = found.manualContinuation;
+	_committed.partial = false;
 	_pending = false;
-	_canSearchMore = found.hasMore && !found.partial;
-	auto outcome = SearchOutcome::FromFound(
-		_generation,
-		_page,
-		_criteria,
-		std::move(found));
-	if (outcome.found.partial && outcome.found.messages.empty()) {
-		outcome.found.total = -1;
-	}
-	return { .outcome = std::move(outcome) };
+	_canSearchMore = found.manualContinuation;
+	return {
+		.outcome = SearchOutcome::FromFound(
+			_generation,
+			_page,
+			_criteria,
+			std::move(found)),
+	};
+}
+
+SearchIntersectionAction SearchIntersectionState::finishCapped() {
+	auto result = finishSuccess(false);
+	result.outcome->found.manualContinuation = false;
+	result.outcome->found.partial = true;
+	_committed.manualContinuation = false;
+	_committed.partial = true;
+	_canSearchMore = false;
+	return result;
 }
 
 SearchIntersectionAction SearchIntersectionState::finishCancelled(
@@ -283,54 +359,22 @@ SearchIntersectionAction SearchIntersectionState::finishCancelled(
 	};
 }
 
-bool SearchIntersectionState::append(
-		LegState &accepted,
-		MessageIdsList messages) {
+bool SearchIntersectionState::appendMatches(MessageIdsList messages) {
 	for (const auto message : messages) {
 		if (message.peer != _activePeer
 			&& (!_migratedPeer || message.peer != _migratedPeer)) {
 			return false;
 		}
-	}
-	std::sort(messages.begin(), messages.end(), [=](FullMsgId a, FullMsgId b) {
-		return newer(a, b);
-	});
-	for (const auto message : messages) {
-		if (!accepted.seen.emplace(message).second) {
-			continue;
+		if (_matched.emplace(message).second) {
+			_pageMessages.push_back(message);
 		}
-		if (accepted.last && newer(message, *accepted.last)) {
-			return false;
-		}
-		accepted.buffer.push_back(message);
-		accepted.last = message;
 	}
 	return true;
 }
 
-bool SearchIntersectionState::newer(FullMsgId a, FullMsgId b) const {
-	const auto rank = [&](FullMsgId value) {
-		return (value.peer == _activePeer)
-			? 2
-			: (value.peer == _migratedPeer) ? 1 : 0;
-	};
-	const auto aRank = rank(a);
-	const auto bRank = rank(b);
-	if (aRank != bRank) {
-		return aRank > bRank;
-	} else if (a.peer != b.peer) {
-		return a.peer.value > b.peer.value;
-	}
-	return a.msg.bare > b.msg.bare;
-}
-
-bool SearchIntersectionState::available(const LegState &value) const {
-	return value.offset < value.buffer.size();
-}
-
 SearchIntersectionRequest SearchIntersectionState::request(LegState &value) {
 	Expects(!value.pendingGeneration);
-	Expects(value.pages < _limits.maxPagesPerLeg);
+	Expects(value.pages < _limits.maxDriverPages);
 	const auto result = SearchIntersectionRequest{
 		.generation = AllocateSearchGeneration(),
 		.first = (value.pages == 0),
@@ -354,7 +398,7 @@ void SearchIntersectionState::appendCommitted() {
 	_committed.messages.insert(
 		end(_committed.messages),
 		_pageMessages.begin(),
-		end(_pageMessages));
+		_pageMessages.end());
 	_pageMessages.clear();
 }
 
@@ -369,6 +413,7 @@ void SearchIntersectionState::reset() {
 	_pageMessages.clear();
 	_matched.clear();
 	_committed = {};
+	_driver.reset();
 	_pending = false;
 	_canSearchMore = false;
 }

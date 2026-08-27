@@ -21,6 +21,7 @@ class ChannelData;
 
 namespace Api {
 class MessagesSearchIntersection;
+class MessagesSearchMerged;
 struct SearchOutcome;
 } // namespace Api
 
@@ -184,12 +185,19 @@ private:
 	void completeHashtag(QString tag);
 	void requestPublicPosts(bool fromStart);
 	void requestMessages(bool fromStart);
+	void startSearchMerged(not_null<History*> history);
+	void searchMergedMore();
+	void searchMergedOutcome(
+		const Api::SearchOutcome &outcome,
+		bool first);
 	void startSearchIntersection(not_null<History*> history);
 	void searchIntersectionMore();
 	void searchIntersectionOutcome(
 		const Api::SearchOutcome &outcome,
 		bool first);
 	void showSearchIntersectionNotice(const Api::SearchOutcome &outcome);
+	void showSearchOutcomeNotice(const Api::SearchOutcome &outcome);
+	void updateSearchContinuation(bool visible, bool loading = false);
 	[[nodiscard]] not_null<SearchProcessState*> currentSearchProcess();
 
 	[[nodiscard]] bool computeSearchWithPostsPreview() const;
@@ -386,6 +394,7 @@ private:
 	class BottomButton;
 	object_ptr<BottomButton> _updateTelegram = { nullptr };
 	object_ptr<BottomButton> _loadMoreChats = { nullptr };
+	object_ptr<BottomButton> _searchContinue = { nullptr };
 	std::unique_ptr<Ui::DownloadBar> _downloadBar;
 	std::unique_ptr<Window::ConnectionState> _connecting;
 
@@ -452,6 +461,10 @@ private:
 	SearchProcessState _migratedProcess;
 	SearchProcessState _postsProcess;
 	int _historiesRequest = 0; // Not real mtpRequestId.
+	std::unique_ptr<Api::MessagesSearchMerged> _searchMerged;
+	Api::SearchGeneration _searchMergedFirstGeneration = 0;
+	Api::SearchGeneration _searchMergedPageGeneration = 0;
+	rpl::lifetime _searchMergedLifetime;
 	std::unique_ptr<Api::MessagesSearchIntersection> _searchIntersection;
 	Api::SearchGeneration _searchIntersectionFirstGeneration = 0;
 	Api::SearchGeneration _searchIntersectionPageGeneration = 0;

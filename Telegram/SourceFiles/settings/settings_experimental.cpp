@@ -457,7 +457,6 @@ void SetupExperimental(
 				HistoryView::kOptionUnlimitedMessageWidth,
 				HistoryView::Controls::kOptionMacCmdReplyImmediately,
 				Ui::kOptionHideAiButton,
-				kForceComposeSearchOneColumn,
 			}
 		},
 		{
