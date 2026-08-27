@@ -9224,8 +9224,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_SearchFilterType" = "Message type";
 "ayu_SearchFilterAll" = "All messages";
 "ayu_SearchFilterMentions" = "Mentions of me";
-"ayu_ExactSearchIntersection" = "Exact sender and message type search";
-"ayu_ExactSearchIntersectionDescription" = "Experimental. When disabled, choosing a sender clears the message type, and choosing a message type clears the sender. Search text can still be combined with either option.";
-"ayu_ExactSearchIntersectionFailed" = "Exact message search failed. Try again.";
-"ayu_ExactSearchIntersectionTimedOut" = "Exact message search timed out. Try again.";
+"ayu_ExactSearchIntersection" = "Combine sender and message type locally";
+"ayu_ExactSearchIntersectionDescription" = "Experimental. Probes sender and message type searches separately, continues with the smaller result stream, and checks the other condition locally. Sparse results require manual continuation and stop at a safety limit. When disabled, sender and message type remain mutually exclusive.";
+"ayu_ExactSearchIntersectionFailed" = "Message search failed. Try again.";
+"ayu_ExactSearchIntersectionTimedOut" = "Message search timed out. Try again.";
 "ayu_ExactSearchIntersectionPartial" = "Search stopped at its safety limit. The results shown are incomplete.";
+"ayu_ExactSearchContinue" = "Continue search";
+"ayu_ExactSearchContinuing" = "Searching...";

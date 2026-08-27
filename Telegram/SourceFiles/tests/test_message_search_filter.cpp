@@ -59,6 +59,30 @@ namespace {
 	return result;
 }
 
+[[nodiscard]] Api::FoundMessages MakeFoundWithTraits(
+		int total,
+		std::initializer_list<int64> values,
+		PeerId sender,
+		Api::LocalSearchMessageFlags flags,
+		QString nextToken = {}) {
+	auto result = MakeFound(total, values, std::move(nextToken));
+	for (const auto id : result.messages) {
+		result.traits.insert_or_assign(id, Api::SearchMessageTraits{
+			.sender = sender,
+			.filterFlags = flags,
+		});
+	}
+	return result;
+}
+
+[[nodiscard]] bool HasTraits(
+		const Api::FoundMessages &found,
+		FullMsgId id,
+		Api::SearchMessageTraits expected) {
+	const auto i = found.traits.find(id);
+	return i != end(found.traits) && i->second == expected;
+}
+
 [[nodiscard]] bool CheckCriteria(
 		const Api::SearchDiagnostic &diagnostic,
 		Api::SearchCriteria criteria,
@@ -281,7 +305,7 @@ struct DirectCase {
 		DirectCase{ DirectCompletion::Empty,
 			Api::SearchOutcomeType::Empty, "direct ordinary empty" },
 		DirectCase{ DirectCompletion::QueryEmpty,
-			Api::SearchOutcomeType::Empty, "direct query-empty normalization" },
+			Api::SearchOutcomeType::RpcFailure, "direct query-empty failure" },
 		DirectCase{ DirectCompletion::RpcFailure,
 			Api::SearchOutcomeType::RpcFailure, "direct rpc failure" },
 		DirectCase{ DirectCompletion::Cancelled,
@@ -331,9 +355,9 @@ struct DirectCase {
 					"direct ordinary empty total");
 			} else if (test.completion == DirectCompletion::QueryEmpty) {
 				good &= Check(
-					outcome->diagnostic.rpcType.isEmpty()
-						&& outcome->diagnostic.rpcCode == 0,
-					"query-empty has no rpc metadata");
+					outcome->diagnostic.rpcType == u"SEARCH_QUERY_EMPTY"_q
+						&& outcome->diagnostic.rpcCode == 400,
+					"query-empty preserves rpc metadata");
 			} else if (test.completion == DirectCompletion::RpcFailure) {
 				good &= Check(
 					outcome->diagnostic.rpcType == u"FLOOD_WAIT_12"_q
@@ -1203,6 +1227,674 @@ void ExecuteCancels(Api::SearchCancelMask mask, CancelCounts &counts) {
 	return good;
 }
 
+[[nodiscard]] Api::SearchOutcome AdaptiveFound(
+		Api::SearchIntersectionRequest request,
+		int total,
+		MessageIdsList messages) {
+	return Api::SearchOutcome::FromFound(
+		request.generation,
+		request.first ? Api::SearchPage::First : Api::SearchPage::More,
+		{},
+		Api::FoundMessages{
+			.total = total,
+			.messages = std::move(messages),
+		});
+}
+
+[[nodiscard]] bool CheckLocalFilterMatching() {
+	using Filter = Api::SearchFilter;
+	using Flag = Api::LocalSearchMessageFlag;
+	const auto bit = [](Flag flag) {
+		return static_cast<Api::LocalSearchMessageFlags>(flag);
+	};
+	const auto cases = std::array{
+		std::pair(Filter::Photos, Flag::Photo),
+		std::pair(Filter::Videos, Flag::Video),
+		std::pair(Filter::Files, Flag::File),
+		std::pair(Filter::Links, Flag::Link),
+		std::pair(Filter::Music, Flag::Music),
+		std::pair(Filter::VoiceMessages, Flag::VoiceMessage),
+		std::pair(Filter::VideoMessages, Flag::VideoMessage),
+		std::pair(Filter::Gifs, Flag::Gif),
+		std::pair(Filter::Polls, Flag::Poll),
+		std::pair(Filter::MyMentions, Flag::Mention),
+		std::pair(Filter::Locations, Flag::Location),
+		std::pair(Filter::Pinned, Flag::Pinned),
+	};
+	auto good = Check(
+		Api::MatchesSearchFilterLocally(Filter::NoFilter, 0),
+		"local no-filter always matches");
+	for (const auto &[filter, flag] : cases) {
+		good &= Check(
+			Api::MatchesSearchFilterLocally(filter, bit(flag)),
+			"local filter matches its message trait");
+		good &= Check(
+			!Api::MatchesSearchFilterLocally(filter, 0),
+			"local filter rejects absent message trait");
+	}
+	good &= Check(
+		Api::MatchesSearchSenderLocally(
+			PeerId(UserId(42)),
+			PeerId(UserId(42)))
+			&& Api::MatchesSearchSenderLocally(
+				PeerId(ChannelId(7)),
+				PeerId(ChannelId(7)))
+			&& !Api::MatchesSearchSenderLocally(
+				PeerId(UserId(42)),
+				PeerId(ChannelId(7))),
+		"local sender matching supports user and channel identities");
+	return good;
+}
+
+[[nodiscard]] bool CheckRawTraitsMatching() {
+	using Filter = Api::SearchFilter;
+	using Flag = Api::LocalSearchMessageFlag;
+	const auto bit = [](Flag flag) {
+		return static_cast<Api::LocalSearchMessageFlags>(flag);
+	};
+	const auto sender = PeerId(UserId(42));
+	const auto other = PeerId(UserId(43));
+	auto found = MakeFound(3, { 100, 90, 80 });
+	found.traits.insert_or_assign(found.messages[0], Api::SearchMessageTraits{
+		.sender = sender,
+		.filterFlags = bit(Flag::Photo),
+	});
+	found.traits.insert_or_assign(found.messages[1], Api::SearchMessageTraits{
+		.sender = other,
+		.filterFlags = bit(Flag::Photo),
+	});
+	found.traits.insert_or_assign(found.messages[2], Api::SearchMessageTraits{
+		.sender = sender,
+		.filterFlags = bit(Flag::Video),
+	});
+	const auto matched = Api::SearchMessagesMatchingTraits(
+		found,
+		Filter::Photos,
+		sender);
+	auto good = Check(
+		matched && *matched == MakeIds({ 100 }),
+		"raw traits require both sender and message type");
+
+	const auto laterPage = MakeFoundWithTraits(
+		200,
+		{ 70, 60 },
+		sender,
+		bit(Flag::Photo));
+	const auto laterMatched = Api::SearchMessagesMatchingTraits(
+		laterPage,
+		Filter::Photos,
+		sender);
+	good &= Check(
+		laterMatched && *laterMatched == MakeIds({ 70, 60 }),
+		"raw photo traits keep sender-driver continuation results");
+
+	auto missing = laterPage;
+	missing.traits.erase(missing.messages.back());
+	good &= Check(
+		!Api::SearchMessagesMatchingTraits(
+			missing,
+			Filter::Photos,
+			sender),
+		"missing raw traits terminate local matching");
+
+	const auto webpage = Api::SearchMessageTraits{
+		.sender = sender,
+		.filterFlags = bit(Flag::Link),
+	};
+	const auto excludedMedia = Api::SearchMessageTraits{
+		.sender = sender,
+		.filterFlags = 0,
+	};
+	good &= Check(
+		Api::MatchesSearchTraitsLocally(webpage, Filter::Links, sender)
+			&& !Api::MatchesSearchTraitsLocally(
+				webpage,
+				Filter::Photos,
+				sender)
+			&& !Api::MatchesSearchTraitsLocally(
+				excludedMedia,
+				Filter::Photos,
+				sender)
+			&& !Api::MatchesSearchTraitsLocally(
+				excludedMedia,
+				Filter::Files,
+				sender),
+		"webpage images are links and excluded photo document traits stay empty");
+
+	auto identities = Api::FoundMessages{
+		.total = 2,
+		.messages = {
+			FullMsgId(PeerId(ChannelId(7)), MsgId(11)),
+			FullMsgId(PeerId(ChatId(8)), MsgId(10)),
+		},
+	};
+	const auto channelIdentity = PeerId(ChannelId(77));
+	for (const auto id : identities.messages) {
+		identities.traits.insert_or_assign(id, Api::SearchMessageTraits{
+			.sender = channelIdentity,
+			.filterFlags = bit(Flag::Pinned),
+		});
+	}
+	const auto identityMatches = Api::SearchMessagesMatchingTraits(
+		identities,
+		Filter::Pinned,
+		channelIdentity);
+	good &= Check(
+		identityMatches && *identityMatches == identities.messages,
+		"raw sender traits preserve channel identity across migrated peers");
+	return good;
+}
+
+[[nodiscard]] bool CheckSearchTraitsMerge() {
+	using Flag = Api::LocalSearchMessageFlag;
+	const auto bit = [](Flag flag) {
+		return static_cast<Api::LocalSearchMessageFlags>(flag);
+	};
+	const auto senderA = PeerId(UserId(10));
+	const auto senderB = PeerId(ChannelId(20));
+	const auto senderC = PeerId(UserId(30));
+	auto good = true;
+	{
+		const auto combined = Api::CombineSearchFirstPage(
+			MakeFoundWithTraits(
+				1,
+				{ 101 },
+				senderA,
+				bit(Flag::Photo)),
+			MakeFoundWithTraits(
+				1,
+				{ 201 },
+				senderB,
+				bit(Flag::Video)));
+		good &= Check(
+			combined.committed.messages == MakeIds({ 101, 201 })
+				&& HasTraits(
+					combined.committed,
+					MakeIds({ 101 })[0],
+					{ senderA, bit(Flag::Photo) })
+				&& HasTraits(
+					combined.committed,
+					MakeIds({ 201 })[0],
+					{ senderB, bit(Flag::Video) }),
+			"active and migrated first-page traits merge with ids");
+	}
+	{
+		auto base = Api::CombineSearchFirstPage(
+			MakeFoundWithTraits(
+				2,
+				{ 101 },
+				senderA,
+				bit(Flag::Photo)),
+			MakeFoundWithTraits(
+				1,
+				{ 201 },
+				senderB,
+				bit(Flag::Video)));
+		const auto page = Api::CombineSearchPage(
+			base,
+			Api::SearchBranch::Active,
+			MakeFoundWithTraits(
+				2,
+				{ 102 },
+				senderC,
+				bit(Flag::File)));
+		good &= Check(
+			page.delta.messages == MakeIds({ 102, 201 })
+				&& page.combined.committed.messages
+					== MakeIds({ 101, 102, 201 })
+				&& page.combined.heldMigrated.traits.empty()
+				&& HasTraits(
+					page.delta,
+					MakeIds({ 102 })[0],
+					{ senderC, bit(Flag::File) })
+				&& HasTraits(
+					page.delta,
+					MakeIds({ 201 })[0],
+					{ senderB, bit(Flag::Video) })
+				&& page.combined.committed.traits.size() == 3,
+			"held migrated traits join active exhaustion delta");
+	}
+	{
+		auto base = Api::CombineSearchFirstPage(
+			MakeFoundWithTraits(
+				1,
+				{ 101 },
+				senderA,
+				bit(Flag::Photo)),
+			MakeFoundWithTraits(
+				2,
+				{ 201 },
+				senderB,
+				bit(Flag::Video)));
+		const auto page = Api::CombineSearchPage(
+			base,
+			Api::SearchBranch::Migrated,
+			MakeFoundWithTraits(
+				2,
+				{ 202 },
+				senderC,
+				bit(Flag::Poll)));
+		good &= Check(
+			page.delta.messages == MakeIds({ 202 })
+				&& HasTraits(
+					page.delta,
+					MakeIds({ 202 })[0],
+					{ senderC, bit(Flag::Poll) })
+				&& HasTraits(
+					page.combined.committed,
+					MakeIds({ 202 })[0],
+					{ senderC, bit(Flag::Poll) }),
+			"migrated continuation traits merge with ids");
+	}
+	return good;
+}
+
+[[nodiscard]] bool CheckAdaptiveAuthoritativeProbeOverlap() {
+	auto good = true;
+	{
+		auto state = Api::SearchIntersectionState();
+		auto action = state.begin(
+			Api::AllocateSearchGeneration(),
+			{},
+			PeerId(UserId(1)));
+		(void)state.accept(
+			Api::SearchIntersectionLeg::Sender,
+			AdaptiveFound(
+				action.senderRequest,
+				5,
+				MakeIds({ 50, 40, 40, 30, 20 })),
+			MakeIds({ 50, 30, 30 }),
+			true);
+		const auto next = state.accept(
+			Api::SearchIntersectionLeg::Filter,
+			AdaptiveFound(
+				action.filterRequest,
+				10,
+				MakeIds({ 60, 40, 40 })),
+			MakeIds({ 40 }),
+			false);
+		good &= Check(
+			state.driver() == Api::SearchIntersectionLeg::Sender
+				&& next.outcome
+				&& next.outcome->found.messages == MakeIds({ 50, 40, 30 })
+				&& next.outcome->found.total == 3,
+			"adaptive sender driver unions local matches with probe overlap");
+	}
+	{
+		auto state = Api::SearchIntersectionState();
+		auto action = state.begin(
+			Api::AllocateSearchGeneration(),
+			{},
+			PeerId(UserId(1)));
+		(void)state.accept(
+			Api::SearchIntersectionLeg::Sender,
+			AdaptiveFound(
+				action.senderRequest,
+				10,
+				MakeIds({ 95, 90, 80 })),
+			MakeIds({ 90, 80 }),
+			false);
+		const auto next = state.accept(
+			Api::SearchIntersectionLeg::Filter,
+			AdaptiveFound(
+				action.filterRequest,
+				3,
+				MakeIds({ 90, 80, 70 })),
+			MakeIds({ 70 }),
+			true);
+		good &= Check(
+			state.driver() == Api::SearchIntersectionLeg::Filter
+				&& next.outcome
+				&& next.outcome->found.messages == MakeIds({ 90, 80, 70 })
+				&& next.outcome->found.total == 3,
+			"adaptive filter driver treats first-page overlap symmetrically");
+	}
+	return good;
+}
+
+[[nodiscard]] bool CheckAdaptiveDriverSelection() {
+	auto good = true;
+	{
+		auto state = Api::SearchIntersectionState({ .pageSize = 2 });
+		auto action = state.begin(
+			Api::AllocateSearchGeneration(),
+			{},
+			PeerId(UserId(1)));
+		auto next = state.accept(
+			Api::SearchIntersectionLeg::Sender,
+			AdaptiveFound(action.senderRequest, 3, MakeIds({ 30, 20 })),
+			MakeIds({ 30, 20 }),
+			false);
+		good &= Check(!next.outcome, "adaptive probe waits for both legs");
+		next = state.accept(
+			Api::SearchIntersectionLeg::Filter,
+			AdaptiveFound(action.filterRequest, 10, MakeIds({ 40, 30 })),
+			MakeIds({ 30 }),
+			false);
+		good &= Check(
+			state.driver() == Api::SearchIntersectionLeg::Sender
+				&& next.outcome
+				&& next.outcome->found.messages == MakeIds({ 30, 20 })
+				&& next.outcome->found.manualContinuation
+				&& !next.outcome->found.hasMore,
+			"adaptive search chooses the smaller sender stream");
+	}
+	{
+		auto state = Api::SearchIntersectionState({ .pageSize = 1 });
+		auto action = state.begin(
+			Api::AllocateSearchGeneration(),
+			{},
+			PeerId(UserId(1)));
+		(void)state.accept(
+			Api::SearchIntersectionLeg::Sender,
+			AdaptiveFound(action.senderRequest, 5, MakeIds({ 30 })),
+			MakeIds({ 30 }),
+			false);
+		const auto next = state.accept(
+			Api::SearchIntersectionLeg::Filter,
+			AdaptiveFound(action.filterRequest, 5, MakeIds({ 20 })),
+			MakeIds({ 20 }),
+			false);
+		good &= Check(
+			state.driver() == Api::SearchIntersectionLeg::Filter
+				&& next.outcome
+				&& next.outcome->found.messages == MakeIds({ 20 }),
+			"adaptive tie chooses the filter stream");
+	}
+	{
+		auto state = Api::SearchIntersectionState({ .pageSize = 1 });
+		auto action = state.begin(
+			Api::AllocateSearchGeneration(),
+			{},
+			PeerId(UserId(1)));
+		(void)state.accept(
+			Api::SearchIntersectionLeg::Sender,
+			AdaptiveFound(action.senderRequest, -1, MakeIds({ 30 })),
+			MakeIds({ 30 }),
+			false);
+		const auto next = state.accept(
+			Api::SearchIntersectionLeg::Filter,
+			AdaptiveFound(action.filterRequest, 5, MakeIds({ 20 })),
+			MakeIds({ 20 }),
+			false);
+		good &= Check(
+			state.driver() == Api::SearchIntersectionLeg::Filter
+				&& next.outcome
+				&& next.outcome->found.messages == MakeIds({ 20 }),
+			"adaptive unknown total chooses the filter stream");
+	}
+	{
+		auto state = Api::SearchIntersectionState({ .pageSize = 50 });
+		auto action = state.begin(
+			Api::AllocateSearchGeneration(),
+			{},
+			PeerId(UserId(1)));
+		(void)state.accept(
+			Api::SearchIntersectionLeg::Sender,
+			AdaptiveFound(action.senderRequest, 2, MakeIds({ 30, 20 })),
+			MakeIds({ 30 }),
+			true);
+		const auto next = state.accept(
+			Api::SearchIntersectionLeg::Filter,
+			AdaptiveFound(action.filterRequest, 4, MakeIds({ 40, 30 })),
+			MakeIds({ 30 }),
+			false);
+		good &= Check(
+			next.outcome
+				&& next.outcome->found.messages == MakeIds({ 30 })
+				&& next.outcome->found.total == 1
+				&& !next.outcome->found.manualContinuation
+				&& !next.outcome->found.partial,
+			"adaptive exhausted driver publishes an exact local total");
+	}
+	{
+		auto state = Api::SearchIntersectionState();
+		auto action = state.begin(
+			Api::AllocateSearchGeneration(),
+			{},
+			PeerId(UserId(1)));
+		const auto next = state.accept(
+			Api::SearchIntersectionLeg::Sender,
+			AdaptiveFound(action.senderRequest, 0, {}),
+			{},
+			true);
+		good &= Check(
+			next.outcome
+				&& next.outcome->type == Api::SearchOutcomeType::Empty
+				&& next.outcome->found.total == 0
+				&& !next.outcome->found.manualContinuation
+				&& next.cancelFilter,
+			"adaptive zero probe immediately proves an empty intersection");
+	}
+	return good;
+}
+
+[[nodiscard]] bool CheckAdaptiveContinuationAndCap() {
+	auto good = Check(
+		Api::SearchIntersectionRequestDelay(1000, 1500, 1000) == 500
+			&& Api::SearchIntersectionRequestDelay(1000, 2000, 1000) == 0,
+		"adaptive requests enforce a one-second minimum interval");
+	auto state = Api::SearchIntersectionState({
+		.pageSize = 3,
+		.maxDriverPages = 3,
+		.automaticDriverPages = 1,
+	});
+	auto action = state.begin(
+		Api::AllocateSearchGeneration(),
+		Api::SearchCriteria{ .hasFrom = true, .hasFilter = true },
+		PeerId(UserId(1)),
+		PeerId(UserId(2)));
+	(void)state.accept(
+		Api::SearchIntersectionLeg::Filter,
+		AdaptiveFound(action.filterRequest, 10, MakePeerIds(1, { 90 })),
+		MakePeerIds(1, { 90 }),
+		false);
+	auto next = state.accept(
+		Api::SearchIntersectionLeg::Sender,
+		AdaptiveFound(action.senderRequest, 20, MakePeerIds(1, { 95 })),
+		{},
+		false);
+	good &= Check(
+		!next.outcome
+			&& next.filterRequest.generation
+			&& !next.senderRequest.generation,
+		"adaptive first page automatically requests one driver page");
+	next = state.accept(
+		Api::SearchIntersectionLeg::Filter,
+		AdaptiveFound(next.filterRequest, 10, MakePeerIds(2, { 80 })),
+		MakePeerIds(2, { 80 }),
+		false);
+	good &= Check(
+		next.outcome
+			&& next.outcome->page == Api::SearchPage::First
+			&& next.outcome->found.messages
+				== (MessageIdsList{ FullMsgId(PeerId(UserId(1)), MsgId(90)),
+					FullMsgId(PeerId(UserId(2)), MsgId(80)) })
+			&& next.outcome->found.total == -1
+			&& next.outcome->found.manualContinuation
+			&& state.canSearchMore(),
+		"adaptive sparse first page requires manual continuation");
+
+	const auto moreGeneration = Api::AllocateSearchGeneration();
+	next = state.more(moreGeneration);
+	good &= Check(
+		!next.outcome && next.filterRequest.generation,
+		"adaptive manual continuation requests exactly the driver leg");
+	next = state.accept(
+		Api::SearchIntersectionLeg::Filter,
+		AdaptiveFound(next.filterRequest, 10, MakePeerIds(1, { 70 })),
+		MakePeerIds(1, { 70 }),
+		false);
+	good &= Check(
+		next.outcome
+			&& next.outcome->page == Api::SearchPage::More
+			&& next.outcome->found.messages == MakePeerIds(1, { 70 })
+			&& next.outcome->found.partial
+			&& !next.outcome->found.manualContinuation
+			&& !state.canSearchMore(),
+		"adaptive driver cap is terminal and explicitly incomplete");
+
+	auto bounded = Api::SearchIntersectionState({ .pageSize = 1 });
+	action = bounded.begin(
+		Api::AllocateSearchGeneration(),
+		{},
+		PeerId(UserId(1)));
+	(void)bounded.accept(
+		Api::SearchIntersectionLeg::Sender,
+		AdaptiveFound(action.senderRequest, 100, MakeIds({ 100 })),
+		{},
+		false);
+	next = bounded.accept(
+		Api::SearchIntersectionLeg::Filter,
+		AdaptiveFound(action.filterRequest, 50, MakeIds({ 99 })),
+		MakeIds({ 99 }),
+		false);
+	good &= Check(
+		next.outcome && next.outcome->found.manualContinuation,
+		"adaptive default cap begins with manual continuation");
+	for (auto page = 2; page <= 16; ++page) {
+		next = bounded.more(Api::AllocateSearchGeneration());
+		if (!Check(
+				next.filterRequest.generation,
+				"adaptive cap continues only the chosen filter stream")) {
+			good = false;
+			break;
+		}
+		next = bounded.accept(
+			Api::SearchIntersectionLeg::Filter,
+			AdaptiveFound(
+				next.filterRequest,
+				50,
+				MakeIds({ 100 - page })),
+			MakeIds({ 100 - page }),
+			false);
+		good &= Check(
+			next.outcome
+				&& (page < 16
+					? next.outcome->found.manualContinuation
+					: (next.outcome->found.partial
+						&& !next.outcome->found.manualContinuation)),
+			"adaptive default cap stops after sixteen driver pages");
+	}
+	return good;
+}
+
+[[nodiscard]] bool CheckAdaptiveFailureAndCancellation() {
+	auto state = Api::SearchIntersectionState();
+	const auto generation = Api::AllocateSearchGeneration();
+	auto action = state.begin(
+		generation,
+		Api::SearchCriteria{ .hasFrom = true, .hasFilter = true },
+		PeerId(UserId(1)));
+	const auto stale = action.senderRequest;
+	auto next = state.accept(
+		Api::SearchIntersectionLeg::Sender,
+		Api::SearchOutcome::RpcFailure(
+			action.senderRequest.generation,
+			Api::SearchPage::First,
+			{},
+			u"SEARCH_QUERY_EMPTY"_q,
+			400),
+		{},
+		false);
+	auto good = Check(
+		next.outcome
+			&& next.outcome->type == Api::SearchOutcomeType::RpcFailure
+			&& next.outcome->diagnostic.rpcType == u"SEARCH_QUERY_EMPTY"_q
+			&& next.cancelFilter
+			&& next.outcome->found.partial,
+		"adaptive any 400 fails and cancels the sibling probe");
+	good &= Check(
+		!state.accept(
+			Api::SearchIntersectionLeg::Sender,
+			AdaptiveFound(stale, 1, MakeIds({ 1 })),
+			MakeIds({ 1 }),
+			true).outcome,
+		"adaptive failure rejects stale callbacks");
+
+	action = state.begin(
+		Api::AllocateSearchGeneration(),
+		{},
+		PeerId(UserId(1)));
+	next = state.timeout(state.generation());
+	good &= Check(
+		next.outcome
+			&& next.outcome->type == Api::SearchOutcomeType::Timeout
+			&& next.cancelSender
+			&& next.cancelFilter,
+		"adaptive watchdog terminates both probes once");
+	good &= Check(
+		!state.cancel(state.generation()).outcome,
+		"adaptive duplicate terminal is rejected");
+
+	action = state.begin(
+		Api::AllocateSearchGeneration(),
+		{},
+		PeerId(UserId(1)));
+	const auto oldSender = action.senderRequest;
+	const auto replacement = state.begin(
+		Api::AllocateSearchGeneration(),
+		{},
+		PeerId(UserId(1)));
+	good &= Check(
+		replacement.outcome
+			&& replacement.outcome->type == Api::SearchOutcomeType::Cancelled
+			&& replacement.cancelSender
+			&& replacement.cancelFilter,
+		"adaptive replacement cancels the stale generation");
+	good &= Check(
+		!state.accept(
+			Api::SearchIntersectionLeg::Sender,
+			AdaptiveFound(oldSender, 1, MakeIds({ 1 })),
+			MakeIds({ 1 }),
+			true).outcome,
+		"adaptive replacement rejects a stale probe callback");
+	const auto cancelled = state.cancel(state.generation());
+	good &= Check(
+		cancelled.outcome
+			&& cancelled.outcome->type == Api::SearchOutcomeType::Cancelled
+			&& cancelled.cancelSender
+			&& cancelled.cancelFilter,
+		"adaptive explicit cancellation terminates both probes");
+
+	auto paged = Api::SearchIntersectionState({ .pageSize = 1 });
+	action = paged.begin(
+		Api::AllocateSearchGeneration(),
+		{},
+		PeerId(UserId(1)));
+	(void)paged.accept(
+		Api::SearchIntersectionLeg::Sender,
+		AdaptiveFound(action.senderRequest, 10, MakeIds({ 10 })),
+		{},
+		false);
+	next = paged.accept(
+		Api::SearchIntersectionLeg::Filter,
+		AdaptiveFound(action.filterRequest, 5, MakeIds({ 9 })),
+		MakeIds({ 9 }),
+		false);
+	next = paged.more(Api::AllocateSearchGeneration());
+	next = paged.accept(
+		Api::SearchIntersectionLeg::Filter,
+		Api::SearchOutcome::RpcFailure(
+			next.filterRequest.generation,
+			Api::SearchPage::More,
+			{},
+			u"FLOOD_WAIT_12"_q,
+			420),
+		{},
+		false);
+	good &= Check(
+		next.outcome
+			&& next.outcome->type == Api::SearchOutcomeType::RpcFailure
+			&& next.outcome->diagnostic.rpcType == u"FLOOD_WAIT_12"_q
+			&& next.outcome->found.partial
+			&& !next.outcome->found.manualContinuation
+			&& paged.messages().messages == MakeIds({ 9 })
+			&& !paged.canSearchMore(),
+		"adaptive page failure preserves committed results and closes paging");
+	return good;
+}
+
 [[nodiscard]] bool RunTests() {
 	auto good = CheckFilters();
 	good &= CheckSearchSelectionPolicy();
@@ -1215,10 +1907,13 @@ void ExecuteCancels(Api::SearchCancelMask mask, CancelCounts &counts) {
 	good &= CheckMergedCancellationAndReplacement();
 	good &= CheckMergedWatchdog();
 	good &= CheckPagination();
-	good &= CheckIntersectionOrderingAndMigration();
-	good &= CheckIntersectionSparsePagination();
-	good &= CheckIntersectionBoundsAndFailures();
-	good &= CheckIntersectionCancellationAndInput();
+	good &= CheckLocalFilterMatching();
+	good &= CheckRawTraitsMatching();
+	good &= CheckSearchTraitsMerge();
+	good &= CheckAdaptiveAuthoritativeProbeOverlap();
+	good &= CheckAdaptiveDriverSelection();
+	good &= CheckAdaptiveContinuationAndCap();
+	good &= CheckAdaptiveFailureAndCancellation();
 	good &= CheckIntersectionCumulativeExhaustion();
 	good &= CheckDiagnostics();
 	return good;

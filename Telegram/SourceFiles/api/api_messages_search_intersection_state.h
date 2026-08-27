@@ -21,7 +21,9 @@ enum class SearchIntersectionLeg {
 
 struct SearchIntersectionLimits {
 	int pageSize = 50;
-	int maxPagesPerLeg = 32;
+	int maxDriverPages = 16;
+	int automaticDriverPages = 1;
+	int maxPagesPerLeg = 0; // Legacy test/config compatibility.
 };
 
 struct SearchIntersectionRequest {
@@ -39,6 +41,10 @@ struct SearchIntersectionAction {
 
 [[nodiscard]] bool SearchIntersectionExhausted(
 	const FoundMessages &committed);
+[[nodiscard]] crl::time SearchIntersectionRequestDelay(
+	crl::time lastRequestAt,
+	crl::time now,
+	crl::time minimumInterval);
 
 class SearchIntersectionState final {
 public:
@@ -54,7 +60,14 @@ public:
 	[[nodiscard]] SearchIntersectionAction accept(
 		SearchIntersectionLeg leg,
 		const SearchOutcome &outcome,
+		MessageIdsList matches,
 		bool exhausted);
+	[[nodiscard]] SearchIntersectionAction accept(
+		SearchIntersectionLeg leg,
+		const SearchOutcome &outcome,
+		bool exhausted) {
+		return accept(leg, outcome, outcome.found.messages, exhausted);
+	}
 	[[nodiscard]] SearchIntersectionAction cancel(
 		SearchGeneration generation);
 	[[nodiscard]] SearchIntersectionAction timeout(
@@ -64,6 +77,7 @@ public:
 
 	[[nodiscard]] bool pending() const;
 	[[nodiscard]] bool canSearchMore() const;
+	[[nodiscard]] std::optional<SearchIntersectionLeg> driver() const;
 	[[nodiscard]] bool expects(
 		SearchIntersectionLeg leg,
 		SearchGeneration generation) const;
@@ -72,12 +86,11 @@ public:
 
 private:
 	struct LegState {
-		MessageIdsList buffer;
-		std::set<FullMsgId> seen;
-		std::optional<FullMsgId> last;
-		size_t offset = 0;
+		FoundMessages first;
+		MessageIdsList firstMatches;
 		SearchGeneration pendingGeneration = 0;
 		int pages = 0;
+		bool received = false;
 		bool exhausted = false;
 	};
 
@@ -87,16 +100,11 @@ private:
 	[[nodiscard]] SearchIntersectionAction finishPartial(
 		SearchOutcomeType type,
 		const SearchDiagnostic &diagnostic = {});
-	[[nodiscard]] SearchIntersectionAction finishSuccess(
-		bool complete,
-		bool capped = false);
+	[[nodiscard]] SearchIntersectionAction finishSuccess(bool complete);
+	[[nodiscard]] SearchIntersectionAction finishCapped();
 	[[nodiscard]] SearchIntersectionAction finishCancelled(
 		SearchOutcomeType type);
-	[[nodiscard]] bool append(
-		LegState &leg,
-		MessageIdsList messages);
-	[[nodiscard]] bool newer(FullMsgId a, FullMsgId b) const;
-	[[nodiscard]] bool available(const LegState &leg) const;
+	[[nodiscard]] bool appendMatches(MessageIdsList messages);
 	[[nodiscard]] SearchIntersectionRequest request(LegState &leg);
 	[[nodiscard]] LegState &leg(SearchIntersectionLeg which);
 	[[nodiscard]] const LegState &leg(SearchIntersectionLeg which) const;
@@ -114,6 +122,7 @@ private:
 	MessageIdsList _pageMessages;
 	std::set<FullMsgId> _matched;
 	FoundMessages _committed;
+	std::optional<SearchIntersectionLeg> _driver;
 	bool _pending = false;
 	bool _canSearchMore = false;
 

@@ -117,12 +117,6 @@ void ClearBotStartToken(PeerData *peer) {
 	}
 }
 
-base::options::toggle ForceComposeSearchOneColumn({
-	.id = kForceComposeSearchOneColumn,
-	.name = "Force embedded search in chats",
-	.description = "Force in one-column mode the embedded search in chats.",
-});
-
 base::options::toggle OptionUseNewChatView({
 	.id = kOptionUseNewChatView,
 	.name = "New chat view",
@@ -131,7 +125,6 @@ base::options::toggle OptionUseNewChatView({
 
 } // namespace
 
-const char kForceComposeSearchOneColumn[] = "force-compose-search-one-column";
 const char kOptionUseNewChatView[] = "use-new-chat-view";
 
 enum StackItemType {
@@ -850,12 +843,7 @@ void MainWidget::searchMessages(
 	const auto archiveWindow = (_controller->windowId().type
 		== Window::SeparateType::Archive);
 	if (_dialogs
-		&& (!archiveWindow || inChat.folder())
-		&& (!ForceComposeSearchOneColumn.value()
-			|| !isOneColumn()
-			|| (inChat.peer()
-				&& inChat.peer()->isChannel()
-				&& inChat.peer()->asChannel()->isCommunity()))) {
+		&& (!archiveWindow || inChat.folder())) {
 		auto state = Dialogs::SearchState{
 			.inChat = ((tags.empty() || inChat.sublist())
 				? inChat

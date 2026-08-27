@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
+#include "base/flat_map.h"
 #include "data/data_types.h"
 
 #include <optional>
@@ -43,12 +44,44 @@ enum class SearchBranchState {
 	Timeout,
 };
 
+enum class LocalSearchMessageFlag : uint32 {
+	Photo = (1U << 0),
+	Video = (1U << 1),
+	File = (1U << 2),
+	Link = (1U << 3),
+	Music = (1U << 4),
+	VoiceMessage = (1U << 5),
+	VideoMessage = (1U << 6),
+	Gif = (1U << 7),
+	Poll = (1U << 8),
+	Mention = (1U << 9),
+	Location = (1U << 10),
+	Pinned = (1U << 11),
+};
+
+using LocalSearchMessageFlags = uint32;
+
+struct SearchMessageTraits {
+	PeerId sender;
+	LocalSearchMessageFlags filterFlags = 0;
+
+	friend inline bool operator==(
+		const SearchMessageTraits &,
+		const SearchMessageTraits &) = default;
+};
+
+using SearchMessageTraitsMap = base::flat_map<
+	FullMsgId,
+	SearchMessageTraits>;
+
 struct FoundMessages {
 	int total = -1;
 	MessageIdsList messages;
 	QString nextToken;
 	bool hasMore = false;
+	bool manualContinuation = false;
 	bool partial = false;
+	SearchMessageTraitsMap traits;
 };
 
 struct SearchCriteria {

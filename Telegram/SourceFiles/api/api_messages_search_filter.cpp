@@ -9,6 +9,73 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 namespace Api {
 
+bool MatchesSearchFilterLocally(
+		SearchFilter filter,
+		LocalSearchMessageFlags flags) {
+	const auto has = [&](LocalSearchMessageFlag flag) {
+		return (flags & static_cast<LocalSearchMessageFlags>(flag)) != 0;
+	};
+	switch (filter) {
+	case SearchFilter::NoFilter:
+		return true;
+	case SearchFilter::Photos:
+		return has(LocalSearchMessageFlag::Photo);
+	case SearchFilter::Videos:
+		return has(LocalSearchMessageFlag::Video);
+	case SearchFilter::Files:
+		return has(LocalSearchMessageFlag::File);
+	case SearchFilter::Links:
+		return has(LocalSearchMessageFlag::Link);
+	case SearchFilter::Music:
+		return has(LocalSearchMessageFlag::Music);
+	case SearchFilter::VoiceMessages:
+		return has(LocalSearchMessageFlag::VoiceMessage);
+	case SearchFilter::VideoMessages:
+		return has(LocalSearchMessageFlag::VideoMessage);
+	case SearchFilter::Gifs:
+		return has(LocalSearchMessageFlag::Gif);
+	case SearchFilter::Polls:
+		return has(LocalSearchMessageFlag::Poll);
+	case SearchFilter::MyMentions:
+		return has(LocalSearchMessageFlag::Mention);
+	case SearchFilter::Locations:
+		return has(LocalSearchMessageFlag::Location);
+	case SearchFilter::Pinned:
+		return has(LocalSearchMessageFlag::Pinned);
+	}
+	Unexpected("SearchFilter in MatchesSearchFilterLocally.");
+}
+
+bool MatchesSearchSenderLocally(PeerId actual, PeerId expected) {
+	return actual == expected;
+}
+
+bool MatchesSearchTraitsLocally(
+		const SearchMessageTraits &traits,
+		SearchFilter filter,
+		PeerId sender) {
+	return MatchesSearchFilterLocally(filter, traits.filterFlags)
+		&& MatchesSearchSenderLocally(traits.sender, sender);
+}
+
+std::optional<MessageIdsList> SearchMessagesMatchingTraits(
+		const FoundMessages &found,
+		SearchFilter filter,
+		PeerId sender) {
+	auto result = MessageIdsList();
+	result.reserve(found.messages.size());
+	for (const auto id : found.messages) {
+		const auto i = found.traits.find(id);
+		if (i == end(found.traits)) {
+			return std::nullopt;
+		}
+		if (MatchesSearchTraitsLocally(i->second, filter, sender)) {
+			result.push_back(id);
+		}
+	}
+	return result;
+}
+
 MTPMessagesFilter PrepareSearchFilter(SearchFilter filter) {
 	switch (filter) {
 	case SearchFilter::Photos:
