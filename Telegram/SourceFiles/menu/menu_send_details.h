@@ -62,7 +62,7 @@ struct Details {
 	std::optional<uint64> commentPriceMin;
 	const style::EmojiPan *effectsPan = nullptr;
 	bool effectAllowed = false;
-	bool markdownRichAllowed = false;
+	bool markdownEditorAllowed = false;
 };
 
 } // namespace SendMenu

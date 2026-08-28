@@ -218,7 +218,6 @@ public:
 	[[nodiscard]] rpl::producer<> replyCancelled() const;
 	[[nodiscard]] rpl::producer<> replyCancelledExternal() const;
 	[[nodiscard]] rpl::producer<Api::SendOptions> sendRequests() const;
-	[[nodiscard]] rpl::producer<Api::SendOptions> markdownRichRequests() const;
 	[[nodiscard]] rpl::producer<VoiceToSend> sendVoiceRequests() const;
 	[[nodiscard]] rpl::producer<QString> sendCommandRequests() const;
 	[[nodiscard]] rpl::producer<MessageToEdit> editRequests() const;
@@ -294,7 +293,6 @@ public:
 	void tryProcessKeyInput(not_null<QKeyEvent*> e);
 
 	[[nodiscard]] TextWithTags getTextWithAppliedMarkdown() const;
-	[[nodiscard]] TextWithTags getTextForMarkdownRich() const;
 	[[nodiscard]] Data::WebPageDraft webPageDraft() const;
 	[[nodiscard]] std::shared_ptr<const Iv::RichPage> shownRichMessage() const;
 	void setText(const TextWithTags &text);
@@ -397,8 +395,11 @@ private:
 	void updateExpandButtonVisibility();
 	void updateExpandButtonGeometry();
 	[[nodiscard]] bool canShowRichEditor() const;
-	void showRichEditor();
-	void showRichEditorWithPaste(std::shared_ptr<QMimeData> data);
+	[[nodiscard]] bool canOpenMarkdownEditor() const;
+	void showRichEditor(
+		std::shared_ptr<QMimeData> initialPaste = nullptr,
+		std::optional<TextWithTags> fieldToReplace = std::nullopt);
+	void openMarkdownInRichEditor();
 	void offerRichPaste(not_null<const QMimeData*> data);
 	void initDiscardRichDraftButton();
 	void updateDiscardRichDraftVisibility();
@@ -575,7 +576,6 @@ private:
 	const not_null<Ui::EmojiButton*> _tabbedSelectorToggle;
 	rpl::variable<QString> _fieldCustomPlaceholder;
 	QPointer<QWidget> _pasteToastParent;
-	std::shared_ptr<QMimeData> _pendingRichPaste;
 	const not_null<Ui::InputField*> _field;
 	std::unique_ptr<Controls::RichDraftPreview> _richDraftPreview;
 	base::unique_qptr<Ui::RpWidget> _fieldDisabled;
@@ -619,7 +619,6 @@ private:
 	const Fn<void(not_null<DocumentData*>)> _unavailableEmojiPasted;
 
 	rpl::event_stream<Api::SendOptions> _sendCustomRequests;
-	rpl::event_stream<Api::SendOptions> _markdownRichRequests;
 	rpl::event_stream<> _cancelRequests;
 	rpl::event_stream<> _replyCancelledExternally;
 	rpl::event_stream<FileChosen> _fileChosen;

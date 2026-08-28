@@ -4348,6 +4348,10 @@ void ArticleSession::applyInitialPaste() {
 	}
 	if (imported && !imported->blocks.empty()) {
 		_editor->insertPreparedBlocks(std::move(imported->blocks));
+		if (auto applied = base::take(
+				_composeOptions.initialPasteApplied)) {
+			applied();
+		}
 	}
 }
 

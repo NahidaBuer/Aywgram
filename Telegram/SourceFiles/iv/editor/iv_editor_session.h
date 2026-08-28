@@ -61,6 +61,8 @@ struct ComposeBoxOptions {
 
 	Scope scope = Scope::Thread;
 	std::shared_ptr<QMimeData> initialPaste;
+	// Called only after initialPaste produced and inserted at least one block.
+	Fn<void()> initialPasteApplied;
 	SubmitPolicy submitPolicy = SubmitPolicy::Immediate;
 	Fn<void(TextWithTags)> returnText;
 	bool welcomeTemplates = false;

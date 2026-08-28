@@ -466,7 +466,6 @@ private:
 	void sendRichDraft(
 		std::shared_ptr<const Iv::RichPage> page,
 		Api::SendOptions options);
-	void sendMarkdownRich(Api::SendOptions options);
 	void sendRichDraftWithoutFormatting(
 		std::shared_ptr<const Iv::RichPage> page,
 		Api::SendOptions options);
@@ -586,7 +585,11 @@ private:
 	void updateExpandButtonVisibility();
 	void updateExpandButtonGeometry();
 	[[nodiscard]] bool canShowRichEditor() const;
-	void showRichEditor();
+	[[nodiscard]] bool canOpenMarkdownEditor() const;
+	void showRichEditor(
+		std::shared_ptr<QMimeData> initialPaste = nullptr,
+		std::optional<TextWithTags> fieldToReplace = std::nullopt);
+	void openMarkdownInRichEditor();
 	void initDiscardRichDraftButton();
 	void updateDiscardRichDraftVisibility();
 	void updateDiscardRichDraftGeometry();
@@ -733,7 +736,6 @@ private:
 	void migrateFieldToRichEditor();
 	void migrateSupportFieldToRichEditor();
 	void offerRichPaste(not_null<const QMimeData*> data);
-	void showRichEditorWithPaste(std::shared_ptr<QMimeData> data);
 
 	void setHistory(History *history);
 	void setEditMsgId(MsgId msgId);
@@ -807,7 +809,6 @@ private:
 	FullReplyTo _processingReplyTo;
 	HistoryItem *_processingReplyItem = nullptr;
 
-	std::shared_ptr<QMimeData> _pendingRichPaste;
 	MsgId _editMsgId = 0;
 	std::shared_ptr<Data::PhotoMedia> _photoEditMedia;
 	bool _canReplaceMedia = false;

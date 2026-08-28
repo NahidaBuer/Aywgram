@@ -150,7 +150,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "iv/editor/iv_editor_session.h"
 #include "iv/iv_rich_message_serializer.h"
 #include "iv/iv_rich_page.h"
-#include "iv/editor/iv_editor_clipboard_import.h"
 #include "core/click_handler_types.h"
 #include "chat_helpers/field_autocomplete.h"
 #include "chat_helpers/tabbed_panel.h"
@@ -1624,20 +1623,15 @@ void HistoryWidget::offerRichPaste(not_null<const QMimeData*> data) {
 					}
 					_field->setTextCursor(cursor);
 				}
-				showRichEditorWithPaste(copy);
+				showRichEditor(copy);
 			}),
 		});
 	});
 }
 
-void HistoryWidget::showRichEditorWithPaste(
-		std::shared_ptr<QMimeData> data) {
-	_pendingRichPaste = std::move(data);
-	showRichEditor();
-	_pendingRichPaste = nullptr;
-}
-
-void HistoryWidget::showRichEditor() {
+void HistoryWidget::showRichEditor(
+		std::shared_ptr<QMimeData> initialPaste,
+		std::optional<TextWithTags> fieldToReplace) {
 	if (!_history) {
 		return;
 	}
@@ -1661,27 +1655,53 @@ void HistoryWidget::showRichEditor() {
 	using Options = Iv::Editor::ComposeBoxOptions;
 	const auto support = session().supportMode();
 	auto options = Options();
-	options.initialPaste = _pendingRichPaste;
+	options.initialPaste = std::move(initialPaste);
 	if (support) {
 		options.scope = Options::Scope::Detached;
 		options.returnText = crl::guard(this, [=](TextWithTags text) {
 			setFieldText(text);
 		});
 	}
+	auto migrated = crl::guard(this, [=] {
+		if (fieldToReplace
+			&& _field->getTextWithTags() != *fieldToReplace) {
+			return;
+		}
+		if (support) {
+			migrateSupportFieldToRichEditor();
+		} else {
+			migrateFieldToRichEditor();
+		}
+	});
+	auto onMigrated = Fn<void()>();
+	if (fieldToReplace) {
+		options.initialPasteApplied = std::move(migrated);
+	} else {
+		onMigrated = std::move(migrated);
+	}
 	Iv::Editor::ShowComposeBox(
 		window,
 		_history->peer,
 		prepareSendAction({}),
 		sendMenuDetails(),
-		_field->getTextWithAppliedMarkdown(),
-		crl::guard(this, [=] {
-			if (support) {
-				migrateSupportFieldToRichEditor();
-			} else {
-				migrateFieldToRichEditor();
-			}
-		}),
+		fieldToReplace
+			? TextWithTags()
+			: _field->getTextWithAppliedMarkdown(),
+		std::move(onMigrated),
 		std::move(options));
+}
+
+void HistoryWidget::openMarkdownInRichEditor() {
+	if (!canOpenMarkdownEditor()) {
+		return;
+	}
+	const auto source = _field->getTextWithTags();
+	if (source.text.trimmed().isEmpty()) {
+		return;
+	}
+	auto data = std::make_shared<QMimeData>();
+	data->setText(source.text);
+	showRichEditor(std::move(data), source);
 }
 
 void HistoryWidget::migrateSupportFieldToRichEditor() {
@@ -5511,8 +5531,8 @@ void HistoryWidget::setupSendMenu(
 		controller()->uiShow(),
 		[=] { return sendButtonMenuDetails(); },
 		[=](Action value, Details details) {
-			if (value.type == ActionType::MarkdownRich) {
-				sendMarkdownRich(value.options);
+			if (value.type == ActionType::OpenMarkdownEditor) {
+				openMarkdownInRichEditor();
 			} else if (value.type == ActionType::CaptionUp
 				|| value.type == ActionType::CaptionDown
 				|| value.type == ActionType::SpoilerOn
@@ -5961,23 +5981,6 @@ void HistoryWidget::sendRichDraft(
 		-1);
 }
 
-void HistoryWidget::sendMarkdownRich(Api::SendOptions options) {
-	if (!_history) {
-		return;
-	}
-	const auto imported = Iv::Editor::BlocksFromMarkdown(
-		_field->getTextWithTags().text,
-		Iv::ResolveRichMessageLimits(&session()),
-		0);
-	if (!imported || imported->truncated || !imported->localMedia.empty()) {
-		controller()->showToast(tr::ayu_MarkdownRichParseFailed(tr::now));
-		return;
-	}
-	auto page = std::make_shared<Iv::RichPage>();
-	page->blocks = imported->blocks;
-	sendRichDraft(std::move(page), options);
-}
-
 void HistoryWidget::sendRichDraftWithoutFormatting(
 		std::shared_ptr<const Iv::RichPage> page,
 		Api::SendOptions options) {
@@ -6184,8 +6187,8 @@ SendMenu::Details HistoryWidget::sendButtonDefaultDetails() const {
 	if (!hasSendableContent() && !_previewDrawPreview) {
 		result.effectAllowed = false;
 	}
-	result.markdownRichAllowed = _history
-		&& canShowRichEditor()
+	result.markdownEditorAllowed = _history
+		&& canOpenMarkdownEditor()
 		&& !_field->getTextWithTags().text.trimmed().isEmpty()
 		&& _forwardPanel->items().empty()
 		&& !_inlineBot
@@ -7521,6 +7524,16 @@ bool HistoryWidget::canShowRichEditor() const {
 			&& _replyEditMsg
 			&& _replyEditMsg->media()
 			&& !_replyEditMsg->media()->webpage())
+		&& Iv::Editor::CanAuthorRichMessages(&session());
+}
+
+bool HistoryWidget::canOpenMarkdownEditor() const {
+	return _history
+		&& !editingMessage()
+		&& _send->isVisible()
+		&& _field->isVisible()
+		&& !_voiceRecordBar->isActive()
+		&& _canSendTexts
 		&& Iv::Editor::CanAuthorRichMessages(&session());
 }
 
