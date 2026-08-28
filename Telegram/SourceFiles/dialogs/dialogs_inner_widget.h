@@ -97,6 +97,7 @@ struct ChosenRow {
 	PeerId sublistJumpPeerId;
 	QByteArray sponsoredRandomId;
 	bool userpicClick : 1 = false;
+	bool communityBadgeClick : 1 = false;
 	bool filteredRow : 1 = false;
 	bool newWindow : 1 = false;
 };
@@ -373,12 +374,14 @@ private:
 	void setCollapsedPressed(int pressed);
 	void setPressed(
 		Row *pressed,
+		bool pressedCommunityBadge,
 		bool pressedTopicJump,
 		bool pressedRightButton);
 	void clearPressed();
 	void setHashtagPressed(int pressed);
 	void setFilteredPressed(
 		int pressed,
+		bool pressedCommunityBadge,
 		bool pressedTopicJump,
 		bool pressedRightButton);
 	void setPeerSearchPressed(int pressed, bool pressedRightButton);
@@ -673,6 +676,8 @@ private:
 	Row *_pressed = nullptr;
 	MsgId _pressedTopicJumpRootId;
 	PeerId _pressedSublistJumpPeerId;
+	bool _selectedCommunityBadge = false;
+	bool _pressedCommunityBadge = false;
 	bool _selectedTopicJump = false;
 	bool _pressedTopicJump = false;
 

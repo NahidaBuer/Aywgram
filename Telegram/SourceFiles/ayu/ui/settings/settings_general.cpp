@@ -173,6 +173,13 @@ void BuildQoLToggles(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 			ShowRestartPrompt(controller);
 		},
 	});
+	ayu.addSettingToggle({
+		.id = u"ayu/openCommunityOnlyFromBadge"_q,
+		.title = tr::ayu_OpenCommunityOnlyFromBadge(),
+		.getter = &AyuSettings::openCommunityOnlyFromBadge,
+		.setter = &AyuSettings::setOpenCommunityOnlyFromBadge,
+	});
+	builder.addDividerText(tr::ayu_OpenCommunityOnlyFromBadgeDescription());
 
 	ayu.addSettingToggle({
 		.id = u"ayu/disableOpenLinkWarning"_q,

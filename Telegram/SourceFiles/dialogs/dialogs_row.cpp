@@ -57,6 +57,31 @@ constexpr auto kBlurRadius = 24;
 	return int(std::ceil(width)) + 1;
 }
 
+[[nodiscard]] QRectF CommunityBadgeRect(int photoSize) {
+	const auto size = st::dialogsCommunityBadgeSize;
+	const auto &skip = st::dialogsCommunityBadgeSkip;
+	return QRectF(
+		photoSize - skip.x() - size,
+		photoSize - skip.y() - size,
+		size,
+		size);
+}
+
+[[nodiscard]] bool IsCommunityBadgeShown(
+		PeerData *peer,
+		bool insideCommunity) {
+	if (!peer
+		|| !Data::PeerLinkedCommunityId(peer)
+		|| insideCommunity) {
+		return false;
+	}
+	const auto channel = peer->asChannel();
+	const auto user = peer->asUser();
+	return !(channel && Data::ChannelHasActiveCall(channel))
+		&& !(user && Data::IsUserOnline(user))
+		&& !Data::ChannelHasSubscriptionUntilDate(channel);
+}
+
 // Exact squared euclidean distance transform, two separable passes.
 [[nodiscard]] std::vector<float64> SquaredDistances(
 		std::vector<float64> grid,
@@ -618,12 +643,7 @@ void Row::PaintCornerBadgeFrame(
 		}
 		q.setCompositionMode(QPainter::CompositionMode_Source);
 		const auto size = st::dialogsCommunityBadgeSize;
-		const auto &skip = st::dialogsCommunityBadgeSkip;
-		const auto rect = QRectF(
-			photoSize - skip.x() - size,
-			photoSize - skip.y() - size,
-			size,
-			size);
+		const auto rect = CommunityBadgeRect(photoSize);
 		auto pen = QPen(Qt::transparent);
 		pen.setWidthF(st::dialogsCommunityBadgeStroke);
 		q.setPen(pen);
@@ -826,15 +846,9 @@ void Row::paintUserpic(
 		_cornerBadgeUserpic->cacheHidden = QImage();
 	}
 	const auto badgeChannel = peer ? peer->asChannel() : nullptr;
-	const auto badgeUser = peer ? peer->asUser() : nullptr;
 	const auto subscribed = Data::ChannelHasSubscriptionUntilDate(
 		badgeChannel);
-	const auto communityMember = peer
-		&& Data::PeerLinkedCommunityId(peer)
-		&& !(badgeChannel && Data::ChannelHasActiveCall(badgeChannel))
-		&& !(badgeUser && Data::IsUserOnline(badgeUser))
-		&& !subscribed
-		&& !insideCommunity;
+	const auto communityMember = IsCommunityBadgeShown(peer, insideCommunity);
 	// Only stories outline and online badge differ for active row.
 	const auto activeMatters = storiesCount
 		|| !(subscribed || communityMember);
@@ -903,6 +917,23 @@ void Row::paintUserpic(
 		context.now);
 	p.translate(-context.st->padding.left(), -context.st->padding.top());
 	p.setOpacity(1.);
+}
+
+bool Row::lookupIsInCommunityBadge(
+		int x,
+		int y,
+		FilterId filterId,
+		bool insideCommunity) const {
+	const auto history = this->history();
+	const auto peer = history ? history->peer.get() : nullptr;
+	if (!IsCommunityBadgeShown(peer, insideCommunity)) {
+		return false;
+	}
+	const auto &rowStyle = ComputeSt(entry(), filterId);
+	const auto rect = CommunityBadgeRect(rowStyle.photoSize).translated(
+		rowStyle.padding.left(),
+		rowStyle.padding.top());
+	return rect.contains(QPointF(x, y));
 }
 
 bool Row::lookupIsInTopicJump(int x, int y) const {

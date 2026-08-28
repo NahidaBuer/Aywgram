@@ -285,6 +285,7 @@ public:
 	[[nodiscard]] bool semiTransparentDeletedMessages() const { return _semiTransparentDeletedMessages.current(); }
 	[[nodiscard]] bool disableAds() const { return _disableAds.current(); }
 	[[nodiscard]] bool disableStories() const { return _disableStories.current(); }
+	[[nodiscard]] bool openCommunityOnlyFromBadge() const { return _openCommunityOnlyFromBadge.current(); }
 	[[nodiscard]] bool disableCustomBackgrounds() const { return _disableCustomBackgrounds.current(); }
 	[[nodiscard]] bool hidePremiumStatuses() const { return _hidePremiumStatuses.current(); }
 	[[nodiscard]] bool showOnlyAddedEmojisAndStickers() const { return _showOnlyAddedEmojisAndStickers.current(); }
@@ -382,6 +383,7 @@ public:
 	void setSemiTransparentDeletedMessages(bool val);
 	void setDisableAds(bool val);
 	void setDisableStories(bool val);
+	void setOpenCommunityOnlyFromBadge(bool val);
 	void setDisableCustomBackgrounds(bool val);
 	void setHidePremiumStatuses(bool val);
 	void setShowOnlyAddedEmojisAndStickers(bool val);
@@ -683,6 +685,7 @@ private:
 	rpl::variable<bool> _semiTransparentDeletedMessages = false;
 	rpl::variable<bool> _disableAds = true;
 	rpl::variable<bool> _disableStories = false;
+	rpl::variable<bool> _openCommunityOnlyFromBadge = true;
 	rpl::variable<bool> _disableCustomBackgrounds = false;
 	rpl::variable<bool> _showOnlyAddedEmojisAndStickers = false;
 	rpl::variable<bool> _collapseSimilarChannels = true;

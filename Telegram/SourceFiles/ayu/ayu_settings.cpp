@@ -527,6 +527,7 @@ nlohmann::json AyuSettings::CloudExportGlobal() {
 			"semiTransparentDeletedMessages",
 			"disableAds",
 			"disableStories",
+			"openCommunityOnlyFromBadge",
 			"disableCustomBackgrounds",
 			"hidePremiumStatuses",
 			"showOnlyAddedEmojisAndStickers",
@@ -962,6 +963,12 @@ void AyuSettings::setDisableAds(bool val) {
 void AyuSettings::setDisableStories(bool val) {
 	if (_disableStories.current() == val) return;
 	_disableStories = val;
+	save();
+}
+
+void AyuSettings::setOpenCommunityOnlyFromBadge(bool val) {
+	if (_openCommunityOnlyFromBadge.current() == val) return;
+	_openCommunityOnlyFromBadge = val;
 	save();
 }
 
@@ -1528,6 +1535,7 @@ void to_json(nlohmann::json &j, const AyuSettings &s) {
 		{"semiTransparentDeletedMessages", s._semiTransparentDeletedMessages.current()},
 		{"disableAds", s._disableAds.current()},
 		{"disableStories", s._disableStories.current()},
+		{"openCommunityOnlyFromBadge", s._openCommunityOnlyFromBadge.current()},
 		{"disableCustomBackgrounds", s._disableCustomBackgrounds.current()},
 		{"hidePremiumStatuses", s._hidePremiumStatuses.current()},
 		{"showOnlyAddedEmojisAndStickers", s._showOnlyAddedEmojisAndStickers.current()},
@@ -1645,6 +1653,9 @@ void from_json(const nlohmann::json &j, AyuSettings &s) {
 	s._semiTransparentDeletedMessages = j.value("semiTransparentDeletedMessages", defaults._semiTransparentDeletedMessages.current());
 	s._disableAds = j.value("disableAds", defaults._disableAds.current());
 	s._disableStories = j.value("disableStories", defaults._disableStories.current());
+	s._openCommunityOnlyFromBadge = j.value(
+		"openCommunityOnlyFromBadge",
+		defaults._openCommunityOnlyFromBadge.current());
 	s._disableCustomBackgrounds = j.value("disableCustomBackgrounds", defaults._disableCustomBackgrounds.current());
 	s._hidePremiumStatuses = j.value("hidePremiumStatuses", defaults._hidePremiumStatuses.current());
 	s._showOnlyAddedEmojisAndStickers = j.value("showOnlyAddedEmojisAndStickers", defaults._showOnlyAddedEmojisAndStickers.current());

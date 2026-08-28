@@ -8821,6 +8821,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_KeepAliveServiceNote" = "We recommend migrating to **FCM** version.";
 "ayu_DisableAds" = "Disable Ads";
 "ayu_DisableStories" = "Disable Stories";
+"ayu_OpenCommunityOnlyFromBadge" = "Open Communities Only from the Arrow Badge";
+"ayu_OpenCommunityOnlyFromBadgeDescription" = "For chats linked to a Community, click the avatar to open Stories or the chat. Click the arrow badge to open Community details.";
 "ayu_DisableOpenLinkWarning" = "Disable Open Link Warning";
 "ayu_DisableCustomBackgrounds" = "Disable Custom Backgrounds";
 "ayu_HidePremiumStatuses" = "Hide Premium Statuses";
