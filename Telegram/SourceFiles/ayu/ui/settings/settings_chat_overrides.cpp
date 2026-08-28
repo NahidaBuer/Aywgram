@@ -118,6 +118,35 @@ void ShowChatOverrides(
 				});
 			}));
 		});
+
+		const auto translateValue = std::make_shared<rpl::variable<Override>>(
+			AyuChatSettings::GetOverride(peer, Feature::AutoTranslate));
+		const auto translateButton = AddButtonWithLabel(
+			content,
+			tr::ayu_AutoTranslateChats(),
+			OverrideLabel(translateValue->value()),
+			st::settingsButtonNoIcon);
+		translateButton->addClickHandler([=] {
+			controller->show(Box([=](not_null<Ui::GenericBox*> choice) {
+				SingleChoiceBox(choice, {
+					.title = tr::ayu_AutoTranslateChats(),
+					.options = {
+						tr::ayu_ChatOverrideDefault(tr::now),
+						tr::ayu_ChatOverrideEnabled(tr::now),
+						tr::ayu_ChatOverrideDisabled(tr::now),
+					},
+					.initialSelection = OverrideIndex(translateValue->current()),
+					.callback = [=](int index) {
+						const auto selected = OverrideFromIndex(index);
+						AyuChatSettings::SetOverride(
+							peer,
+							Feature::AutoTranslate,
+							selected);
+						*translateValue = selected;
+					},
+				});
+			}));
+		});
 		Ui::AddSkip(content);
 	}));
 }

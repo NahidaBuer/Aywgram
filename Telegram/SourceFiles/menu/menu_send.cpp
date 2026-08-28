@@ -774,6 +774,12 @@ FillMenuResult FillSendMenu(
 				details); },
 			&icons.menuWhenOnline);
 	}
+	if (details.markdownRichAllowed) {
+		menu->addAction(
+			tr::ayu_SendMarkdownAsRichMessage(tr::now),
+			[=] { action({ .type = ActionType::MarkdownRich }, details); },
+			&st::menuIconEdit);
+	}
 
 	if ((type != Type::Disabled)
 		&& ((details.spoiler != SpoilerState::None)

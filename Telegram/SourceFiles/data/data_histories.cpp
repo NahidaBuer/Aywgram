@@ -133,7 +133,9 @@ MTPInputMedia WebPageForMTP(
 		const Data::WebPageDraft &draft,
 		bool required) {
 	using Flag = MTPDinputMediaWebPage::Flag;
-	const auto url = getBetterLinkPreview(draft.url);
+	const auto url = draft.previewChanged
+		? getBetterLinkPreview(draft.url)
+		: draft.url;
 	return MTP_inputMediaWebPage(
 		MTP_flags((draft.previewChanged ? Flag() : Flag::f_optional)
 			| (draft.forceLargeMedia ? Flag::f_force_large_media : Flag())

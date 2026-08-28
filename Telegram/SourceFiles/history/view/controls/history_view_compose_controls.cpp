@@ -2235,6 +2235,10 @@ rpl::producer<Api::SendOptions> ComposeControls::sendRequests() const {
 	});
 }
 
+rpl::producer<Api::SendOptions> ComposeControls::markdownRichRequests() const {
+	return _markdownRichRequests.events();
+}
+
 rpl::producer<VoiceToSend> ComposeControls::sendVoiceRequests() const {
 	return _voiceRecordBar->sendVoiceRequests();
 }
@@ -2477,6 +2481,10 @@ void ComposeControls::showForGrab() {
 
 TextWithTags ComposeControls::getTextWithAppliedMarkdown() const {
 	return _field->getTextWithAppliedMarkdown();
+}
+
+TextWithTags ComposeControls::getTextForMarkdownRich() const {
+	return _field->getTextWithTags();
 }
 
 void ComposeControls::clear(bool keepReply) {
@@ -4051,7 +4059,9 @@ void ComposeControls::setupSendMenu(
 		Fn<void(Api::SendOptions)> send) {
 	using namespace SendMenu;
 	const auto sendAction = [=](Action action, Details details) {
-		if (action.type == ActionType::ChangePrice) {
+		if (action.type == ActionType::MarkdownRich) {
+			_markdownRichRequests.fire(std::move(action.options));
+		} else if (action.type == ActionType::ChangePrice) {
 			_chosenStarsCount = details.price.value_or(0);
 			updateSendButtonType();
 		} else if (action.type == ActionType::CaptionUp
@@ -4110,6 +4120,13 @@ void ComposeControls::initSendAsButton(
 
 void ComposeControls::cancelInlineBot() {
 	const auto &textWithTags = _field->getTextWithTags();
+	if (_inlineBotAutomatic) {
+		_automaticInlineSuppressedText = textWithTags.text;
+		_inlineBotAutomatic = false;
+		_inlineBotUsername.clear();
+		clearInlineBot();
+		return;
+	}
 	if (textWithTags.text.size() > _inlineBotUsername.size() + 2) {
 		setFieldText(
 			{ '@' + _inlineBotUsername + ' ', TextWithTags::Tags() },
@@ -4851,6 +4868,16 @@ SendMenu::Details ComposeControls::sendButtonMenuDetails() const {
 	if (!hasSendableContent() && !_previewShown) {
 		result.effectAllowed = false;
 	}
+	result.markdownRichAllowed = _history
+		&& canShowRichEditor()
+		&& !_field->getTextWithTags().text.trimmed().isEmpty()
+		&& forwardItems().empty()
+		&& !_inlineBot
+		&& !shownRichMessage()
+		&& result.spoiler == SendMenu::SpoilerState::None
+		&& result.caption == SendMenu::CaptionState::None
+		&& result.photoQuality == SendMenu::PhotoQualityState::None
+		&& result.cover == SendMenu::CoverState::None;
 	return result;
 }
 
@@ -6342,7 +6369,16 @@ void ComposeControls::updateInlineBotQuery() {
 	if (!_history || !_regularWindow) {
 		return;
 	}
-	const auto query = parseInlineBotQuery();
+	const auto fieldText = _field->getTextWithTags().text;
+	if (!_automaticInlineSuppressedText.isEmpty()
+		&& _automaticInlineSuppressedText != fieldText) {
+		_automaticInlineSuppressedText.clear();
+	}
+	auto query = parseInlineBotQuery();
+	if (query.automatic && _automaticInlineSuppressedText == fieldText) {
+		query = {};
+	}
+	_inlineBotAutomatic = query.automatic;
 	if (_inlineBotUsername != query.username) {
 		_inlineBotUsername = query.username;
 		auto &api = session().api();
@@ -6378,8 +6414,12 @@ void ComposeControls::updateInlineBotQuery() {
 				_inlineBotResolveRequestId = 0;
 				const auto query = parseInlineBotQuery();
 				if (_inlineBotUsername == query.username) {
+					const auto pinned = !query.expectedBotId
+						|| (resolvedBot
+							&& resolvedBot->id.value == peerFromUser(
+								UserId(query.expectedBotId)).value);
 					applyInlineBotQuery(
-						query.lookingUpBot ? resolvedBot : query.bot,
+						query.lookingUpBot && pinned ? resolvedBot : query.bot,
 						query.query);
 				} else {
 					clearInlineBot();

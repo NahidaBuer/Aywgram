@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/history_view_chat_section.h"
 
+#include "iv/editor/iv_editor_clipboard_import.h"
+
 #include "history/admin_log/history_admin_log_section.h"
 #include "history/view/controls/history_view_top_controls.h"
 #include "history/view/controls/history_view_bottom_controls.h"
@@ -1649,6 +1651,10 @@ void ChatWidget::setupComposeControls() {
 	) | rpl::on_next([=](Api::SendOptions options) {
 		send(options);
 	}, lifetime());
+	_composeControls->markdownRichRequests(
+	) | rpl::on_next([=](Api::SendOptions options) {
+		sendMarkdownRich(options);
+	}, lifetime());
 
 	_composeControls->scrollToMaxRequests(
 	) | rpl::on_next([=] {
@@ -2534,6 +2540,20 @@ void ChatWidget::sendRichDraft(
 		Api::SendProgressType::Typing,
 		-1);
 	finishSending();
+}
+
+void ChatWidget::sendMarkdownRich(Api::SendOptions options) {
+	const auto imported = Iv::Editor::BlocksFromMarkdown(
+		_composeControls->getTextForMarkdownRich().text,
+		Iv::ResolveRichMessageLimits(&session()),
+		0);
+	if (!imported || imported->truncated || !imported->localMedia.empty()) {
+		controller()->showToast(tr::ayu_MarkdownRichParseFailed(tr::now));
+		return;
+	}
+	auto page = std::make_shared<Iv::RichPage>();
+	page->blocks = imported->blocks;
+	sendRichDraft(std::move(page), options);
 }
 
 void ChatWidget::sendRichDraftWithoutFormatting(

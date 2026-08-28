@@ -18,6 +18,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 // AyuGram includes
 #include "ayu/utils/telegram_helpers.h"
+#include "ayu/features/link_rules/ayu_link_rules.h"
 
 
 namespace HistoryView::Controls {
@@ -142,25 +143,56 @@ void WebpageResolver::request(const QString &link, bool force) {
 	if (_requestLink == link && !force) {
 		return;
 	}
+	if (_requestId) {
+		_api.request(base::take(_requestId)).cancel();
+	}
+	_requestLink = link;
+	const auto rewrite = Ayu::LinkRules::RewritePreviewUrl(link);
+	requestAttempt(link, rewrite.previewUrl, rewrite.changed);
+}
+
+bool WebpageResolver::usedRewrite(const QString &link) const {
+	const auto i = _usedRewrite.find(link);
+	return i != end(_usedRewrite) && i->second;
+}
+
+void WebpageResolver::requestAttempt(
+		const QString &original,
+		const QString &candidate,
+		bool fallbackToOriginal) {
 	const auto done = [=](const MTPDmessageMediaWebPage &data) {
+		if (_requestLink != original) {
+			return;
+		}
 		const auto page = _session->data().processWebpage(data.vwebpage());
 		if (page->pendingTill > 0
 			&& page->pendingTill < base::unixtime::now()) {
 			page->pendingTill = 0;
 			page->failed = true;
 		}
-		_cache.emplace(link, page->failed ? nullptr : page.get());
-		_resolved.fire_copy(link);
+		if (page->failed && fallbackToOriginal) {
+			requestAttempt(original, original, false);
+			return;
+		}
+		_cache[original] = page->failed ? nullptr : page.get();
+		_usedRewrite[original] = !page->failed && (candidate != original);
+		_resolved.fire_copy(original);
 	};
 	const auto fail = [=] {
-		_cache.emplace(link, nullptr);
-		_resolved.fire_copy(link);
+		if (_requestLink != original) {
+			return;
+		} else if (fallbackToOriginal) {
+			requestAttempt(original, original, false);
+			return;
+		}
+		_cache[original] = nullptr;
+		_usedRewrite[original] = false;
+		_resolved.fire_copy(original);
 	};
-	_requestLink = link;
 	_requestId = _api.request(
 		MTPmessages_GetWebPagePreview(
 			MTP_flags(0),
-			MTP_string(getBetterLinkPreview(link)),
+			MTP_string(candidate),
 			MTPVector<MTPMessageEntity>()
 	)).done([=](
 			const MTPmessages_WebPagePreview &result,
@@ -234,7 +266,7 @@ WebpageProcessor::WebpageProcessor(
 		if (_data) {
 			_draft.id = _data->id;
 			_draft.url = _data->url;
-			_draft.previewChanged = (getBetterLinkPreview(link) != link);
+			_draft.previewChanged = _resolver->usedRewrite(link);
 			updateFromData();
 		} else {
 			_links = QStringList();
@@ -398,7 +430,7 @@ void WebpageProcessor::checkPreview() {
 		_data = page;
 		_draft.id = _data->id;
 		_draft.url = _data->url;
-		_draft.previewChanged = (getBetterLinkPreview(chosen) != chosen);
+		_draft.previewChanged = _resolver->usedRewrite(chosen);
 	} else {
 		_data = nullptr;
 		_draft = {};

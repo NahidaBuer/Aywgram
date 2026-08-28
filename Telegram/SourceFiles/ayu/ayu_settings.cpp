@@ -12,6 +12,7 @@
 #include "ayu/ayu_ui_settings.h"
 #include "ayu/ayu_worker.h"
 #include "ayu/features/streamer_mode/streamer_mode.h"
+#include "ayu/features/link_rules/ayu_link_rules.h"
 #include "ayu/ui/ayu_logo.h"
 #include "core/application.h"
 #include "core/core_settings.h"
@@ -560,12 +561,7 @@ nlohmann::json AyuSettings::CloudExportGlobal() {
 			"recentStickersCount",
 			"showReactionsPanelInContextMenu",
 			"showViewsPanelInContextMenu",
-			"showHideMessageInContextMenu",
-			"showUserMessagesInContextMenu",
-			"showMessageDetailsInContextMenu",
 			"alwaysShowScheduledButton",
-			"showRepeatMessageInContextMenu",
-			"showAddFilterInContextMenu",
 			"showAttachButtonInMessageField",
 			"showCommandsButtonInMessageField",
 			"showEmojiButtonInMessageField",
@@ -610,6 +606,11 @@ nlohmann::json AyuSettings::CloudExportGlobal() {
 			"translationProvider",
 			"adaptiveCoverColor",
 			"improveLinkPreviews",
+			"autoInlineBotQueries",
+			"autoTranslateChats",
+			"messageMenuQuickLabels",
+			"linkRules",
+			"messageMenuPlacements",
 			"crashReporting",
 			"avatarCorners",
 			"singleCornerRadius",
@@ -663,7 +664,32 @@ bool AyuSettings::CloudValidateGlobal(const nlohmann::json &data) {
 		return false;
 	}
 	const auto allowed = CloudExportGlobal();
-	return CloudValueCompatible(data, allowed);
+	if (!CloudValueCompatible(data, allowed)) {
+		return false;
+	}
+	if (const auto rules = data.find("linkRules");
+		rules != data.end() && !Ayu::LinkRules::ValidateLocalSettings(*rules)) {
+		return false;
+	}
+	if (const auto placements = data.find("messageMenuPlacements");
+		placements != data.end()) {
+		if (!placements->is_object() || placements->size() > 256) {
+			return false;
+		}
+		for (const auto &[id, placement] : placements->items()) {
+			if (id.empty() || id.size() > 96 || !placement.is_string()) {
+				return false;
+			}
+			const auto value = placement.get<std::string>();
+			if (value != "quick"
+				&& value != "normal"
+				&& value != "extended"
+				&& value != "hidden") {
+				return false;
+			}
+		}
+	}
+	return true;
 }
 
 bool AyuSettings::CloudApplyGlobal(const nlohmann::json &data) {
@@ -699,6 +725,10 @@ bool AyuSettings::CloudApplyGlobal(const nlohmann::json &data) {
 	try {
 		from_json(merged, getInstance());
 		getInstance().validate();
+		Ayu::LinkRules::Invalidate();
+		AyuChatSettings::NotifyChange(
+			nullptr,
+			AyuChatSettings::Feature::AutoTranslate);
 		save();
 		return true;
 	} catch (...) {
@@ -869,6 +899,9 @@ void AyuSettings::validate() {
 	validateEnum(_showMessageDetailsInContextMenu, defaults._showMessageDetailsInContextMenu);
 	validateEnum(_showRepeatMessageInContextMenu, defaults._showRepeatMessageInContextMenu);
 	validateEnum(_showAddFilterInContextMenu, defaults._showAddFilterInContextMenu);
+	if (!Ayu::LinkRules::ValidateLocalSettings(_linkRules)) {
+		_linkRules = nlohmann::json::object();
+	}
 
 	validateEnum(_translationProvider, defaults._translationProvider, 3);
 	if ((_translationProvider.current() == TranslationProvider::Native)
@@ -1488,6 +1521,67 @@ void AyuSettings::setImproveLinkPreviews(bool val) {
 	save();
 }
 
+void AyuSettings::setAutoInlineBotQueries(bool val) {
+	if (_autoInlineBotQueries.current() == val) return;
+	_autoInlineBotQueries = val;
+	save();
+}
+
+void AyuSettings::setInlineBotConsent(bool val) {
+	if (_inlineBotConsent.current() == val) return;
+	_inlineBotConsent = val;
+	save();
+}
+
+void AyuSettings::setAutoTranslateChats(bool val) {
+	if (_autoTranslateChats.current() == val) return;
+	_autoTranslateChats = val;
+	AyuChatSettings::NotifyChange(
+		nullptr,
+		AyuChatSettings::Feature::AutoTranslate);
+	save();
+}
+
+void AyuSettings::setMessageMenuQuickLabels(bool val) {
+	if (_messageMenuQuickLabels.current() == val) return;
+	_messageMenuQuickLabels = val;
+	save();
+}
+
+void AyuSettings::setLinkRules(nlohmann::json val) {
+	if (!val.is_object() || _linkRules == val) return;
+	_linkRules = std::move(val);
+	Ayu::LinkRules::Invalidate();
+	save();
+}
+
+MessageMenuPlacement AyuSettings::messageMenuPlacement(
+		const std::string &id,
+		MessageMenuPlacement fallback) const {
+	const auto i = _messageMenuPlacements.find(id);
+	return (i == end(_messageMenuPlacements)) ? fallback : i->second;
+}
+
+void AyuSettings::setMessageMenuPlacement(
+		const std::string &id,
+		MessageMenuPlacement placement) {
+	if (id.empty() || id.size() > 96) {
+		return;
+	}
+	const auto i = _messageMenuPlacements.find(id);
+	if (i != end(_messageMenuPlacements) && i->second == placement) {
+		return;
+	}
+	_messageMenuPlacements[id] = placement;
+	save();
+}
+
+void AyuSettings::resetMessageMenuPlacements() {
+	if (_messageMenuPlacements.empty()) return;
+	_messageMenuPlacements.clear();
+	save();
+}
+
 void AyuSettings::setCrashReporting(bool val) {
 	if (_crashReporting.current() == val) return;
 	_crashReporting = val;
@@ -1618,6 +1712,12 @@ void to_json(nlohmann::json &j, const AyuSettings &s) {
 		{"translationProvider", s._translationProvider.current()},
 		{"adaptiveCoverColor", s._adaptiveCoverColor.current()},
 		{"improveLinkPreviews", s._improveLinkPreviews.current()},
+		{"autoInlineBotQueries", s._autoInlineBotQueries.current()},
+		{"inlineBotConsent", s._inlineBotConsent.current()},
+		{"autoTranslateChats", s._autoTranslateChats.current()},
+		{"messageMenuQuickLabels", s._messageMenuQuickLabels.current()},
+		{"linkRules", s._linkRules},
+		{"messageMenuPlacements", s._messageMenuPlacements},
 		{"crashReporting", s._crashReporting.current()},
 		{"avatarCorners", s._avatarCorners.current()},
 		{"singleCornerRadius", s._singleCornerRadius.current()},
@@ -1753,6 +1853,41 @@ void from_json(const nlohmann::json &j, AyuSettings &s) {
 	s._translationProvider = j.value("translationProvider", defaults._translationProvider.current());
 	s._adaptiveCoverColor = j.value("adaptiveCoverColor", defaults._adaptiveCoverColor.current());
 	s._improveLinkPreviews = j.value("improveLinkPreviews", defaults._improveLinkPreviews.current());
+	s._autoInlineBotQueries = j.value("autoInlineBotQueries", defaults._autoInlineBotQueries.current());
+	s._inlineBotConsent = j.value("inlineBotConsent", defaults._inlineBotConsent.current());
+	s._autoTranslateChats = j.value("autoTranslateChats", defaults._autoTranslateChats.current());
+	s._messageMenuQuickLabels = j.value("messageMenuQuickLabels", defaults._messageMenuQuickLabels.current());
+	if (const auto rules = j.find("linkRules");
+		rules != j.end() && rules->is_object()) {
+		s._linkRules = *rules;
+	}
+	try {
+		s._messageMenuPlacements = j.value(
+			"messageMenuPlacements",
+			defaults._messageMenuPlacements);
+	} catch (...) {
+		s._messageMenuPlacements.clear();
+	}
+	if (!j.contains("messageMenuPlacements")) {
+		const auto migrate = [](ContextMenuVisibility value) {
+			switch (value) {
+			case ContextMenuVisibility::Visible:
+				return MessageMenuPlacement::Normal;
+			case ContextMenuVisibility::VisibleWithModifier:
+				return MessageMenuPlacement::Extended;
+			case ContextMenuVisibility::Hidden:
+				return MessageMenuPlacement::Hidden;
+			}
+			Unexpected("ContextMenuVisibility value.");
+		};
+		s._messageMenuPlacements = {
+			{ "hide_message", migrate(s._showHideMessageInContextMenu.current()) },
+			{ "user_messages", migrate(s._showUserMessagesInContextMenu.current()) },
+			{ "details", migrate(s._showMessageDetailsInContextMenu.current()) },
+			{ "repeat", migrate(s._showRepeatMessageInContextMenu.current()) },
+			{ "add_filter", migrate(s._showAddFilterInContextMenu.current()) },
+		};
+	}
 	s._crashReporting = j.value("crashReporting", defaults._crashReporting.current());
 	s._avatarCorners = j.value("avatarCorners", defaults._avatarCorners.current());
 	s._singleCornerRadius = j.value("singleCornerRadius", defaults._singleCornerRadius.current());

@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "chat_helpers/message_field.h"
 
+#include "ayu/features/link_rules/ayu_link_rules.h"
+
 #include "history/history_widget.h"
 #include "history/history.h" // History::session
 #include "history/history_item.h" // HistoryItem::originalText
@@ -994,6 +996,10 @@ InlineBotQuery ParseInlineBotQuery(
 				&& (!result.bot->isBot()
 					|| result.bot->botInfo->inlinePlaceholder.isEmpty())) {
 				result.bot = nullptr;
+				// A syntactically valid explicit @bot query always wins over
+				// automatic URL rules, even when the resolved peer cannot be used
+				// as an inline bot.
+				return result;
 			} else {
 				result.query = inlineUsernameEqualsText
 					? QString()
@@ -1008,7 +1014,26 @@ InlineBotQuery ParseInlineBotQuery(
 		result.bot = nullptr;
 		result.username = QString();
 	}
-	result.query = QString();
+	if (const auto automatic = Ayu::LinkRules::MatchInlineBot(text)) {
+		result.query = automatic->query;
+		result.username = automatic->username;
+		result.expectedBotId = automatic->botId;
+		result.automatic = true;
+		if (const auto peer = session->data().peerByUsername(result.username)) {
+			const auto user = peer->asUser();
+			result.bot = (user
+				&& user->isBot()
+				&& user->id.value == peerFromUser(UserId(result.expectedBotId)).value
+				&& !user->botInfo->inlinePlaceholder.isEmpty())
+				? user
+				: nullptr;
+			result.lookingUpBot = (result.bot == nullptr);
+		} else {
+			result.lookingUpBot = true;
+		}
+	} else {
+		result.query = QString();
+	}
 	return result;
 }
 

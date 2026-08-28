@@ -150,6 +150,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "iv/editor/iv_editor_session.h"
 #include "iv/iv_rich_message_serializer.h"
 #include "iv/iv_rich_page.h"
+#include "iv/editor/iv_editor_clipboard_import.h"
 #include "core/click_handler_types.h"
 #include "chat_helpers/field_autocomplete.h"
 #include "chat_helpers/tabbed_panel.h"
@@ -2138,7 +2139,16 @@ void HistoryWidget::updateInlineBotQuery() {
 	if (!_history) {
 		return;
 	}
-	const auto query = parseInlineBotQuery();
+	const auto fieldText = _field->getTextWithTags().text;
+	if (!_automaticInlineSuppressedText.isEmpty()
+		&& _automaticInlineSuppressedText != fieldText) {
+		_automaticInlineSuppressedText.clear();
+	}
+	auto query = parseInlineBotQuery();
+	if (query.automatic && _automaticInlineSuppressedText == fieldText) {
+		query = {};
+	}
+	_inlineBotAutomatic = query.automatic;
 	if (_inlineBotUsername != query.username) {
 		_inlineBotUsername = query.username;
 		if (_inlineBotResolveRequestId) {
@@ -2171,8 +2181,12 @@ void HistoryWidget::updateInlineBotQuery() {
 				_inlineBotResolveRequestId = 0;
 				const auto query = parseInlineBotQuery();
 				if (_inlineBotUsername == query.username) {
+					const auto pinned = !query.expectedBotId
+						|| (resolvedBot
+							&& resolvedBot->id.value == peerFromUser(
+								UserId(query.expectedBotId)).value);
 					applyInlineBotQuery(
-						query.lookingUpBot ? resolvedBot : query.bot,
+						query.lookingUpBot && pinned ? resolvedBot : query.bot,
 						query.query);
 				} else {
 					clearInlineBot();
@@ -5451,6 +5465,13 @@ void HistoryWidget::checkReplyReturns() {
 
 void HistoryWidget::cancelInlineBot() {
 	const auto &textWithTags = _field->getTextWithTags();
+	if (_inlineBotAutomatic) {
+		_automaticInlineSuppressedText = textWithTags.text;
+		_inlineBotAutomatic = false;
+		_inlineBotUsername.clear();
+		clearInlineBot();
+		return;
+	}
 	if (textWithTags.text.size() > _inlineBotUsername.size() + 2) {
 		setFieldText(
 			{ '@' + _inlineBotUsername + ' ', TextWithTags::Tags() },
@@ -5490,7 +5511,9 @@ void HistoryWidget::setupSendMenu(
 		controller()->uiShow(),
 		[=] { return sendButtonMenuDetails(); },
 		[=](Action value, Details details) {
-			if (value.type == ActionType::CaptionUp
+			if (value.type == ActionType::MarkdownRich) {
+				sendMarkdownRich(value.options);
+			} else if (value.type == ActionType::CaptionUp
 				|| value.type == ActionType::CaptionDown
 				|| value.type == ActionType::SpoilerOn
 				|| value.type == ActionType::SpoilerOff
@@ -5938,6 +5961,23 @@ void HistoryWidget::sendRichDraft(
 		-1);
 }
 
+void HistoryWidget::sendMarkdownRich(Api::SendOptions options) {
+	if (!_history) {
+		return;
+	}
+	const auto imported = Iv::Editor::BlocksFromMarkdown(
+		_field->getTextWithTags().text,
+		Iv::ResolveRichMessageLimits(&session()),
+		0);
+	if (!imported || imported->truncated || !imported->localMedia.empty()) {
+		controller()->showToast(tr::ayu_MarkdownRichParseFailed(tr::now));
+		return;
+	}
+	auto page = std::make_shared<Iv::RichPage>();
+	page->blocks = imported->blocks;
+	sendRichDraft(std::move(page), options);
+}
+
 void HistoryWidget::sendRichDraftWithoutFormatting(
 		std::shared_ptr<const Iv::RichPage> page,
 		Api::SendOptions options) {
@@ -6144,6 +6184,16 @@ SendMenu::Details HistoryWidget::sendButtonDefaultDetails() const {
 	if (!hasSendableContent() && !_previewDrawPreview) {
 		result.effectAllowed = false;
 	}
+	result.markdownRichAllowed = _history
+		&& canShowRichEditor()
+		&& !_field->getTextWithTags().text.trimmed().isEmpty()
+		&& _forwardPanel->items().empty()
+		&& !_inlineBot
+		&& !shownRichMessage()
+		&& result.spoiler == SendMenu::SpoilerState::None
+		&& result.caption == SendMenu::CaptionState::None
+		&& result.photoQuality == SendMenu::PhotoQualityState::None
+		&& result.cover == SendMenu::CoverState::None;
 	return result;
 }
 

@@ -5,6 +5,7 @@
 //
 // Copyright @Radolyn, 2026
 #include "ayu/ui/context_menu/context_menu.h"
+#include "ayu/ui/context_menu/message_menu_registry.h"
 
 #include "ayu/ui/settings/settings_chat_overrides.h"
 
@@ -247,7 +248,8 @@ Fn<void()> DeleteMyMessagesHandler(not_null<Window::SessionController*> controll
 
 bool needToShowItem(ContextMenuVisibility state) {
 	return state == ContextMenuVisibility::Visible
-		|| (state == ContextMenuVisibility::VisibleWithModifier && base::IsExtendedContextMenuModifierPressed());
+		|| (state == ContextMenuVisibility::VisibleWithModifier
+			&& base::IsShiftPressed());
 }
 
 void AddAyuGramActions(PeerData *peerData,
@@ -531,8 +533,9 @@ void AddHistoryAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item) {
 }
 
 void AddHideMessageAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item) {
-	const auto &settings = AyuSettings::getInstance();
-	if (!needToShowItem(settings.showHideMessageInContextMenu())) {
+	if (!MessageMenu::ShouldConstruct(
+			"hide_message",
+			MessageMenuPlacement::Hidden)) {
 		return;
 	}
 
@@ -559,8 +562,9 @@ void AddHideMessageAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item) {
 }
 
 void AddUserMessagesAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item) {
-	const auto &settings = AyuSettings::getInstance();
-	if (!needToShowItem(settings.showUserMessagesInContextMenu())) {
+	if (!MessageMenu::ShouldConstruct(
+			"user_messages",
+			MessageMenuPlacement::Extended)) {
 		return;
 	}
 
@@ -588,8 +592,10 @@ void AddUserMessagesAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item) {
 }
 
 void AddMessageDetailsAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item) {
-	const auto &settings = AyuSettings::getInstance();
-	if (!needToShowItem(settings.showMessageDetailsInContextMenu())) {
+	if (!MessageMenu::ShouldConstruct(
+			"details",
+			MessageMenuPlacement::Extended,
+			true)) {
 		return;
 	}
 
@@ -835,8 +841,9 @@ void AddMessageDetailsAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item) {
 }
 
 void AddRepeatMessageAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item, HistoryView::Context context) {
-	const auto &settings = AyuSettings::getInstance();
-	if (!needToShowItem(settings.showRepeatMessageInContextMenu())) {
+	if (!MessageMenu::ShouldConstruct(
+			"repeat",
+			MessageMenuPlacement::Hidden)) {
 		return;
 	}
 
@@ -1024,7 +1031,10 @@ void AddCreateFilterAction(not_null<Ui::PopupMenu*> menu,
 						   HistoryItem *item,
 						   const QString &selectedText) {
 	const auto &settings = AyuSettings::getInstance();
-	if (!needToShowItem(settings.showAddFilterInContextMenu()) || !settings.filtersEnabled()) {
+	if (!MessageMenu::ShouldConstruct(
+			"add_filter",
+			MessageMenuPlacement::Normal)
+		|| !settings.filtersEnabled()) {
 		return;
 	}
 

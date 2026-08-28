@@ -15,6 +15,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/variant.h"
 #include "base/flat_set.h"
 #include "base/flags.h"
+#include "rpl/lifetime.h"
 
 class History;
 class HistoryBlock;
@@ -524,6 +525,7 @@ public:
 	mtpRequestId sendRequestId = 0;
 
 private:
+	void refreshAyuAutoTranslate();
 	friend class HistoryBlock;
 
 	enum class Flag : ushort {
@@ -716,6 +718,8 @@ private:
 	};
 	std::unique_ptr<BuildingBlock> _buildingFrontBlock;
 	std::unique_ptr<HistoryTranslation> _translation;
+	bool _ayuAutoTranslateActive = false;
+	rpl::lifetime _ayuAutoTranslateLifetime;
 
 	Data::HistoryDrafts _drafts;
 	base::flat_map<Data::DraftKey, TimeId> _acceptCloudDraftsAfter;

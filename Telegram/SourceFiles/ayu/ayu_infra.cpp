@@ -12,6 +12,7 @@
 #include "ayu/ayu_worker.h"
 #include "ayu/cloud/ayu_settings_sync.h"
 #include "ayu/data/ayu_database.h"
+#include "ayu/features/link_rules/ayu_remote_metadata.h"
 #include "ayu/ui/ayu_logo.h"
 #include "features/translator/ayu_translator.h"
 #include "lang/lang_instance.h"
@@ -87,6 +88,7 @@ void init() {
 	initWorker();
 	initRCManager();
 	initTranslator();
+	Ayu::RemoteMetadata::Init();
 	AyuCloud::InitSettingsSync();
 }
 

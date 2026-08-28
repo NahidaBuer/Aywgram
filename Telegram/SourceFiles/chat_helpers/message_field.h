@@ -129,7 +129,9 @@ struct InlineBotQuery {
 	QString query;
 	QString username;
 	UserData *bot = nullptr;
+	uint64 expectedBotId = 0;
 	bool lookingUpBot = false;
+	bool automatic = false;
 };
 InlineBotQuery ParseInlineBotQuery(
 	not_null<Main::Session*> session,

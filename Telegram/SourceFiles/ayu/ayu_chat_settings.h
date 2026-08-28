@@ -14,6 +14,7 @@ namespace AyuChatSettings {
 
 enum class Feature {
 	ShowScheduledButton,
+	AutoTranslate,
 	Count,
 };
 

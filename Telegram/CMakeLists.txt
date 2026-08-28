@@ -167,6 +167,8 @@ set(ayugram_files
         ayu/ui/settings/settings_ayu_utils.h
         ayu/ui/settings/settings_chats.cpp
         ayu/ui/settings/settings_chats.h
+        ayu/ui/settings/settings_message_menu.cpp
+        ayu/ui/settings/settings_message_menu.h
         ayu/ui/settings/settings_cloud_sync.cpp
         ayu/ui/settings/settings_cloud_sync.h
         ayu/ui/settings/settings_chat_overrides.cpp
@@ -191,6 +193,8 @@ set(ayugram_files
         ayu/ui/settings/filters/edit_filter.h
         ayu/ui/context_menu/context_menu.cpp
         ayu/ui/context_menu/context_menu.h
+        ayu/ui/context_menu/message_menu_registry.cpp
+        ayu/ui/context_menu/message_menu_registry.h
         ayu/ui/context_menu/menu_item_subtext.cpp
         ayu/ui/context_menu/menu_item_subtext.h
         ayu/ui/message_history/history_inner.cpp
@@ -251,6 +255,10 @@ set(ayugram_files
         ayu/features/forward/ayu_forward_rich.h
         ayu/features/forward/ayu_sync.cpp
         ayu/features/forward/ayu_sync.h
+        ayu/features/link_rules/ayu_link_rules.cpp
+        ayu/features/link_rules/ayu_link_rules.h
+        ayu/features/link_rules/ayu_remote_metadata.cpp
+        ayu/features/link_rules/ayu_remote_metadata.h
         ayu/features/translator/ayu_translator.cpp
         ayu/features/translator/ayu_translator.h
         ayu/features/translator/ayu_translate_provider.cpp

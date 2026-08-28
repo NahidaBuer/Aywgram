@@ -14,6 +14,7 @@
 #include "ayu/ui/settings/ayu_builder.h"
 #include "ayu/ui/settings/settings_ayu_utils.h"
 #include "ayu/ui/settings/settings_main.h"
+#include "ayu/ui/settings/settings_message_menu.h"
 #include "settings/settings_builder.h"
 #include "settings/settings_common.h"
 #include "styles/style_ayu_icons.h"
@@ -22,6 +23,7 @@
 #include "ui/wrap/vertical_layout.h"
 #include "window/window_session_controller.h"
 
+#include <algorithm>
 #include <memory>
 
 namespace Settings {
@@ -407,85 +409,13 @@ void BuildMessageAppearance(
 }
 
 void BuildContextMenuElements(SectionBuilder &builder, AyuSectionBuilder &ayu) {
-	auto *settings = &AyuSettings::getInstance();
-
 	builder.addSubsectionTitle(tr::ayu_ContextMenuElementsHeader());
-
-	const auto options = std::vector{
-		tr::ayu_SettingsContextMenuItemHidden(tr::now),
-		tr::ayu_SettingsContextMenuItemShown(tr::now),
-		tr::ayu_SettingsContextMenuItemExtended(tr::now),
-	};
-
-	ayu.addChooseButton({
-		.id = u"ayu/showReactionsPanelInContextMenu"_q,
-		.title = tr::ayu_SettingsContextMenuReactionsPanel(),
-		.boxTitle = tr::ayu_SettingsContextMenuTitle(),
-		.initialSelection = static_cast<int>(settings->showReactionsPanelInContextMenu()),
-		.options = options,
-		.setter = [](int i) { AyuSettings::getInstance().setShowReactionsPanelInContextMenu(static_cast<ContextMenuVisibility>(i)); },
-		.icon = { &st::menuIconReactions },
+	builder.addSectionButton({
+		.title = tr::ayu_SettingsMessageMenuLayout(),
+		.targetSection = AyuMessageMenu::Id(),
+		.icon = { &st::menuIconShowAll },
 	});
-	ayu.addChooseButton({
-		.id = u"ayu/showViewsPanelInContextMenu"_q,
-		.title = tr::ayu_SettingsContextMenuViewsPanel(),
-		.boxTitle = tr::ayu_SettingsContextMenuTitle(),
-		.initialSelection = static_cast<int>(settings->showViewsPanelInContextMenu()),
-		.options = options,
-		.setter = [](int i) { AyuSettings::getInstance().setShowViewsPanelInContextMenu(static_cast<ContextMenuVisibility>(i)); },
-		.icon = { &st::menuIconShowInChat },
-	});
-	ayu.addChooseButton({
-		.id = u"ayu/showHideMessageInContextMenu"_q,
-		.title = tr::ayu_ContextHideMessage(),
-		.boxTitle = tr::ayu_SettingsContextMenuTitle(),
-		.initialSelection = static_cast<int>(settings->showHideMessageInContextMenu()),
-		.options = options,
-		.setter = [](int i) { AyuSettings::getInstance().setShowHideMessageInContextMenu(static_cast<ContextMenuVisibility>(i)); },
-		.icon = { &st::menuIconClear },
-	});
-	ayu.addChooseButton({
-		.id = u"ayu/showUserMessagesInContextMenu"_q,
-		.title = tr::ayu_UserMessagesMenuText(),
-		.boxTitle = tr::ayu_SettingsContextMenuTitle(),
-		.initialSelection = static_cast<int>(settings->showUserMessagesInContextMenu()),
-		.options = options,
-		.setter = [](int i) { AyuSettings::getInstance().setShowUserMessagesInContextMenu(static_cast<ContextMenuVisibility>(i)); },
-		.icon = { &st::menuIconTTL },
-	});
-	ayu.addChooseButton({
-		.id = u"ayu/showMessageDetailsInContextMenu"_q,
-		.title = tr::ayu_MessageDetailsPC(),
-		.boxTitle = tr::ayu_SettingsContextMenuTitle(),
-		.initialSelection = static_cast<int>(settings->showMessageDetailsInContextMenu()),
-		.options = options,
-		.setter = [](int i) { AyuSettings::getInstance().setShowMessageDetailsInContextMenu(static_cast<ContextMenuVisibility>(i)); },
-		.icon = { &st::menuIconInfo },
-	});
-	ayu.addChooseButton({
-		.id = u"ayu/showRepeatMessageInContextMenu"_q,
-		.title = tr::ayu_RepeatMessage(),
-		.boxTitle = tr::ayu_SettingsContextMenuTitle(),
-		.initialSelection = static_cast<int>(settings->showRepeatMessageInContextMenu()),
-		.options = options,
-		.setter = [](int i) { AyuSettings::getInstance().setShowRepeatMessageInContextMenu(static_cast<ContextMenuVisibility>(i)); },
-		.icon = { &st::ayuRepeatMenuIcon },
-	});
-	if (settings->filtersEnabled()) {
-		ayu.addChooseButton({
-			.id = u"ayu/showAddFilterInContextMenu"_q,
-			.title = tr::ayu_RegexFilterQuickAdd(),
-			.boxTitle = tr::ayu_SettingsContextMenuTitle(),
-			.initialSelection = static_cast<int>(settings->showAddFilterInContextMenu()),
-			.options = options,
-			.setter = [](int i) { AyuSettings::getInstance().setShowAddFilterInContextMenu(static_cast<ContextMenuVisibility>(i)); },
-			.icon = { &st::menuIconAddToFolder },
-		});
-	}
-
-	builder.addSkip();
-	builder.addDividerText(tr::ayu_SettingsContextMenuDescription());
-	builder.addSkip();
+	ayu.addSectionDivider();
 }
 
 void BuildMessageFieldElements(SectionBuilder &builder, AyuSectionBuilder &ayu) {
@@ -550,6 +480,14 @@ void BuildMessageFieldElements(SectionBuilder &builder, AyuSectionBuilder &ayu) 
 	});
 	builder.addDividerText(
 		tr::ayu_AlwaysShowScheduledButtonDescription());
+	ayu.addSettingToggle({
+		.id = u"ayu/autoTranslateChats"_q,
+		.title = tr::ayu_AutoTranslateChats(),
+		.getter = &AyuSettings::autoTranslateChats,
+		.setter = &AyuSettings::setAutoTranslateChats,
+		.icon = { &st::menuIconTranslate },
+	});
+	builder.addDividerText(tr::ayu_AutoTranslateChatsDescription());
 
 	ayu.addSectionDivider();
 }

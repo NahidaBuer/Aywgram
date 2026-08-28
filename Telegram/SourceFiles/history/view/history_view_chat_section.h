@@ -373,6 +373,7 @@ private:
 	void sendRichDraft(
 		std::shared_ptr<const Iv::RichPage> page,
 		Api::SendOptions options);
+	void sendMarkdownRich(Api::SendOptions options);
 	void sendRichDraftWithoutFormatting(
 		std::shared_ptr<const Iv::RichPage> page,
 		Api::SendOptions options);

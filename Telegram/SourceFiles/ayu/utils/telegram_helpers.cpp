@@ -15,6 +15,7 @@
 #include "ayu/data/entities.h"
 #include "ayu/data/messages_storage.h"
 #include "ayu/features/filters/filters_controller.h"
+#include "ayu/features/link_rules/ayu_link_rules.h"
 #include "ayu/ui/boxes/donate_info_box.h"
 #include "ayu/ui/toasts.h"
 #include "ayu/utils/rc_manager.h"
@@ -1550,34 +1551,7 @@ void getRegistrationDate(not_null<PeerData*> peer, Fn<void(TextWithEntities)> ca
 }
 
 QString getBetterLinkPreview(const QString &url) {
-	const auto &settings = AyuSettings::getInstance();
-	if (!settings.improveLinkPreviews()) {
-		return url;
-	}
-
-	auto parsed = QUrl(url);
-	if (!parsed.isValid() || parsed.host().isEmpty()) {
-		return url;
-	}
-
-	auto host = parsed.host().toLower();
-
-	if (host == u"twitter.com"_q || host == u"x.com"_q) {
-		parsed.setHost(u"fixupx.com"_q);
-	} else if (host == u"tiktok.com"_q || host.endsWith(u".tiktok.com"_q)) {
-		host.replace(u"tiktok.com"_q, u"kktiktok.com"_q);
-		parsed.setHost(host);
-	} else if (host == u"reddit.com"_q || host == u"www.reddit.com"_q) {
-		parsed.setHost(u"vxreddit.com"_q);
-	} else if (host == u"instagram.com"_q || host == u"www.instagram.com"_q) {
-		parsed.setHost(u"kkclip.com"_q);
-	} else if (host == u"pixiv.net"_q || host == u"www.pixiv.net"_q) {
-		parsed.setHost(u"phixiv.net"_q);
-	} else {
-		return url;
-	}
-
-	return parsed.toString();
+	return Ayu::LinkRules::RewritePreviewUrl(url).previewUrl;
 }
 
 void applyGhostScheduling(

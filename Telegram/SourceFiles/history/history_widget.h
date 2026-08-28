@@ -466,6 +466,7 @@ private:
 	void sendRichDraft(
 		std::shared_ptr<const Iv::RichPage> page,
 		Api::SendOptions options);
+	void sendMarkdownRich(Api::SendOptions options);
 	void sendRichDraftWithoutFormatting(
 		std::shared_ptr<const Iv::RichPage> page,
 		Api::SendOptions options);
@@ -906,6 +907,8 @@ private:
 	UserData *_inlineBot = nullptr;
 	QString _inlineBotUsername;
 	bool _inlineLookingUpBot = false;
+	bool _inlineBotAutomatic = false;
+	QString _automaticInlineSuppressedText;
 	mtpRequestId _inlineBotResolveRequestId = 0;
 	bool _isInlineBot = false;
 	bool _threadFieldVisible = false;

@@ -30,11 +30,20 @@ bool ShowScheduledButtonGlobalValue() {
 	return AyuSettings::getInstance().alwaysShowScheduledButton();
 }
 
+bool AutoTranslateGlobalValue() {
+	return AyuSettings::getInstance().autoTranslateChats();
+}
+
 constexpr auto kDescriptors = std::array{
 	Descriptor{
 		.feature = Feature::ShowScheduledButton,
 		.storageKey = "show_scheduled_button",
 		.globalValue = ShowScheduledButtonGlobalValue,
+	},
+	Descriptor{
+		.feature = Feature::AutoTranslate,
+		.storageKey = "auto_translate",
+		.globalValue = AutoTranslateGlobalValue,
 	},
 };
 
@@ -222,6 +231,7 @@ bool CloudApply(
 	}
 	session->local().replaceBooleanPrefsByPrefix(kStoragePrefix, values);
 	NotifyChange(nullptr, Feature::ShowScheduledButton);
+	NotifyChange(nullptr, Feature::AutoTranslate);
 	AyuCloud::MarkSettingsDirty();
 	return true;
 }
