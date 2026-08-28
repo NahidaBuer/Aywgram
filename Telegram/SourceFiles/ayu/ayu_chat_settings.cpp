@@ -1,4 +1,5 @@
 #include "ayu/ayu_chat_settings.h"
+#include "ayu/cloud/ayu_settings_sync.h"
 
 #include "ayu/ayu_settings.h"
 #include "data/data_chat.h"
@@ -8,6 +9,7 @@
 #include "rpl/event_stream.h"
 #include "storage/storage_account.h"
 
+#include <algorithm>
 #include <array>
 #include <string_view>
 
@@ -35,6 +37,9 @@ constexpr auto kDescriptors = std::array{
 		.globalValue = ShowScheduledButtonGlobalValue,
 	},
 };
+
+constexpr auto kStoragePrefix = "ayu.chat_override.";
+constexpr auto kStoragePrefixSize = int(sizeof("ayu.chat_override.") - 1);
 static_assert(kDescriptors.size() == static_cast<std::size_t>(Feature::Count));
 
 const Descriptor &DescriptorFor(Feature feature) {
@@ -54,6 +59,31 @@ QByteArray StorageKeyFor(PeerId peerId, const Descriptor &descriptor) {
 		descriptor.storageKey.data(),
 		static_cast<int>(descriptor.storageKey.size()));
 	return result;
+}
+
+bool IsRegisteredStorageKey(const QByteArray &key) {
+	if (!key.startsWith(kStoragePrefix) || key.size() > 160) {
+		return false;
+	}
+	const auto tail = key.mid(kStoragePrefixSize);
+	const auto separator = tail.indexOf('.');
+	if (separator <= 0) {
+		return false;
+	}
+	const auto peer = tail.left(separator);
+	auto validPeer = false;
+	const auto peerId = peer.toULongLong(&validPeer);
+	if (!validPeer || !peerId || !std::all_of(peer.begin(), peer.end(), [](char value) {
+		return value >= '0' && value <= '9';
+	})) {
+		return false;
+	}
+	const auto feature = std::string_view(
+		tail.constData() + separator + 1,
+		std::size_t(tail.size() - separator - 1));
+	return ranges::any_of(kDescriptors, [=](const Descriptor &descriptor) {
+		return descriptor.storageKey == feature;
+	});
 }
 
 std::string_view PrefKey(const QByteArray &key) {
@@ -140,6 +170,7 @@ void SetOverride(
 		Unexpected("Unknown Ayu chat feature override.");
 	}
 	NotifyChange(canonical, feature);
+	AyuCloud::MarkSettingsDirty();
 }
 
 rpl::producer<Change> Changes() {
@@ -151,6 +182,48 @@ void NotifyChange(PeerData *peer, Feature feature) {
 		.peer = peer,
 		.feature = feature,
 	});
+}
+
+nlohmann::json CloudExport(not_null<Main::Session*> session) {
+	auto result = nlohmann::json::object();
+	const auto values = session->local().readBooleanPrefsByPrefix(
+		kStoragePrefix);
+	for (const auto &[key, value] : values) {
+		if (IsRegisteredStorageKey(key)) {
+			result[std::string(key.constData(), key.size())] = value;
+		}
+	}
+	return result;
+}
+
+bool CloudValidate(const nlohmann::json &data) {
+	if (!data.is_object()) {
+		return false;
+	}
+	for (const auto &[key, value] : data.items()) {
+		const auto raw = QByteArray(key.data(), int(key.size()));
+		if (!IsRegisteredStorageKey(raw) || !value.is_boolean()) {
+			return false;
+		}
+	}
+	return true;
+}
+
+bool CloudApply(
+		not_null<Main::Session*> session,
+		const nlohmann::json &data) {
+	if (!CloudValidate(data)) {
+		return false;
+	}
+	auto values = base::flat_map<QByteArray, bool>();
+	for (const auto &[key, value] : data.items()) {
+		const auto raw = QByteArray(key.data(), int(key.size()));
+		values.emplace(raw, value.get<bool>());
+	}
+	session->local().replaceBooleanPrefsByPrefix(kStoragePrefix, values);
+	NotifyChange(nullptr, Feature::ShowScheduledButton);
+	AyuCloud::MarkSettingsDirty();
+	return true;
 }
 
 } // namespace AyuChatSettings

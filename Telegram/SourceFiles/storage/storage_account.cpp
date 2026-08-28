@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/storage_account.h"
 
 #include "ayu/ayu_account_settings.h"
+#include "ayu/cloud/ayu_settings_sync.h"
 
 #include "storage/localstorage.h"
 #include "storage/storage_domain.h"
@@ -1066,6 +1067,7 @@ void Account::writeSessionSettings(Main::SessionSettings *stored) {
 
 	FileWriteDescriptor file(_settingsKey, _basePath);
 	file.writeEncrypted(data, _localKey);
+	AyuCloud::MarkSettingsDirty();
 }
 
 ReadSettingsContext Account::prepareReadSettingsContext() const {
@@ -3813,6 +3815,37 @@ void Account::writePrefs() {
 		FileWriteDescriptor file(_prefsKey, _basePath);
 		file.writeEncrypted(data, _localKey);
 	}
+}
+
+base::flat_map<QByteArray, bool> Account::readBooleanPrefsByPrefix(
+		std::string_view prefix) const {
+	const auto rawPrefix = QByteArray(prefix.data(), int(prefix.size()));
+	auto result = base::flat_map<QByteArray, bool>();
+	for (const auto &[key, value] : _prefs) {
+		if (key.startsWith(rawPrefix)) {
+			result.emplace(key, !value.isEmpty());
+		}
+	}
+	return result;
+}
+
+void Account::replaceBooleanPrefsByPrefix(
+		std::string_view prefix,
+		const base::flat_map<QByteArray, bool> &values) {
+	const auto rawPrefix = QByteArray(prefix.data(), int(prefix.size()));
+	for (auto i = _prefs.begin(); i != _prefs.end();) {
+		if (i->first.startsWith(rawPrefix)) {
+			i = _prefs.erase(i);
+		} else {
+			++i;
+		}
+	}
+	for (const auto &[key, value] : values) {
+		if (key.startsWith(rawPrefix)) {
+			_prefs.emplace(key, value ? "\x1"_q : QByteArray());
+		}
+	}
+	writePrefsDelayed();
 }
 
 void Account::readPrefs() {

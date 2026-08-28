@@ -2,7 +2,13 @@
 
 #include "rpl/producer.h"
 
+#include "ayu/libs/json.hpp"
+
 class PeerData;
+
+namespace Main {
+class Session;
+} // namespace Main
 
 namespace AyuChatSettings {
 
@@ -37,5 +43,11 @@ void SetOverride(
 	Override value);
 [[nodiscard]] rpl::producer<Change> Changes();
 void NotifyChange(PeerData *peer, Feature feature);
+[[nodiscard]] nlohmann::json CloudExport(
+	not_null<Main::Session*> session);
+[[nodiscard]] bool CloudValidate(const nlohmann::json &data);
+bool CloudApply(
+	not_null<Main::Session*> session,
+	const nlohmann::json &data);
 
 } // namespace AyuChatSettings

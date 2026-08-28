@@ -199,6 +199,11 @@ public:
 			std::string_view key) {
 		return readPrefImpl<Type>(key);
 	}
+	[[nodiscard]] base::flat_map<QByteArray, bool> readBooleanPrefsByPrefix(
+		std::string_view prefix) const;
+	void replaceBooleanPrefsByPrefix(
+		std::string_view prefix,
+		const base::flat_map<QByteArray, bool> &values);
 
 	void enforceModernStorageIdBots();
 	[[nodiscard]] Webview::StorageId resolveStorageIdBots();

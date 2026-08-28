@@ -13,6 +13,7 @@
 #include "ayu/ui/settings/settings_appearance.h"
 #include "ayu/ui/settings/settings_ayu.h"
 #include "ayu/ui/settings/settings_chats.h"
+#include "ayu/ui/settings/settings_cloud_sync.h"
 #include "ayu/ui/settings/settings_filters.h"
 #include "ayu/ui/settings/settings_general.h"
 #include "ayu/ui/settings/settings_other.h"
@@ -123,6 +124,11 @@ void BuildCategories(SectionBuilder &builder) {
 		.title = tr::ayu_CategoryChats(),
 		.targetSection = AyuChats::Id(),
 		.icon = { &st::menuIconChatBubble },
+	});
+	builder.addSectionButton({
+		.title = tr::ayu_CloudSyncTitle(),
+		.targetSection = AyuCloudSync::Id(),
+		.icon = { &st::menuIconSavedMessages },
 	});
 	builder.addSectionButton({
 		.title = tr::ayu_CategoryOther(),

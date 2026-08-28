@@ -1,4 +1,5 @@
 #include "ayu/ayu_account_settings.h"
+#include "ayu/cloud/ayu_settings_sync.h"
 
 #include "apiwrap.h"
 #include "core/application.h"
@@ -33,6 +34,7 @@ void Set(not_null<Main::Session*> session, std::string_view key, bool value) {
 		SnapshotDrafts(session);
 	}
 	session->api().cloudDraftIsolationChanged();
+	AyuCloud::MarkSettingsDirty();
 }
 
 } // namespace
@@ -55,6 +57,45 @@ void SetIgnoreRemoteText(not_null<Main::Session*> session, bool value) {
 
 void SetBlockLocalTextUpload(not_null<Main::Session*> session, bool value) {
 	Set(session, kBlockLocalTextUpload, value);
+}
+
+nlohmann::json CloudExport(not_null<Main::Session*> session) {
+	return nlohmann::json{
+		{ "ignore_remote_text", IgnoreRemoteText(session) },
+		{ "block_local_text_upload", BlockLocalTextUpload(session) },
+	};
+}
+
+bool CloudValidate(const nlohmann::json &data) {
+	if (!data.is_object()) {
+		return false;
+	}
+	for (const auto key : {
+			"ignore_remote_text",
+			"block_local_text_upload" }) {
+		const auto value = data.find(key);
+		if (value == data.end() || !value->is_boolean()) {
+			return false;
+		}
+	}
+	return true;
+}
+
+bool CloudApply(
+		not_null<Main::Session*> session,
+		const nlohmann::json &data) {
+	if (!CloudValidate(data)) {
+		return false;
+	}
+	if (const auto value = data.find("ignore_remote_text");
+		value != data.end() && value->is_boolean()) {
+		SetIgnoreRemoteText(session, value->get<bool>());
+	}
+	if (const auto value = data.find("block_local_text_upload");
+		value != data.end() && value->is_boolean()) {
+		SetBlockLocalTextUpload(session, value->get<bool>());
+	}
+	return true;
 }
 
 } // namespace AyuAccountSettings

@@ -121,6 +121,15 @@ set(ayugram_files
         ayu/ayu_chat_settings.h
         ayu/ayu_account_settings.cpp
         ayu/ayu_account_settings.h
+        ayu/cloud/ayu_cloud_codec.cpp
+        ayu/cloud/ayu_cloud_codec.h
+        ayu/cloud/ayu_cloud_config.h
+        ayu/cloud/ayu_cloud_storage.cpp
+        ayu/cloud/ayu_cloud_storage.h
+        ayu/cloud/ayu_settings_snapshot.cpp
+        ayu/cloud/ayu_settings_snapshot.h
+        ayu/cloud/ayu_settings_sync.cpp
+        ayu/cloud/ayu_settings_sync.h
         ayu/ayu_lang.cpp
         ayu/ayu_lang.h
         ayu/ayu_infra.cpp
@@ -158,6 +167,8 @@ set(ayugram_files
         ayu/ui/settings/settings_ayu_utils.h
         ayu/ui/settings/settings_chats.cpp
         ayu/ui/settings/settings_chats.h
+        ayu/ui/settings/settings_cloud_sync.cpp
+        ayu/ui/settings/settings_cloud_sync.h
         ayu/ui/settings/settings_chat_overrides.cpp
         ayu/ui/settings/settings_chat_overrides.h
         ayu/ui/settings/settings_general.cpp

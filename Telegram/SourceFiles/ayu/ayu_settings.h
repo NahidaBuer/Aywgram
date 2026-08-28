@@ -249,6 +249,14 @@ public:
 	static void load();
 	static void save();
 	static void reset();
+	[[nodiscard]] static nlohmann::json CloudExportGlobal();
+	[[nodiscard]] static nlohmann::json CloudExportAccount(uint64 userId);
+	[[nodiscard]] static bool CloudValidateGlobal(const nlohmann::json &data);
+	[[nodiscard]] static bool CloudValidateAccount(
+		uint64 userId,
+		const nlohmann::json &data);
+	static bool CloudApplyGlobal(const nlohmann::json &data);
+	static bool CloudApplyAccount(uint64 userId, const nlohmann::json &data);
 
 	[[nodiscard]] static GhostModeAccountSettings &ghost(not_null<Main::Session*> session);
 	[[nodiscard]] static GhostModeAccountSettings &ghost(uint64 userId);

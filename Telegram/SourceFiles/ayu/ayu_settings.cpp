@@ -7,6 +7,7 @@
 #include "ayu/ayu_settings.h"
 
 #include "ayu/ayu_chat_settings.h"
+#include "ayu/cloud/ayu_settings_sync.h"
 
 #include "ayu/ayu_ui_settings.h"
 #include "ayu/ayu_worker.h"
@@ -26,6 +27,8 @@
 #include "tray.h"
 
 #include <QApplication>
+#include <QFontDatabase>
+#include <QSaveFile>
 #include <cmath>
 #include <fstream>
 
@@ -67,8 +70,8 @@ constexpr auto kMaxStickerPanelScale = 4.0;
 	}
 }
 
-std::string getSettingsPath() {
-	return (cWorkingDir() + u"tdata/ayu_settings.json"_q).toStdString();
+QString getSettingsPath() {
+	return cWorkingDir() + u"tdata/ayu_settings.json"_q;
 }
 
 void repaintApp() {
@@ -406,7 +409,7 @@ AyuSettings &AyuSettings::getInstance() {
 
 void AyuSettings::load() {
 	auto &settings = getInstance();
-	std::ifstream file(getSettingsPath());
+	std::ifstream file(getSettingsPath().toStdString());
 	if (!file.good()) {
 		if (Ui::TakeLegacySmallBubbleRadius()) {
 			settings._messageBubbleRadius = Ui::kBubbleRadiusSliderMidpoint;
@@ -474,17 +477,319 @@ void AyuSettings::load() {
 
 void AyuSettings::save() {
 	auto &settings = getInstance();
-	json p = settings;
+	const auto p = json(settings).dump(4);
+	auto file = QSaveFile(getSettingsPath());
+	if (!file.open(QIODevice::WriteOnly)
+		|| file.write(p.data(), p.size()) != p.size()
+		|| !file.commit()) {
+		LOG(("AyuSettings: could not atomically save settings."));
+		return;
+	}
+	AyuCloud::MarkSettingsDirty();
+}
 
-	std::ofstream file;
-	file.open(getSettingsPath());
-	file << p.dump(4);
-	file.close();
+[[nodiscard]] bool CloudValueCompatible(
+		const json &value,
+		const json &reference) {
+	if (reference.is_number()) {
+		return value.is_number();
+	}
+	if (reference.is_object()) {
+		if (!value.is_object()) {
+			return false;
+		}
+		for (const auto &[key, child] : value.items()) {
+			if (const auto expected = reference.find(key);
+				expected != reference.end()
+				&& !CloudValueCompatible(child, *expected)) {
+				return false;
+			}
+		}
+		return true;
+	}
+	return value.type() == reference.type();
 }
 
 void AyuSettings::reset() {
 	getInstance() = AyuSettings();
 	save();
+}
+
+nlohmann::json AyuSettings::CloudExportGlobal() {
+	const auto source = nlohmann::json(getInstance());
+	auto result = nlohmann::json::object();
+	for (const auto key : {
+			"saveDeletedMessages",
+			"saveMessagesHistory",
+			"saveForBots",
+			"exactSearchIntersection",
+			"hideFromBlocked",
+			"semiTransparentDeletedMessages",
+			"disableAds",
+			"disableStories",
+			"disableCustomBackgrounds",
+			"hidePremiumStatuses",
+			"showOnlyAddedEmojisAndStickers",
+			"collapseSimilarChannels",
+			"hideSimilarChannels",
+			"messageBubbleRadius",
+			"disableOpenLinkWarning",
+			"wideMultiplier",
+			"wideScreenMessagesLeftAligned",
+			"unlimitedRightColumnWidth",
+			"messageStickerScale",
+			"stickerPanelScale",
+			"showMediaMetadata",
+			"spoofWebviewAsAndroid",
+			"increaseWebviewHeight",
+			"increaseWebviewWidth",
+			"materialSwitches",
+			"removeMessageTail",
+			"disableNotificationsDelay",
+			"localPremium",
+			"showChannelReactions",
+			"showGroupReactions",
+			"showPrivateChatReactions",
+			"appIcon",
+			"simpleQuotesAndReplies",
+			"hideFastShare",
+			"replaceBottomInfoWithIcons",
+			"deletedMark",
+			"editedMark",
+			"recentStickersCount",
+			"showReactionsPanelInContextMenu",
+			"showViewsPanelInContextMenu",
+			"showHideMessageInContextMenu",
+			"showUserMessagesInContextMenu",
+			"showMessageDetailsInContextMenu",
+			"alwaysShowScheduledButton",
+			"showRepeatMessageInContextMenu",
+			"showAddFilterInContextMenu",
+			"showAttachButtonInMessageField",
+			"showCommandsButtonInMessageField",
+			"showEmojiButtonInMessageField",
+			"showMicrophoneButtonInMessageField",
+			"showAutoDeleteButtonInMessageField",
+			"showGiftButtonInMessageField",
+			"showAiEditorButtonInMessageField",
+			"showAttachPopup",
+			"showEmojiPopup",
+			"showMyProfileInDrawer",
+			"showBotsInDrawer",
+			"showNewGroupInDrawer",
+			"showNewChannelInDrawer",
+			"showContactsInDrawer",
+			"showCallsInDrawer",
+			"showSavedMessagesInDrawer",
+			"showLReadToggleInDrawer",
+			"showSReadToggleInDrawer",
+			"showNightModeToggleInDrawer",
+			"showGhostToggleInDrawer",
+			"showStreamerToggleInDrawer",
+			"showGhostToggleInTray",
+			"showStreamerToggleInTray",
+			"monoFont",
+			"hideNotificationCounters",
+			"hideNotificationBadge",
+			"hideAllChatsFolder",
+			"channelBottomButton",
+			"quickAdminShortcuts",
+			"disableGreetingSticker",
+			"useQuickForwardMenu",
+			"sendForwardFirst",
+			"showPeerId",
+			"showMessageSeconds",
+			"showMessageId",
+			"showMessageShot",
+			"filterZalgo",
+			"stickerConfirmation",
+			"gifConfirmation",
+			"voiceConfirmation",
+			"roundConfirmation",
+			"translationProvider",
+			"adaptiveCoverColor",
+			"improveLinkPreviews",
+			"crashReporting",
+			"avatarCorners",
+			"singleCornerRadius",
+			"messageShotSettings" }) {
+		if (const auto value = source.find(key); value != source.end()) {
+			result[key] = *value;
+		}
+	}
+	if (auto shot = result.find("messageShotSettings");
+		shot != result.end() && shot->is_object()) {
+		auto filtered = nlohmann::json::object();
+		for (const auto key : {
+				"showBackground",
+				"showDate",
+				"showReactions",
+				"showHeaderDecorations",
+				"showColorfulReplies",
+				"revealSpoilers",
+				"embeddedThemeType",
+				"embeddedThemeAccentColor" }) {
+			if (const auto value = shot->find(key); value != shot->end()) {
+				filtered[key] = *value;
+			}
+		}
+		*shot = std::move(filtered);
+	}
+	return result;
+}
+
+nlohmann::json AyuSettings::CloudExportAccount(uint64 userId) {
+	const auto full = nlohmann::json(getInstance());
+	auto profiles = nlohmann::json::object();
+	if (const auto source = full.find("ghostModeSettings");
+		source != full.end() && source->is_object()) {
+		for (const auto &key : {
+				std::string("0"),
+				std::to_string(userId) }) {
+			if (const auto profile = source->find(key); profile != source->end()) {
+				profiles[key] = *profile;
+			}
+		}
+	}
+	return nlohmann::json{
+		{ "useGlobalGhostMode", full.value("useGlobalGhostMode", true) },
+		{ "ghostModeSettings", std::move(profiles) },
+	};
+}
+
+bool AyuSettings::CloudValidateGlobal(const nlohmann::json &data) {
+	if (!data.is_object()) {
+		return false;
+	}
+	const auto allowed = CloudExportGlobal();
+	return CloudValueCompatible(data, allowed);
+}
+
+bool AyuSettings::CloudApplyGlobal(const nlohmann::json &data) {
+	if (!CloudValidateGlobal(data)) {
+		return false;
+	}
+	auto merged = nlohmann::json(getInstance());
+	const auto allowed = CloudExportGlobal();
+	for (const auto &[key, value] : data.items()) {
+		if (!allowed.contains(key)) {
+			continue;
+		}
+		if (key == "monoFont" && value.is_string()) {
+			const auto raw = value.get<std::string>();
+			const auto font = QString::fromUtf8(raw.data(), int(raw.size()));
+			if (!font.isEmpty() && !QFontDatabase::families().contains(font)) {
+				continue;
+			}
+		}
+		if (key == "messageShotSettings" && value.is_object()) {
+			auto target = merged[key];
+			const auto shotAllowed = allowed[key];
+			for (const auto &[shotKey, shotValue] : value.items()) {
+				if (shotAllowed.contains(shotKey)) {
+					target[shotKey] = shotValue;
+				}
+			}
+			merged[key] = std::move(target);
+		} else {
+			merged[key] = value;
+		}
+	}
+	try {
+		from_json(merged, getInstance());
+		getInstance().validate();
+		save();
+		return true;
+	} catch (...) {
+		return false;
+	}
+}
+
+bool AyuSettings::CloudValidateAccount(
+		uint64 userId,
+		const nlohmann::json &data) {
+	if (!data.is_object()) {
+		return false;
+	}
+	if (const auto value = data.find("useGlobalGhostMode");
+		value != data.end() && !value->is_boolean()) {
+		return false;
+	}
+	if (const auto profiles = data.find("ghostModeSettings");
+		profiles != data.end()) {
+		if (!profiles->is_object()) {
+			return false;
+		}
+		for (const auto &key : {
+				std::string("0"),
+				std::to_string(userId) }) {
+			if (const auto profile = profiles->find(key);
+				profile != profiles->end()) {
+				if (!profile->is_object()) {
+					return false;
+				}
+				for (const auto field : {
+						"sendReadMessages",
+						"sendReadStories",
+						"sendOnlinePackets",
+						"sendUploadProgress",
+						"sendOfflinePacketAfterOnline",
+						"markReadAfterAction",
+						"useScheduledMessages",
+						"suggestGhostModeBeforeViewingStory",
+						"sendReadMessagesLocked",
+						"sendReadStoriesLocked",
+						"sendOnlinePacketsLocked",
+						"sendUploadProgressLocked",
+						"sendOfflinePacketAfterOnlineLocked" }) {
+					if (const auto value = profile->find(field);
+						value != profile->end() && !value->is_boolean()) {
+						return false;
+					}
+				}
+				if (const auto value = profile->find("sendWithoutSound");
+					value != profile->end()
+					&& !value->is_boolean()
+					&& !value->is_number_integer()) {
+					return false;
+				}
+			}
+		}
+	}
+	return true;
+}
+
+bool AyuSettings::CloudApplyAccount(
+		uint64 userId,
+		const nlohmann::json &data) {
+	if (!CloudValidateAccount(userId, data)) {
+		return false;
+	}
+	auto merged = nlohmann::json(getInstance());
+	if (const auto useGlobal = data.find("useGlobalGhostMode");
+		useGlobal != data.end() && useGlobal->is_boolean()) {
+		merged["useGlobalGhostMode"] = *useGlobal;
+	}
+	if (const auto profiles = data.find("ghostModeSettings");
+		profiles != data.end() && profiles->is_object()) {
+		auto &target = merged["ghostModeSettings"];
+		for (const auto &key : {
+				std::string("0"),
+				std::to_string(userId) }) {
+			if (const auto profile = profiles->find(key);
+				profile != profiles->end() && profile->is_object()) {
+				target[key] = *profile;
+			}
+		}
+	}
+	try {
+		from_json(merged, getInstance());
+		getInstance().validate();
+		save();
+		return true;
+	} catch (...) {
+		return false;
+	}
 }
 
 GhostModeAccountSettings &AyuSettings::ghost(not_null<Main::Session*> session) {
