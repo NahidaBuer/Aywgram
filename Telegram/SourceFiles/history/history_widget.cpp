@@ -31,6 +31,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/star_gift_box.h"
 #include "boxes/peers/edit_peer_permissions_box.h" // ShowAboutGigagroup.
 #include "boxes/peers/edit_peer_requests_box.h"
+#include "ayu/ayu_chat_settings.h"
 #include "core/core_settings.h"
 #include "core/file_utilities.h"
 #include "core/mime_type.h"
@@ -1114,6 +1115,9 @@ HistoryWidget::HistoryWidget(
 		if (flags & PeerUpdateFlag::StarsPerMessage) {
 			updateFieldPlaceholder();
 			updateSendButtonType();
+			refreshScheduledToggle();
+			updateControlsVisibility();
+			updateControlsGeometry();
 		}
 		if (flags & PeerUpdateFlag::GiftSettings) {
 			refreshSendGiftToggle();
@@ -2547,7 +2551,8 @@ void HistoryWidget::clearRichDraft() {
 			&draft)) {
 		session().api().saveDraftToCloud(
 			not_null{ _history },
-			*cloudDraft);
+			*cloudDraft,
+			CloudDraftSavePurpose::PlainText);
 	}
 }
 
@@ -3965,6 +3970,11 @@ void HistoryWidget::setupFastButtonMode() {
 }
 
 void HistoryWidget::setupScheduledToggle() {
+	const auto refresh = [=] {
+		refreshScheduledToggle();
+		updateControlsVisibility();
+		updateControlsGeometry();
+	};
 	controller()->activeChatValue(
 	) | rpl::map([=](Dialogs::Key key) -> rpl::producer<> {
 		if (const auto history = key.history()) {
@@ -3975,17 +3985,29 @@ void HistoryWidget::setupScheduledToggle() {
 		}
 		return rpl::never<rpl::empty_value>();
 	}) | rpl::flatten_latest(
-	) | rpl::on_next([=] {
-		refreshScheduledToggle();
-		updateControlsVisibility();
-		updateControlsGeometry();
+	) | rpl::on_next(refresh, lifetime());
+
+	AyuChatSettings::Changes(
+	) | rpl::filter([=](const AyuChatSettings::Change &change) {
+		return (change.feature
+				== AyuChatSettings::Feature::ShowScheduledButton)
+			&& (!change.peer
+				|| (_peer && (change.peer->migrateToOrMe()
+					== _peer->migrateToOrMe())));
+	}) | rpl::on_next([=](const auto &) {
+		refresh();
 	}, lifetime());
 }
 
 void HistoryWidget::refreshScheduledToggle() {
+	const auto always = _peer
+		&& !_peer->starsPerMessageChecked()
+		&& AyuChatSettings::Resolve(
+			_peer,
+			AyuChatSettings::Feature::ShowScheduledButton);
 	const auto has = _history
 		&& _canSendMessages
-		&& (session().scheduledMessages().count(_history) > 0);
+		&& ((session().scheduledMessages().count(_history) > 0) || always);
 	if (!_scheduled && has) {
 		_scheduled.create(this, st::historyScheduledToggle);
 		_scheduled->setAccessibleName(tr::lng_scheduled_messages(tr::now));
@@ -11683,7 +11705,9 @@ HistoryWidget::~HistoryWidget() {
 	if (_history) {
 		// Saving a draft on account switching.
 		saveFieldToHistoryLocalDraft();
-		session().api().saveDraftToCloudDelayed(_history);
+		session().api().saveDraftToCloudDelayed(
+			_history,
+			CloudDraftSavePurpose::PlainText);
 		setHistory(nullptr);
 
 		session().data().itemVisibilitiesUpdated();

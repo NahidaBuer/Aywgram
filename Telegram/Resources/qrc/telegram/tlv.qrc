@@ -1,0 +1,9 @@
+<RCC>
+  <!-- Runtime viewer adapted from Yurigram's TL JSON viewer. -->
+  <qresource prefix="/tlv">
+    <file alias="tlv.html">../../tlv/tlv.html</file>
+    <file alias="style.css">../../tlv/style.css</file>
+    <file alias="app.js">../../tlv/app.js</file>
+    <file alias="api.tl">../../../SourceFiles/mtproto/scheme/api.tl</file>
+  </qresource>
+</RCC>

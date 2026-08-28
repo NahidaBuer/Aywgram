@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>TL JSON Viewer</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header>
+    <strong id="title">TL JSON Viewer</strong>
+    <button id="copy" type="button" disabled>Copy JSON</button>
+  </header>
+  <main>
+    <p id="status" role="status">Loading…</p>
+    <pre id="output" tabindex="0"></pre>
+  </main>
+  <script src="./app.js"></script>
+</body>
+</html>

@@ -359,7 +359,9 @@ void ClearDraftReplyTo(
 	}
 	const auto thread = history->threadFor(topicRootId, monoforumPeerId);
 	if (thread) {
-		history->session().api().saveDraftToCloudDelayed(thread);
+		history->session().api().saveDraftToCloudDelayed(
+			thread,
+			CloudDraftSavePurpose::PlainText);
 	}
 }
 

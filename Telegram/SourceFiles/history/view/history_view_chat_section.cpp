@@ -84,6 +84,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/shortcuts.h"
 #include "core/click_handler_types.h"
 #include "core/mime_type.h"
+#include "ayu/ayu_chat_settings.h"
 #include "ayu/ayu_settings.h"
 #include "main/main_session.h"
 #include "main/main_session_settings.h"
@@ -145,6 +146,53 @@ enum class SendPermission {
 constexpr auto kShowMembersDropdownTimeoutMs = 300;
 constexpr auto kScrollToVoiceAfterScrolledMs = crl::time(1000);
 constexpr auto kPsaAboutPrefix = "cloud_lng_about_psa_";
+
+rpl::producer<bool> ScheduledToggleValue(
+		not_null<History*> history,
+		Data::ForumTopic *topic,
+		MsgId repliesRootId,
+		bool inSublist) {
+	const auto peer = history->peer;
+	const auto session = &peer->session();
+	auto native = topic
+		? rpl::single(rpl::empty_value()) | rpl::then(
+			session->scheduledMessages().updates(topic->owningHistory())
+		) | rpl::map([=] {
+			return session->scheduledMessages().hasFor(topic);
+		}) | rpl::type_erased
+		: rpl::single(rpl::empty_value()) | rpl::then(
+			session->scheduledMessages().updates(history)
+		) | rpl::map([=] {
+			return session->scheduledMessages().count(history) > 0;
+		}) | rpl::type_erased;
+	if (repliesRootId || inSublist) {
+		if (topic) {
+			return native;
+		}
+		return rpl::single(false);
+	}
+	const auto rights = Data::AllSendRestrictions()
+		& ~ChatRestriction::SendPolls;
+	auto canSend = topic
+		? Data::CanSendAnyOfValue(topic, rights, false)
+		: Data::CanSendAnyOfValue(peer, rights, false);
+	auto stars = session->changes().peerFlagsValue(
+		peer,
+		Data::PeerUpdate::Flag::StarsPerMessage
+	) | rpl::map([=] {
+		return peer->starsPerMessageChecked();
+	});
+	return rpl::combine(
+		std::move(native),
+		AyuChatSettings::ResolvedValue(
+			peer,
+			AyuChatSettings::Feature::ShowScheduledButton),
+		std::move(canSend),
+		std::move(stars)
+	) | rpl::map([](bool native, bool always, bool canSend, bool stars) {
+		return native || (always && canSend && !stars);
+	});
+}
 
 [[nodiscard]] bool CanSendResolved(
 		not_null<PeerData*> peer,
@@ -421,19 +469,11 @@ ChatWidget::ChatWidget(
 		.regularWindow = controller,
 		.stickerOrEmojiChosen = controller->stickerOrEmojiChosen(),
 		.customPlaceholder = _botKeyboardPlaceholder.value(),
-		.scheduledToggleValue = _topic
-			? rpl::single(rpl::empty_value()) | rpl::then(
-				session().scheduledMessages().updates(_topic->owningHistory())
-			) | rpl::map([=] {
-				return session().scheduledMessages().hasFor(_topic);
-			}) | rpl::type_erased
-			: (_repliesRootId || _sublist)
-			? (rpl::single(false) | rpl::type_erased)
-			: rpl::single(rpl::empty_value()) | rpl::then(
-				session().scheduledMessages().updates(_history)
-			) | rpl::map([=] {
-				return session().scheduledMessages().count(_history) > 0;
-			}) | rpl::type_erased,
+		.scheduledToggleValue = ScheduledToggleValue(
+			_history,
+			_topic,
+			_repliesRootId,
+			_sublist != nullptr),
 		.currentSuggest = [=] { return suggestOptions(); },
 		.processShortcut = [=](QString shortcut) {
 			const auto messages = &_peer->owner().shortcutMessages();

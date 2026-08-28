@@ -6,6 +6,8 @@
 // Copyright @Radolyn, 2026
 #include "ayu/ui/context_menu/context_menu.h"
 
+#include "ayu/ui/settings/settings_chat_overrides.h"
+
 #include "apiwrap.h"
 #include "lang_auto.h"
 #include "mainwidget.h"
@@ -24,6 +26,7 @@
 #include "base/call_delayed.h"
 #include "base/random.h"
 #include "base/unixtime.h"
+#include "core/application.h"
 #include "core/mime_type.h"
 #include "data/data_channel.h"
 #include "data/data_chat.h"
@@ -35,6 +38,7 @@
 #include "history/history_item_components.h"
 #include "history/view/history_view_context_menu.h"
 #include "history/view/history_view_element.h"
+#include "iv/iv_instance.h"
 #include "main/main_session.h"
 #include "main/session/send_as_peers.h"
 #include "styles/style_ayu_icons.h"
@@ -259,7 +263,8 @@ void AddAyuGramActions(PeerData *peerData,
 	const auto showFilters = settings.filtersEnabled()
 		&& (!user || user->isBot());
 	const auto saveDeletedMessages = settings.saveDeletedMessages();
-	if (!showFilters && !saveDeletedMessages) {
+	const auto showChatOverrides = Settings::HasChatOverrides(peerData);
+	if (!showFilters && !saveDeletedMessages && !showChatOverrides) {
 		return;
 	}
 
@@ -272,6 +277,19 @@ void AddAyuGramActions(PeerData *peerData,
 		.icon = &st::menuIconGroupReactions,
 		.fillSubmenu = [=](not_null<Ui::PopupMenu*> menu) {
 			const auto addAction = Ui::Menu::CreateAddActionCallback(menu);
+			if (showChatOverrides) {
+				addAction(
+					tr::ayu_ChatOverrides(tr::now),
+					[=] {
+						Settings::ShowChatOverrides(
+							sessionController,
+							peerData);
+					},
+					&st::menuIconSettings);
+				if (showFilters || saveDeletedMessages) {
+					addAction({ .isSeparator = true });
+				}
+			}
 			if (showFilters) {
 				addAction(
 					tr::ayu_ViewFiltersMenuText(tr::now),
@@ -604,6 +622,14 @@ void AddMessageDetailsAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item) {
 	const auto isForwarded = forwarded && !forwarded->story && forwarded->psaType.isEmpty();
 
 	const auto messageId = QString::number(item->id.bare);
+	const auto fullId = item->fullId();
+	const auto session = &item->history()->session();
+	const auto canViewJson = item->isHistoryEntry()
+		&& IsServerMsgId(item->id)
+		&& !item->isScheduled()
+		&& !item->isBusinessShortcut()
+		&& !item->isWelcomeTemplate()
+		&& !item->isAdminLogEntry();
 	const auto messageDate = base::unixtime::parse(item->date());
 	const auto messageEditDate = base::unixtime::parse(view ? view->displayedEditDate() : TimeId(0));
 
@@ -775,6 +801,34 @@ void AddMessageDetailsAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item) {
 						authorId
 					));
 				}
+			}
+
+			if (canViewJson) {
+				menu2->addSeparator();
+				menu2->addAction(
+					tr::ayu_ViewAsJson(tr::now),
+					[=] {
+						const auto current = session->data().message(fullId);
+						if (!current) {
+							if (const auto window = session->tryResolveWindow()) {
+								window->showToast(tr::ayu_ViewAsJsonFailed(tr::now));
+							}
+							return;
+						}
+						session->api().requestRawMessage(
+							current,
+							[=](QByteArray payload) {
+								Core::App().iv().showTLViewer(
+									MTP::details::kCurrentLayer,
+									std::move(payload));
+							},
+							[=] {
+								if (const auto window = session->tryResolveWindow()) {
+									window->showToast(tr::ayu_ViewAsJsonFailed(tr::now));
+								}
+							});
+					},
+					&st::menuIconInfo);
 			}
 		},
 	});

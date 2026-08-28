@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "data/data_drafts.h"
 
+#include "ayu/ayu_account_settings.h"
 #include "api/api_text_entities.h"
 #include "ui/widgets/fields/input_field.h"
 #include "chat_helpers/message_field.h"
@@ -109,6 +110,12 @@ void ApplyPeerCloudDraft(
 	if (history->skipCloudDraftUpdate(topicRootId, monoforumPeerId, date)) {
 		return;
 	}
+	if (!draft.vrich_message()
+		&& AyuAccountSettings::IgnoreRemoteText(session)) {
+		history->markIgnoredRemotePlainDraft(topicRootId, monoforumPeerId);
+		return;
+	}
+	history->clearIgnoredRemotePlainDraft(topicRootId, monoforumPeerId);
 	const auto richMessage = draft.vrich_message()
 		? Iv::ParseRichPage(session, *draft.vrich_message())
 		: std::shared_ptr<const Iv::RichPage>();
@@ -178,6 +185,12 @@ void ClearPeerCloudDraft(
 		TimeId date) {
 	const auto history = session->data().history(peerId);
 	if (history->skipCloudDraftUpdate(topicRootId, monoforumPeerId, date)) {
+		return;
+	}
+	if (AyuAccountSettings::IgnoreRemoteText(session)
+		|| history->takeIgnoredRemotePlainDraft(
+			topicRootId,
+			monoforumPeerId)) {
 		return;
 	}
 

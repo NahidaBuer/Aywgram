@@ -6,6 +6,8 @@
 // Copyright @Radolyn, 2026
 #include "ayu/ayu_settings.h"
 
+#include "ayu/ayu_chat_settings.h"
+
 #include "ayu/ayu_ui_settings.h"
 #include "ayu/ayu_worker.h"
 #include "ayu/features/streamer_mode/streamer_mode.h"
@@ -876,6 +878,15 @@ void AyuSettings::setShowMessageDetailsInContextMenu(ContextMenuVisibility val) 
 	save();
 }
 
+void AyuSettings::setAlwaysShowScheduledButton(bool val) {
+	if (_alwaysShowScheduledButton.current() == val) return;
+	_alwaysShowScheduledButton = val;
+	save();
+	AyuChatSettings::NotifyChange(
+		nullptr,
+		AyuChatSettings::Feature::ShowScheduledButton);
+}
+
 void AyuSettings::setShowRepeatMessageInContextMenu(ContextMenuVisibility val) {
 	if (_showRepeatMessageInContextMenu.current() == val) return;
 	_showRepeatMessageInContextMenu = val;
@@ -1247,6 +1258,7 @@ void to_json(nlohmann::json &j, const AyuSettings &s) {
 		{"showHideMessageInContextMenu", s._showHideMessageInContextMenu.current()},
 		{"showUserMessagesInContextMenu", s._showUserMessagesInContextMenu.current()},
 		{"showMessageDetailsInContextMenu", s._showMessageDetailsInContextMenu.current()},
+		{"alwaysShowScheduledButton", s._alwaysShowScheduledButton.current()},
 		{"showRepeatMessageInContextMenu", s._showRepeatMessageInContextMenu.current()},
 		{"showAddFilterInContextMenu", s._showAddFilterInContextMenu.current()},
 		{"showAttachButtonInMessageField", s._showAttachButtonInMessageField.current()},
@@ -1378,6 +1390,7 @@ void from_json(const nlohmann::json &j, AyuSettings &s) {
 	s._showHideMessageInContextMenu = j.value("showHideMessageInContextMenu", defaults._showHideMessageInContextMenu.current());
 	s._showUserMessagesInContextMenu = j.value("showUserMessagesInContextMenu", defaults._showUserMessagesInContextMenu.current());
 	s._showMessageDetailsInContextMenu = j.value("showMessageDetailsInContextMenu", defaults._showMessageDetailsInContextMenu.current());
+	s._alwaysShowScheduledButton = j.value("alwaysShowScheduledButton", defaults._alwaysShowScheduledButton.current());
 	s._showRepeatMessageInContextMenu = j.value("showRepeatMessageInContextMenu", defaults._showRepeatMessageInContextMenu.current());
 	s._showAddFilterInContextMenu = j.value("showAddFilterInContextMenu", defaults._showAddFilterInContextMenu.current());
 	s._showAttachButtonInMessageField = j.value("showAttachButtonInMessageField", defaults._showAttachButtonInMessageField.current());

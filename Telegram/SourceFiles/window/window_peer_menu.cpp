@@ -4569,15 +4569,78 @@ void FillSenderUserpicMenu(
 	const auto username = peer->username();
 	const auto mention = !username.isEmpty() || peer->isUser();
 	if (const auto guard = mention ? fieldForMention : nullptr) {
-		addAction(tr::lng_context_mention(tr::now), crl::guard(guard, [=] {
-			if (!username.isEmpty()) {
-				fieldForMention->insertTag('@' + username);
-			} else {
-				fieldForMention->insertTag(
+		if (const auto user = peer->asUser()) {
+			const auto weak = base::make_weak(guard);
+			const auto insertId = crl::guard(guard, [=] {
+				guard->insertTag(
 					peer->shortName(),
-					PrepareMentionTag(peer->asUser()));
-			}
-		}), &st::menuIconUsername);
+					PrepareMentionTag(user));
+			});
+			const auto custom = crl::guard(guard, [=] {
+				ShowEditMentionBox(
+					controller->uiShow(),
+					guard,
+					user);
+			});
+			const auto insertMention = crl::guard(guard, [=] {
+				const auto modifiers = QGuiApplication::keyboardModifiers();
+				if (modifiers.testFlag(Qt::ControlModifier)
+					&& modifiers.testFlag(Qt::ShiftModifier)) {
+					custom();
+				} else if (modifiers.testFlag(Qt::ControlModifier)
+					|| username.isEmpty()) {
+					insertId();
+				} else {
+					guard->insertTag('@' + username);
+				}
+			});
+			addAction(PeerMenuCallback::Args{
+				.text = tr::lng_context_mention(tr::now),
+				.handler = insertMention,
+				.icon = &st::menuIconUsername,
+				.fillSubmenu = [=](not_null<Ui::PopupMenu*> menu) {
+					const auto field = weak.get();
+					if (!field) {
+						return;
+					}
+					const auto add = Ui::Menu::CreateAddActionCallback(menu);
+					if (!username.isEmpty()) {
+						add(
+							'@' + username,
+							crl::guard(field, [=] {
+								const auto modifiers
+									= QGuiApplication::keyboardModifiers();
+								if (modifiers.testFlag(Qt::ControlModifier)
+									&& modifiers.testFlag(Qt::ShiftModifier)) {
+									custom();
+								} else if (modifiers.testFlag(
+										Qt::ControlModifier)) {
+									insertId();
+								} else {
+									field->insertTag('@' + username);
+								}
+							}),
+							&st::menuIconUsername);
+					}
+					add(
+						tr::ayu_MentionById(tr::now) + u"\tCtrl"_q,
+						insertId,
+						&st::menuIconProfile);
+					add(
+						tr::ayu_CustomMention(tr::now) + u"\tCtrl+Shift"_q,
+						custom,
+						&st::menuIconEdit);
+				},
+				.triggerFromParent = true,
+			});
+		} else {
+			addAction(
+				tr::lng_context_mention(tr::now),
+				crl::guard(guard, [=] {
+					fieldForMention->insertTag('@' + username);
+				}),
+				&st::menuIconUsername);
+		}
 	}
 
 	if (searchInEntry) {

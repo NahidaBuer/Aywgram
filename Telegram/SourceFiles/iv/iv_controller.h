@@ -51,9 +51,11 @@ public:
 
 	[[nodiscard]] static bool IsGoodTonSiteUrl(const QString &uri);
 	void showTonSite(const Webview::StorageId &storageId, QString uri);
+	void showTLViewer(int32 layer, QByteArray payload);
 
 	[[nodiscard]] bool active() const;
 	void minimize();
+	void destroyWindow();
 
 	[[nodiscard]] rpl::producer<Event> events() const {
 		return _events.events();
@@ -64,6 +66,8 @@ public:
 private:
 	void createWindow();
 	void createWebview(const Webview::StorageId &storageId);
+	void updateWebviewTheme();
+	void loadTLViewerPayload();
 
 	void processKey(QKeyEvent *event);
 	void updateTitleGeometry(int newWidth) const;
@@ -89,6 +93,10 @@ private:
 	Ui::RpWidget *_container = nullptr;
 	std::unique_ptr<Webview::Window> _webview;
 	rpl::event_stream<Event> _events;
+	bool _tlViewer = false;
+	bool _tlViewerLoaded = false;
+	int32 _tlViewerLayer = 0;
+	QByteArray _tlViewerPayload;
 
 	rpl::lifetime _lifetime;
 

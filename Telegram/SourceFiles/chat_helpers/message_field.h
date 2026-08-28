@@ -57,6 +57,10 @@ class Show;
 } // namespace Ui
 
 [[nodiscard]] QString PrepareMentionTag(not_null<UserData*> user);
+void ShowEditMentionBox(
+	std::shared_ptr<Main::SessionShow> show,
+	not_null<Ui::InputField*> field,
+	not_null<UserData*> user);
 [[nodiscard]] TextWithTags PrepareEditText(not_null<HistoryItem*> item);
 [[nodiscard]] bool EditTextChanged(
 	not_null<HistoryItem*> item,

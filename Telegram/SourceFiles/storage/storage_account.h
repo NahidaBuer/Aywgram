@@ -194,6 +194,11 @@ public:
 			Other &&fallback = Type()) {
 		return readPrefImpl<Type>(key).value_or(std::forward<Other>(fallback));
 	}
+	template <typename Type>
+	[[nodiscard]] std::optional<Type> readPrefOptional(
+			std::string_view key) {
+		return readPrefImpl<Type>(key);
+	}
 
 	void enforceModernStorageIdBots();
 	[[nodiscard]] Webview::StorageId resolveStorageIdBots();

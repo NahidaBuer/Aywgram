@@ -309,7 +309,9 @@ void History::takeLocalDraft(not_null<History*> from) {
 		setLocalDraft(std::move(draft));
 	}
 	from->clearLocalDraft(topicRootId, monoforumPeerId);
-	session().api().saveDraftToCloudDelayed(from);
+	session().api().saveDraftToCloudDelayed(
+		from,
+		CloudDraftSavePurpose::PlainText);
 }
 
 void History::createLocalDraftFromCloud(
@@ -521,6 +523,27 @@ void History::draftSavedToCloud(MsgId topicRootId, PeerId monoforumPeerId) {
 		thread->updateChatListEntry();
 	}
 	session().local().writeDrafts(this);
+}
+
+void History::markIgnoredRemotePlainDraft(
+		MsgId topicRootId,
+		PeerId monoforumPeerId) {
+	_ignoredRemotePlainDrafts.emplace(
+		Data::DraftKey::Cloud(topicRootId, monoforumPeerId));
+}
+
+void History::clearIgnoredRemotePlainDraft(
+		MsgId topicRootId,
+		PeerId monoforumPeerId) {
+	_ignoredRemotePlainDrafts.remove(
+		Data::DraftKey::Cloud(topicRootId, monoforumPeerId));
+}
+
+bool History::takeIgnoredRemotePlainDraft(
+		MsgId topicRootId,
+		PeerId monoforumPeerId) {
+	return _ignoredRemotePlainDrafts.remove(
+		Data::DraftKey::Cloud(topicRootId, monoforumPeerId));
 }
 
 const Data::ForwardDraft &History::forwardDraft(

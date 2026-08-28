@@ -305,6 +305,57 @@ void EditLinkBox(
 	}, text->lifetime());
 }
 
+void EditMentionBox(
+		not_null<Ui::GenericBox*> box,
+		std::shared_ptr<Main::SessionShow> show,
+		const TextWithTags &startText,
+		Fn<void(TextWithTags)> callback) {
+	Expects(callback != nullptr);
+
+	const auto content = box->verticalLayout();
+	const auto text = content->add(
+		object_ptr<Ui::InputField>(
+			content,
+			st::defaultInputField,
+			Ui::InputField::Mode::SingleLine,
+			tr::ayu_CustomMentionText(),
+			startText),
+		st::markdownLinkFieldPadding);
+	text->setInstantReplaces(Ui::InstantReplaces::Default());
+	text->setInstantReplacesEnabled(
+		Core::App().settings().replaceEmojiValue(),
+		Core::App().settings().systemTextReplaceValue());
+	Ui::Emoji::SuggestionsController::Init(
+		box->getDelegate()->outerContainer(),
+		text,
+		&show->session());
+	InitSpellchecker(show, text, false);
+
+	const auto submit = [=] {
+		const auto result = text->getTextWithTags();
+		if (result.text.isEmpty()) {
+			text->showError();
+			return;
+		}
+		const auto weak = base::make_weak(box);
+		callback(result);
+		if (weak) {
+			box->closeBox();
+		}
+	};
+
+	text->submits() | rpl::on_next(submit, text->lifetime());
+	box->setTitle(tr::ayu_CustomMentionTitle());
+	box->addButton(tr::lng_settings_save(), submit);
+	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
+	content->resizeToWidth(st::boxWidth);
+	box->setWidth(st::boxWidth);
+	box->setFocusCallback([=] {
+		text->selectAll();
+		text->setFocusFast();
+	});
+}
+
 void EditCodeLanguageBox(
 		not_null<Ui::GenericBox*> box,
 		QString now,
@@ -388,6 +439,35 @@ QString PrepareMentionTag(not_null<UserData*> user) {
 		+ QString::number(user->accessHash())
 		+ ':'
 		+ QString::number(user->session().userId().bare);
+}
+
+void ShowEditMentionBox(
+		std::shared_ptr<Main::SessionShow> show,
+		not_null<Ui::InputField*> field,
+		not_null<UserData*> user) {
+	const auto cursor = field->textCursor();
+	const auto selection = Ui::InputField::EditLinkSelection{
+		cursor.selectionStart(),
+		cursor.selectionEnd(),
+	};
+	const auto text = cursor.hasSelection()
+		? field->getTextWithTagsPart(
+			cursor.selectionStart(),
+			cursor.selectionEnd())
+		: TextWithTags{ user->shortName() };
+	const auto weak = base::make_weak(field);
+	show->showBox(Box(
+		EditMentionBox,
+		show,
+		text,
+		[=](TextWithTags result) {
+			if (const auto strong = weak.get()) {
+				strong->commitMarkdownLinkEdit(
+					selection,
+					result,
+					PrepareMentionTag(user));
+			}
+		}));
 }
 
 TextWithTags PrepareEditText(not_null<HistoryItem*> item) {

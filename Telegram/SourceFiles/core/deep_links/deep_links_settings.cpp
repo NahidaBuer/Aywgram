@@ -77,6 +77,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_controller.h"
 #include "window/window_session_controller.h"
 
+#include <QUrl>
+
 namespace Core::DeepLinks {
 namespace {
 
@@ -2157,8 +2159,9 @@ QString SettingsDeepLink(
 	const auto ayuPrefix = u"ayu/"_q;
 	if (controlId.size() > ayuPrefix.size()
 		&& controlId.startsWith(ayuPrefix)) {
-		return u"https://t.me/ayuSettings?s="_q
-			+ controlId.mid(ayuPrefix.size());
+		return u"https://t.me/aywSettings?s="_q
+			+ QString::fromLatin1(QUrl::toPercentEncoding(
+				controlId.mid(ayuPrefix.size())));
 	}
 	const auto &router = Router::Instance();
 	const auto sectionPath = [&] {

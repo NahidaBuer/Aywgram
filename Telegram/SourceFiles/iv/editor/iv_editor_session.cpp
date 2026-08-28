@@ -1267,7 +1267,10 @@ private:
 				monoforumPeerId,
 				nullptr);
 			if (cloudDraft) {
-				_session->api().saveDraftToCloud(not_null{ thread }, *cloudDraft);
+				_session->api().saveDraftToCloud(
+					not_null{ thread },
+					*cloudDraft,
+					CloudDraftSavePurpose::RichLifecycle);
 			}
 		}
 		return true;
@@ -2086,7 +2089,9 @@ private:
 			if (const auto thread = history->threadFor(
 					_composeThreadKey->draftKey.topicRootId(),
 					_composeThreadKey->draftKey.monoforumPeerId())) {
-				_session->api().saveDraftToCloudDelayed(not_null{ thread });
+				_session->api().saveDraftToCloudDelayed(
+					not_null{ thread },
+					CloudDraftSavePurpose::RichLifecycle);
 			}
 		}
 	}
@@ -4461,7 +4466,8 @@ void ArticleSession::saveRichDraftNow() {
 	}
 	_richDraftAutosaveRetryPending = (_session->api().saveDraftToCloud(
 		not_null{ thread },
-		*cloudDraft) == 0);
+		*cloudDraft,
+		CloudDraftSavePurpose::RichLifecycle) == 0);
 }
 
 void ArticleSession::startCloseWithDraftSave() {
@@ -4520,6 +4526,7 @@ void ArticleSession::saveRichDraftForClose(uint64 generation) {
 	_closeDraftSaveRequestId = _session->api().saveDraftToCloud(
 		not_null{ thread },
 		*cloudDraft,
+		CloudDraftSavePurpose::RichLifecycle,
 		[weak = weak_from_this(), generation] {
 			if (const auto session = weak.lock()) {
 				session->closeWithDraftSaveDone(generation);

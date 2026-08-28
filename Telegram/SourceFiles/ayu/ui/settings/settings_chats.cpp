@@ -7,6 +7,7 @@
 #include "ayu/ui/settings/settings_chats.h"
 
 #include "lang_auto.h"
+#include "ayu/ayu_account_settings.h"
 #include "ayu/ayu_settings.h"
 #include "ayu/ui/boxes/edit_mark_box.h"
 #include "ayu/ui/components/message_preview.h"
@@ -540,6 +541,53 @@ void BuildMessageFieldElements(SectionBuilder &builder, AyuSectionBuilder &ayu) 
 		.icon = { &st::messageFieldCocoonAiIcon },
 	});
 
+	ayu.addSettingToggle({
+		.id = u"ayu/alwaysShowScheduledButton"_q,
+		.title = tr::ayu_AlwaysShowScheduledButton(),
+		.getter = &AyuSettings::alwaysShowScheduledButton,
+		.setter = &AyuSettings::setAlwaysShowScheduledButton,
+		.icon = { &st::menuIconSchedule },
+	});
+	builder.addDividerText(
+		tr::ayu_AlwaysShowScheduledButtonDescription());
+
+	ayu.addSectionDivider();
+}
+
+void BuildCloudDrafts(SectionBuilder &builder, AyuSectionBuilder &ayu) {
+	const auto controller = builder.controller();
+	const auto session = controller ? &controller->session() : nullptr;
+
+	builder.addSubsectionTitle(tr::ayu_CloudDraftsHeader());
+	ayu.addToggle({
+		.id = u"ayu/drafts/ignoreRemoteText"_q,
+		.title = tr::ayu_IgnoreRemoteTextDrafts(),
+		.getter = [=] {
+			return session
+				&& AyuAccountSettings::IgnoreRemoteText(session);
+		},
+		.setter = [=](bool value) {
+			if (session) {
+				AyuAccountSettings::SetIgnoreRemoteText(session, value);
+			}
+		},
+	});
+	builder.addDividerText(tr::ayu_IgnoreRemoteTextDraftsDescription());
+
+	ayu.addToggle({
+		.id = u"ayu/drafts/blockLocalTextUpload"_q,
+		.title = tr::ayu_BlockLocalTextDraftUpload(),
+		.getter = [=] {
+			return session
+				&& AyuAccountSettings::BlockLocalTextUpload(session);
+		},
+		.setter = [=](bool value) {
+			if (session) {
+				AyuAccountSettings::SetBlockLocalTextUpload(session, value);
+			}
+		},
+	});
+	builder.addDividerText(tr::ayu_BlockLocalTextDraftUploadDescription());
 	ayu.addSectionDivider();
 }
 
@@ -575,6 +623,7 @@ const auto kMeta = BuildHelper({
 
 	builder.addSkip();
 	BuildChatBehavior(builder, ayu);
+	BuildCloudDrafts(builder, ayu);
 	BuildSearch(builder, ayu);
 	BuildMarks(builder, ayu, previewState);
 	BuildMessageAppearance(builder, ayu, previewState);

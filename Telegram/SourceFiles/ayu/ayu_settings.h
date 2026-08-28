@@ -312,6 +312,7 @@ public:
 	[[nodiscard]] ContextMenuVisibility showHideMessageInContextMenu() const { return _showHideMessageInContextMenu.current(); }
 	[[nodiscard]] ContextMenuVisibility showUserMessagesInContextMenu() const { return _showUserMessagesInContextMenu.current(); }
 	[[nodiscard]] ContextMenuVisibility showMessageDetailsInContextMenu() const { return _showMessageDetailsInContextMenu.current(); }
+	[[nodiscard]] bool alwaysShowScheduledButton() const { return _alwaysShowScheduledButton.current(); }
 	[[nodiscard]] ContextMenuVisibility showRepeatMessageInContextMenu() const { return _showRepeatMessageInContextMenu.current(); }
 	[[nodiscard]] ContextMenuVisibility showAddFilterInContextMenu() const { return _showAddFilterInContextMenu.current(); }
 	[[nodiscard]] bool showAttachButtonInMessageField() const { return _showAttachButtonInMessageField.current(); }
@@ -408,6 +409,7 @@ public:
 	void setShowHideMessageInContextMenu(ContextMenuVisibility val);
 	void setShowUserMessagesInContextMenu(ContextMenuVisibility val);
 	void setShowMessageDetailsInContextMenu(ContextMenuVisibility val);
+	void setAlwaysShowScheduledButton(bool val);
 	void setShowRepeatMessageInContextMenu(ContextMenuVisibility val);
 	void setShowAddFilterInContextMenu(ContextMenuVisibility val);
 	void setShowAttachButtonInMessageField(bool val);
@@ -551,6 +553,8 @@ public:
 	[[nodiscard]] rpl::producer<ContextMenuVisibility> showUserMessagesInContextMenuChanges() const { return _showUserMessagesInContextMenu.changes(); }
 	[[nodiscard]] rpl::producer<ContextMenuVisibility> showMessageDetailsInContextMenuValue() const { return _showMessageDetailsInContextMenu.value(); }
 	[[nodiscard]] rpl::producer<ContextMenuVisibility> showMessageDetailsInContextMenuChanges() const { return _showMessageDetailsInContextMenu.changes(); }
+	[[nodiscard]] rpl::producer<bool> alwaysShowScheduledButtonValue() const { return _alwaysShowScheduledButton.value(); }
+	[[nodiscard]] rpl::producer<bool> alwaysShowScheduledButtonChanges() const { return _alwaysShowScheduledButton.changes(); }
 	[[nodiscard]] rpl::producer<ContextMenuVisibility> showRepeatMessageInContextMenuValue() const { return _showRepeatMessageInContextMenu.value(); }
 	[[nodiscard]] rpl::producer<ContextMenuVisibility> showRepeatMessageInContextMenuChanges() const { return _showRepeatMessageInContextMenu.changes(); }
 	[[nodiscard]] rpl::producer<ContextMenuVisibility> showAddFilterInContextMenuValue() const { return _showAddFilterInContextMenu.value(); }
@@ -705,6 +709,7 @@ private:
 	rpl::variable<ContextMenuVisibility> _showHideMessageInContextMenu = ContextMenuVisibility::Hidden;
 	rpl::variable<ContextMenuVisibility> _showUserMessagesInContextMenu = ContextMenuVisibility::VisibleWithModifier;
 	rpl::variable<ContextMenuVisibility> _showMessageDetailsInContextMenu = ContextMenuVisibility::VisibleWithModifier;
+	rpl::variable<bool> _alwaysShowScheduledButton = false;
 	rpl::variable<ContextMenuVisibility> _showRepeatMessageInContextMenu = ContextMenuVisibility::Hidden;
 	rpl::variable<ContextMenuVisibility> _showAddFilterInContextMenu = ContextMenuVisibility::Visible;
 	rpl::variable<bool> _showAttachButtonInMessageField = true;

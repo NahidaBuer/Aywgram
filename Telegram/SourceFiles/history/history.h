@@ -388,6 +388,15 @@ public:
 	void takeLocalDraft(not_null<History*> from);
 	void applyCloudDraft(MsgId topicRootId, PeerId monoforumPeerId);
 	void draftSavedToCloud(MsgId topicRootId, PeerId monoforumPeerId);
+	void markIgnoredRemotePlainDraft(
+		MsgId topicRootId,
+		PeerId monoforumPeerId);
+	void clearIgnoredRemotePlainDraft(
+		MsgId topicRootId,
+		PeerId monoforumPeerId);
+	[[nodiscard]] bool takeIgnoredRemotePlainDraft(
+		MsgId topicRootId,
+		PeerId monoforumPeerId);
 	void requestChatListMessage();
 
 	[[nodiscard]] const Data::ForwardDraft &forwardDraft(
@@ -711,6 +720,7 @@ private:
 	Data::HistoryDrafts _drafts;
 	base::flat_map<Data::DraftKey, TimeId> _acceptCloudDraftsAfter;
 	base::flat_map<Data::DraftKey, int> _savingCloudDraftRequests;
+	base::flat_set<Data::DraftKey> _ignoredRemotePlainDrafts;
 	base::flat_map<Data::DraftKey, Data::ForwardDraft> _forwardDrafts;
 
 	base::flat_map<MsgId, TimeId> _unknownDeletedMessages;

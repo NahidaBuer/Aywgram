@@ -117,6 +117,10 @@ set(ayugram_files
         ayu/ayu_state.h
         ayu/ayu_settings.cpp
         ayu/ayu_settings.h
+        ayu/ayu_chat_settings.cpp
+        ayu/ayu_chat_settings.h
+        ayu/ayu_account_settings.cpp
+        ayu/ayu_account_settings.h
         ayu/ayu_lang.cpp
         ayu/ayu_lang.h
         ayu/ayu_infra.cpp
@@ -154,6 +158,8 @@ set(ayugram_files
         ayu/ui/settings/settings_ayu_utils.h
         ayu/ui/settings/settings_chats.cpp
         ayu/ui/settings/settings_chats.h
+        ayu/ui/settings/settings_chat_overrides.cpp
+        ayu/ui/settings/settings_chat_overrides.h
         ayu/ui/settings/settings_general.cpp
         ayu/ui/settings/settings_general.h
         ayu/ui/settings/settings_ayu.cpp
@@ -2385,6 +2391,7 @@ PRIVATE
     qrc/telegram/export_rich.qrc
     qrc/telegram/picker.qrc
     qrc/telegram/telegram.qrc
+    qrc/telegram/tlv.qrc
     qrc/telegram/sounds.qrc
     winrc/Telegram.rc
     winrc/Telegram.manifest

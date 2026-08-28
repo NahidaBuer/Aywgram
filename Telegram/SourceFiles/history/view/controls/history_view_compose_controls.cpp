@@ -2651,7 +2651,8 @@ void ComposeControls::clearRichDraft() {
 				&draft)) {
 			session().api().saveDraftToCloud(
 				not_null{ thread },
-				*cloudDraft);
+				*cloudDraft,
+				CloudDraftSavePurpose::PlainText);
 		}
 	}
 }

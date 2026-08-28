@@ -144,6 +144,11 @@ QString RequestKey(Types &&...values) {
 
 } // namespace Api
 
+enum class CloudDraftSavePurpose : uchar {
+	PlainText,
+	RichLifecycle,
+};
+
 class ApiWrap final : public MTP::Sender {
 public:
 	using SendAction = Api::SendAction;
@@ -170,8 +175,10 @@ public:
 	mtpRequestId saveDraftToCloud(
 		not_null<Data::Thread*> thread,
 		const Data::Draft &draft,
+		CloudDraftSavePurpose purpose,
 		Fn<void()> done = nullptr,
 		Fn<void(const MTP::Error &)> fail = nullptr);
+	void cloudDraftIsolationChanged();
 
 	void savePinnedOrder(Data::Folder *folder);
 	void savePinnedOrder(not_null<Data::Forum*> forum);
@@ -182,6 +189,10 @@ public:
 		Fn<void()> callback);
 
 	void requestMessageData(PeerData *peer, MsgId msgId, Fn<void()> done);
+	void requestRawMessage(
+		not_null<HistoryItem*> item,
+		Fn<void(QByteArray)> done,
+		Fn<void()> fail);
 	QString exportDirectMessageLink(
 		not_null<HistoryItem*> item,
 		bool inRepliesContext,
@@ -300,7 +311,9 @@ public:
 	void updateNotifySettingsDelayed(not_null<const Data::Thread*> thread);
 	void updateNotifySettingsDelayed(not_null<const PeerData*> peer);
 	void updateNotifySettingsDelayed(Data::DefaultNotify type);
-	void saveDraftToCloudDelayed(not_null<Data::Thread*> thread);
+	void saveDraftToCloudDelayed(
+		not_null<Data::Thread*> thread,
+		CloudDraftSavePurpose purpose);
 
 	void clearHistory(not_null<PeerData*> peer, bool revoke);
 	void deleteConversation(not_null<PeerData*> peer, bool revoke);
@@ -543,6 +556,7 @@ private:
 	mtpRequestId savePreparedDraftToCloud(
 		not_null<Data::Thread*> thread,
 		const Data::Draft &draft,
+		CloudDraftSavePurpose purpose,
 		bool clearOnFail,
 		Fn<void()> done = nullptr,
 		Fn<void(const MTP::Error &)> fail = nullptr);
@@ -723,9 +737,12 @@ private:
 	};
 	base::flat_map<NotifySettingsKey, mtpRequestId> _notifySettingRequests;
 
-	base::flat_map<
-		base::weak_ptr<Data::Thread>,
-		mtpRequestId> _draftsSaveRequestIds;
+	struct DraftSaveRequest {
+		mtpRequestId id = 0;
+		CloudDraftSavePurpose purpose = CloudDraftSavePurpose::PlainText;
+	};
+	base::flat_map<base::weak_ptr<Data::Thread>, DraftSaveRequest>
+		_draftsSaveRequestIds;
 	base::Timer _draftsSaveTimer;
 
 	base::flat_set<mtpRequestId> _stickerSetDisenableRequests;
