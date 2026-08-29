@@ -80,6 +80,15 @@ mediaviewPipButton: IconButton(mediaviewControlsButton) {
 	iconPosition: point(4px, 4px);
 }
 
+mediaviewLivePhotoModeButton: IconButton(mediaviewPipButton) {
+	icon: icon {{ "menu/image", mediaviewPlaybackIconFg }};
+	iconOver: icon {{ "menu/image", mediaviewPlaybackIconFgOver }};
+}
+mediaviewLivePhotoLoopIcon: icon {{ "player/player_repeat", mediaviewPlaybackIconFg }};
+mediaviewLivePhotoLoopIconOver: icon {{ "player/player_repeat", mediaviewPlaybackIconFgOver }};
+mediaviewLivePhotoOnceIcon: icon {{ "player/player_play", mediaviewPlaybackIconFg }};
+mediaviewLivePhotoOnceIconOver: icon {{ "player/player_play", mediaviewPlaybackIconFgOver }};
+
 mediaviewPipShadow: callShadow;
 
 mediaviewFullScreenButtonSkip: 4px;

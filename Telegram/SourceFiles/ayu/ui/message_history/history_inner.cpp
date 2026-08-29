@@ -40,6 +40,7 @@
 #include "history/view/history_view_cursor_state.h"
 #include "history/view/history_view_service_message.h"
 #include "history/view/media/history_view_media.h"
+#include "history/view/media/history_view_save_document_action.h"
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
 #include "main/main_session_settings.h"
@@ -1202,6 +1203,19 @@ void InnerWidget::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 									 copyContextImage(lnkPhoto);
 								 },
 								 &st::menuIconCopy);
+			}
+			const auto item = view ? view->data().get() : nullptr;
+			const auto itemMedia = item ? item->media() : nullptr;
+			const auto livePhotoVideo = (itemMedia
+				&& itemMedia->photo() == lnkPhoto)
+				? itemMedia->livePhotoVideo()
+				: nullptr;
+			if (livePhotoVideo) {
+				HistoryView::AddSaveLivePhotoVideoAction(
+					_menu,
+					item,
+					livePhotoVideo,
+					_controller);
 			}
 			if (lnkPhoto->hasAttachedStickers()) {
 				const auto controller = _controller;

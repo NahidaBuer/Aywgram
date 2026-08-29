@@ -107,7 +107,8 @@ constexpr auto ByDocument = [](const auto &entry) {
 					}
 				}
 			} else {
-				return (media->document() == document);
+				return (media->document() == document)
+					|| (media->livePhotoVideo() == document);
 			}
 		}
 	}
@@ -269,7 +270,8 @@ void DownloadManager::addLoading(DownloadObject object) {
 		.started = computeNextStartDate(),
 		.path = path,
 		.total = size,
-		.hiddenByView = (!shownExists
+		.hiddenByView = (!object.forceShowInManager
+			&& !shownExists
 			&& item->history()->owner().queryItemVisibility(item)),
 	});
 	_loading.emplace(item);
@@ -904,10 +906,26 @@ void DownloadManager::resolveRequestsFinished(
 		}
 		const auto item = owner.message(i->itemId);
 		const auto media = item ? item->media() : nullptr;
-		const auto document = media ? media->document() : nullptr;
-		const auto photo = media ? media->photo() : nullptr;
+		const auto document = [&]() -> DocumentData* {
+			if (!media || i->download.type != DownloadType::Document) {
+				return nullptr;
+			}
+			if (const auto result = media->document();
+				result && result->id == i->download.objectId) {
+				return result;
+			}
+			if (const auto result = media->livePhotoVideo();
+				result && result->id == i->download.objectId) {
+				return result;
+			}
+			return nullptr;
+		}();
+		const auto photo = (media
+			&& i->download.type == DownloadType::Photo)
+			? media->photo()
+			: nullptr;
 		if (i->download.type == DownloadType::Document
-			&& (!document || document->id != i->download.objectId)) {
+			&& !document) {
 			generateEntry(session, *i);
 		} else if (i->download.type == DownloadType::Photo
 			&& (!photo || photo->id != i->download.objectId)) {

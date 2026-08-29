@@ -8760,6 +8760,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 // AyuGram keys generated
 
 "ayu_AyuPreferences" = "AywGram Preferences";
+"ayu_LivePhoto" = "Live Photo";
+"ayu_SaveLivePhotoVideo" = "Save Live Photo Video...";
 "ayu_DocsText" = "Documentation";
 "ayu_CategoryGeneral" = "General";
 "ayu_CategoryAppearance" = "Appearance";

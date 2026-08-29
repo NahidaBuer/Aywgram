@@ -32,6 +32,19 @@ class PlaybackProgress;
 
 class PlaybackControls : public Ui::RpWidget {
 public:
+	enum class LivePhotoMode {
+		Photo,
+		Loop,
+		Once,
+	};
+
+	struct Options {
+		bool allowVolumeControl = true;
+		bool allowSpeedControl = true;
+		bool allowPictureInPicture = true;
+		std::optional<LivePhotoMode> livePhotoMode;
+	};
+
 	class Delegate {
 	public:
 		virtual void playbackControlsPlay() = 0;
@@ -54,6 +67,8 @@ public:
 		virtual void playbackControlsToFullScreen() = 0;
 		virtual void playbackControlsFromFullScreen() = 0;
 		virtual void playbackControlsToPictureInPicture() = 0;
+		virtual void playbackControlsLivePhotoModeChanged(
+			LivePhotoMode mode) = 0;
 		virtual void playbackControlsRotate() = 0;
 	};
 
@@ -62,7 +77,10 @@ public:
 		QString label;
 	};
 
-	PlaybackControls(QWidget *parent, not_null<Delegate*> delegate);
+	PlaybackControls(
+		QWidget *parent,
+		not_null<Delegate*> delegate,
+		Options options = {});
 	~PlaybackControls();
 
 	void showAnimated();
@@ -72,6 +90,7 @@ public:
 	void setLoadingProgress(int64 ready, int64 total);
 	void setTimestamps(std::vector<TimestampData> timestamps);
 	void setInFullScreen(bool inFullScreen);
+	void setLivePhotoMode(LivePhotoMode mode);
 	void updatePlaybackSpeed(float64 speed);
 	void updateSpeedToggleQuality();
 	[[nodiscard]] bool hasTimestamps() const;
@@ -100,6 +119,7 @@ private:
 		const Player::TrackState &state) const;
 
 	void updateVolumeToggleIcon();
+	void updateLivePhotoModeIcon();
 	void updateDownloadProgressPosition();
 
 	void updatePlayPauseResumeState(const Player::TrackState &state);
@@ -111,10 +131,14 @@ private:
 
 	void saveQuality(Media::VideoQuality quality);
 	void updateTimestampLabel();
+	void applyOptionsVisibility();
 
 	const not_null<Delegate*> _delegate;
+	const Options _options;
+	std::optional<LivePhotoMode> _livePhotoMode;
 
 	bool _speedControllable = false;
+	bool _volumeControlVisible = false;
 	std::vector<Media::VideoQuality> _qualitiesList;
 
 	bool _inFullScreen = false;
@@ -136,6 +160,7 @@ private:
 	object_ptr<Player::SettingsButton> _speedToggle;
 	object_ptr<Ui::IconButton> _fullScreenToggle;
 	object_ptr<Ui::IconButton> _pictureInPicture;
+	object_ptr<Ui::IconButton> _livePhotoModeToggle;
 	object_ptr<Ui::LabelSimple> _playedAlready;
 	object_ptr<Ui::LabelSimple> _toPlayLeft;
 	object_ptr<Ui::LabelSimple> _downloadProgress = { nullptr };

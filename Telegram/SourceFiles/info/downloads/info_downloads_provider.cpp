@@ -131,10 +131,15 @@ void Provider::refreshViewer() {
 		for (const auto id : manager.loadingList()) {
 			if (!id->done) {
 				const auto item = id->object.item;
+				const auto document = id->object.document;
+				if (!document) {
+					continue;
+				}
 				if (!copy.remove(item) && !_downloaded.contains(item)) {
 					_downloading.emplace(item);
 					addElementNow({
 						.item = item,
+						.document = document,
 						.started = id->started,
 						.path = id->path,
 					});
@@ -188,14 +193,20 @@ void Provider::addPostponed(not_null<const Data::DownloadedId*> entry) {
 	Expects(entry->object != nullptr);
 
 	const auto item = entry->object->item;
+	const auto document = entry->object->document;
+	if (!document) {
+		return;
+	}
 	trackItemSession(item);
 	const auto i = ranges::find(_addPostponed, item, &Element::item);
 	if (i != end(_addPostponed)) {
+		i->document = document;
 		i->path = entry->path;
 		i->started = entry->started;
 	} else {
 		_addPostponed.push_back({
 			.item = item,
+			.document = document,
 			.started = entry->started,
 			.path = entry->path,
 		});
@@ -313,9 +324,7 @@ std::vector<ListSection> Provider::fillSections(
 		return {};
 	}
 
-	auto result = std::vector<ListSection>();
-	result.emplace_back(Type::File, sectionDelegate());
-	auto &section = result.back();
+	auto section = ListSection(Type::File, sectionDelegate());
 	for (const auto &element : ranges::views::reverse(_elements)) {
 		if (search && !element.found) {
 			continue;
@@ -323,7 +332,12 @@ std::vector<ListSection> Provider::fillSections(
 			section.addItem(layout);
 		}
 	}
+	if (section.empty()) {
+		return {};
+	}
 	section.finishSection();
+	auto result = std::vector<ListSection>();
+	result.push_back(std::move(section));
 	return result;
 }
 
@@ -377,12 +391,8 @@ bool Provider::searchMode() const {
 
 void Provider::fillSearchIndex(Element &element) {
 	auto strings = QStringList(QFileInfo(element.path).fileName());
-	if (const auto media = element.item->media()) {
-		if (const auto document = media->document()) {
-			strings.append(document->filename());
-			strings.append(Ui::Text::FormatDownloadsName(document).text);
-		}
-	}
+	strings.append(element.document->filename());
+	strings.append(Ui::Text::FormatDownloadsName(element.document).text);
 	element.words = TextUtilities::PrepareSearchWords(strings.join(' '));
 	element.letters.clear();
 	for (const auto &word : element.words) {
@@ -435,47 +445,37 @@ BaseLayout *Provider::getLayout(
 std::unique_ptr<BaseLayout> Provider::createLayout(
 		Element element,
 		not_null<Overview::Layout::Delegate*> delegate) {
-	const auto getFile = [&]() -> DocumentData* {
-		if (auto media = element.item->media()) {
-			return media->document();
-		}
-		return nullptr;
-	};
-
 	using namespace Overview::Layout;
 	const auto &songSt = st::overviewFileLayout;
-	if (const auto file = getFile()) {
-		auto fields = DocumentFields{
-			.document = file,
-			.dateOverride = Data::DateFromDownloadDate(element.started),
-			.forceFileLayout = true,
+	auto fields = DocumentFields{
+		.document = element.document,
+		.dateOverride = Data::DateFromDownloadDate(element.started),
+		.forceFileLayout = true,
+	};
+	const auto item = element.item;
+	auto &manager = Core::App().downloadManager();
+	if (manager.loadingExternalState(item).has_value()) {
+		fields.externalLoading = [item]()
+		-> std::optional<DocumentExternalLoading> {
+			auto &manager = Core::App().downloadManager();
+			const auto state = manager.loadingExternalState(item);
+			if (!state || state->done) {
+				return std::nullopt;
+			}
+			return DocumentExternalLoading{
+				.ready = state->ready,
+				.total = state->total,
+			};
 		};
-		const auto item = element.item;
-		auto &manager = Core::App().downloadManager();
-		if (manager.loadingExternalState(item).has_value()) {
-			fields.externalLoading = [item]()
-			-> std::optional<DocumentExternalLoading> {
-				auto &manager = Core::App().downloadManager();
-				const auto state = manager.loadingExternalState(item);
-				if (!state || state->done) {
-					return std::nullopt;
-				}
-				return DocumentExternalLoading{
-					.ready = state->ready,
-					.total = state->total,
-				};
-			};
-			fields.externalCancel = [item] {
-				Core::App().downloadManager().cancelLoadingExternal(item);
-			};
-		}
-		return std::make_unique<Document>(
-			delegate,
-			element.item,
-			std::move(fields),
-			songSt);
+		fields.externalCancel = [item] {
+			Core::App().downloadManager().cancelLoadingExternal(item);
+		};
 	}
-	return nullptr;
+	return std::make_unique<Document>(
+		delegate,
+		element.item,
+		std::move(fields),
+		songSt);
 }
 
 ListItemSelectionData Provider::computeSelectionData(

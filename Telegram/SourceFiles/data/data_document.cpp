@@ -1664,6 +1664,10 @@ void DocumentData::setInappPlaybackFailed() {
 	_flags |= Flag::StreamingPlaybackFailed;
 }
 
+void DocumentData::clearInappPlaybackFailed() {
+	_flags &= ~Flag::StreamingPlaybackFailed;
+}
+
 bool DocumentData::inappPlaybackFailed() const {
 	return (_flags & Flag::StreamingPlaybackFailed);
 }

@@ -390,6 +390,15 @@ void AddPhotoActions(
 				CopyImage(photo);
 			}
 		}, &st::menuIconCopy);
+		if (const auto video = item && item->media()
+			? item->media()->livePhotoVideo()
+			: nullptr) {
+			AddSaveLivePhotoVideoAction(
+				menu,
+				item,
+				video,
+				list->controller());
+		}
 	}
 	if (photo->hasAttachedStickers()) {
 		const auto controller = list->controller();

@@ -365,11 +365,27 @@ std::unique_ptr<Data::Media> HistoryItem::CreateMedia(
 		}
 		return photo->match([&](const MTPDphoto &photo) -> Result {
 			using Args = Data::MediaPhoto::Args;
+			const auto owner = &item->history()->owner();
+			const auto livePhotoVideo = (media.is_live_photo() && media.vvideo())
+				? media.vvideo()->match([&](const MTPDdocument &document) {
+					const auto result = owner->processDocument(document).get();
+					return (result->isVideoFile() || result->isAnimation())
+						? result
+						: static_cast<DocumentData*>(nullptr);
+				}, [](const MTPDdocumentEmpty &) {
+					return static_cast<DocumentData*>(nullptr);
+				})
+				: nullptr;
+			if (media.is_live_photo() && !livePhotoVideo) {
+				LOG(("API Error: Got live MTPMessageMediaPhoto "
+					"without a playable video document."));
+			}
 			return std::make_unique<Data::MediaPhoto>(
 				item,
-				item->history()->owner().processPhoto(photo),
+				owner->processPhoto(photo),
 				Args{
 					.ttlSeconds = media.vttl_seconds().value_or_empty(),
+					.livePhotoVideo = livePhotoVideo,
 					.spoiler = (media.is_spoiler()
 						|| media.vttl_seconds().has_value()),
 				});

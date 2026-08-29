@@ -67,12 +67,15 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "media/stories/media_stories_share.h"
 #include "media/stories/media_stories_view.h"
 #include "media/streaming/media_streaming_document.h"
+#include "media/streaming/media_streaming_loader.h"
 #include "media/streaming/media_streaming_player.h"
+#include "media/streaming/media_streaming_reader.h"
 #include "media/player/media_player_instance.h"
 #include "history/history.h"
 #include "history/history_item_helpers.h"
 #include "history/view/media/history_view_media.h"
 #include "history/view/media/history_view_media_common.h"
+#include "history/view/media/history_view_save_document_action.h"
 #include "history/view/history_view_group_call_bar.h"
 #include "history/view/reactions/history_view_reactions_selector.h"
 #include "data/components/sponsored_messages.h"
@@ -86,6 +89,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_photo_media.h"
 #include "data/data_document_media.h"
 #include "data/data_document_resolver.h"
+#include "data/data_media_types.h"
 #include "data/data_file_click_handler.h"
 #include "data/data_download_manager.h"
 #include "data/data_poll.h"
@@ -579,6 +583,9 @@ struct OverlayWidget::Streamed {
 		not_null<PhotoData*> photo,
 		Data::FileOrigin origin,
 		Fn<void()> waitingCallback);
+	Streamed(
+		std::shared_ptr<Streaming::Document> shared,
+		Fn<void()> waitingCallback);
 
 	Streaming::Instance instance;
 	std::unique_ptr<PlaybackControls> controls;
@@ -587,6 +594,9 @@ struct OverlayWidget::Streamed {
 
 	bool ready = false;
 	bool withSound = false;
+	bool loop = false;
+	PlaybackControls::LivePhotoMode livePhotoMode
+		= PlaybackControls::LivePhotoMode::Once;
 	bool pausedBySeek = false;
 	bool resumeOnCallEnd = false;
 };
@@ -724,6 +734,12 @@ OverlayWidget::Streamed::Streamed(
 	Data::FileOrigin origin,
 	Fn<void()> waitingCallback)
 : instance(photo, origin, std::move(waitingCallback)) {
+}
+
+OverlayWidget::Streamed::Streamed(
+	std::shared_ptr<Streaming::Document> shared,
+	Fn<void()> waitingCallback)
+: instance(std::move(shared), std::move(waitingCallback)) {
 }
 
 OverlayWidget::PipWrap::PipWrap(
@@ -1561,15 +1577,21 @@ bool OverlayWidget::showCopyMediaRestriction(bool skipPRemiumCheck) {
 }
 
 bool OverlayWidget::videoShown() const {
-	return _streamed
-		&& _streamed->ready
-		&& !_streamed->instance.info().video.cover.isNull();
+	if (!_streamed || !_streamed->ready) {
+		return false;
+	} else if (_livePhotoVideo) {
+		const auto &player = _streamed->instance.player();
+		return player.ready() && !player.videoSize().isEmpty();
+	}
+	return !_streamed->instance.info().video.cover.isNull();
 }
 
 QSize OverlayWidget::videoSize() const {
 	Expects(videoShown());
 
-	const auto use = (_document && _chosenQuality != _document)
+	const auto use = _livePhotoVideo
+		? _streamed->instance.player().videoSize()
+		: (_document && _chosenQuality != _document)
 		? _chosenQuality->dimensions
 		: _streamed->instance.info().video.size;
 	return flipSizeByRotation(use);
@@ -1577,7 +1599,7 @@ QSize OverlayWidget::videoSize() const {
 
 bool OverlayWidget::streamingRequiresControls() const {
 	return !_stories
-		&& _document;
+		&& (_document || _livePhotoVideo);
 	// AyuGram: allow vieo messages seeking
 	//  && (!_document->isAnimation() || _document->isVideoMessage());
 }
@@ -2482,6 +2504,12 @@ void OverlayWidget::fillContextMenuActions(
 			&st::mediaMenuIconDelete);
 	}
 	if (!hasCopyMediaRestriction(true)) {
+		if (_livePhotoVideo) {
+			addAction(
+				tr::ayu_SaveLivePhotoVideo(tr::now),
+				[=] { saveLivePhotoVideo(); },
+				&st::mediaMenuIconDownload);
+		}
 		addAction(
 			tr::lng_mediaview_save_as(tr::now),
 			[=] { saveAs(); },
@@ -3124,6 +3152,8 @@ void OverlayWidget::assignMediaPointer(DocumentData *document) {
 	_flip = {};
 	_photo = nullptr;
 	_photoMedia = nullptr;
+	_livePhotoVideo = nullptr;
+	_livePhotoVideoMedia = nullptr;
 	_videoStream = nullptr;
 	if (_document != document) {
 		_streamedQualityChangeFrame = QImage();
@@ -3161,6 +3191,8 @@ void OverlayWidget::assignMediaPointer(not_null<PhotoData*> photo) {
 	_streamedQualityChangeFinished = false;
 	_document = nullptr;
 	_documentMedia = nullptr;
+	_livePhotoVideo = nullptr;
+	_livePhotoVideoMedia = nullptr;
 	_documentLoadingTo = QString();
 	_videoCover = nullptr;
 	_videoCoverMedia = nullptr;
@@ -3174,6 +3206,20 @@ void OverlayWidget::assignMediaPointer(not_null<PhotoData*> photo) {
 			_photo->load(fileOrigin(), LoadFromCloudOrLocal, true);
 		}
 	}
+	const auto media = _message ? _message->media() : nullptr;
+	const auto livePhotoVideo = (media && media->photo() == photo)
+		? media->livePhotoVideo()
+		: nullptr;
+	if (_livePhotoVideo != livePhotoVideo) {
+		_livePhotoVideo = livePhotoVideo;
+		_livePhotoVideoMedia = _livePhotoVideo
+			? _livePhotoVideo->createMediaView()
+			: nullptr;
+		if (_livePhotoVideoMedia) {
+			_livePhotoVideoMedia->goodThumbnailWanted();
+			_livePhotoVideoMedia->thumbnailWanted(fileOrigin());
+		}
+	}
 }
 
 void OverlayWidget::assignMediaPointer(
@@ -3184,6 +3230,8 @@ void OverlayWidget::assignMediaPointer(
 	_streamedQualityChangeFinished = false;
 	_document = nullptr;
 	_documentMedia = nullptr;
+	_livePhotoVideo = nullptr;
+	_livePhotoVideoMedia = nullptr;
 	_documentLoadingTo = QString();
 	_videoCover = nullptr;
 	_videoCoverMedia = nullptr;
@@ -3501,6 +3549,20 @@ void OverlayWidget::saveAs() {
 				}
 			}));
 	}
+	activate();
+}
+
+void OverlayWidget::saveLivePhotoVideo() {
+	if (!_livePhotoVideo || showCopyMediaRestriction(true)) {
+		return;
+	} else if (hasCopyMediaRestriction()) {
+		Assert(_stories != nullptr);
+		showPremiumDownloadPromo();
+		return;
+	}
+	HistoryView::SaveLivePhotoVideo(
+		_message ? _message->fullId() : FullMsgId(),
+		_livePhotoVideo);
 	activate();
 }
 
@@ -4762,7 +4824,7 @@ void OverlayWidget::displayPhoto(
 	refreshMediaViewer();
 
 	_staticContent = QImage();
-	if (!_stories && _photo->videoCanBePlayed()) {
+	if (!_stories && canInitStreaming()) {
 		initStreaming();
 	}
 
@@ -5082,7 +5144,21 @@ void OverlayWidget::showAndActivate() {
 
 bool OverlayWidget::canInitStreaming() const {
 	return (_document && _documentMedia->canBePlayed())
+		|| livePhotoVideoCanBePlayed()
 		|| (_photo && _photo->videoCanBePlayed());
+}
+
+bool OverlayWidget::livePhotoVideoCanBePlayed() const {
+	return _livePhotoVideo
+		&& _livePhotoVideoMedia
+		&& !_livePhotoVideo->inappPlaybackFailed()
+		&& _livePhotoVideo->useStreamingLoader()
+		&& (_livePhotoVideoMedia->loaded()
+			|| _livePhotoVideo->hasRemoteLocation());
+}
+
+DocumentData *OverlayWidget::streamingDocument() const {
+	return _document ? _document : _livePhotoVideo;
 }
 
 bool OverlayWidget::initStreaming(const StartStreaming &startStreaming) {
@@ -5093,8 +5169,8 @@ bool OverlayWidget::initStreaming(const StartStreaming &startStreaming) {
 	}
 	initStreamingThumbnail();
 	if (!createStreamingObjects()) {
-		if (_document) {
-			_document->setInappPlaybackFailed();
+		if (const auto document = streamingDocument()) {
+			document->setInappPlaybackFailed();
 		} else {
 			_photo->setVideoPlaybackFailed();
 		}
@@ -5127,7 +5203,8 @@ bool OverlayWidget::initStreaming(const StartStreaming &startStreaming) {
 	if (startStreaming.continueStreaming) {
 		_pip = nullptr;
 	}
-	if (!continuing
+	if (_livePhotoVideo
+		|| !continuing
 		|| (!_streamed->instance.player().active()
 			&& !_streamed->instance.player().finished())) {
 		startStreamingPlayer(startStreaming);
@@ -5139,6 +5216,9 @@ bool OverlayWidget::initStreaming(const StartStreaming &startStreaming) {
 		}
 		updatePlaybackState();
 	}
+	if (_streamed && _streamed->instance.ready() && !_streamed->ready) {
+		streamingReady(base::duplicate(_streamed->instance.info()));
+	}
 	return true;
 }
 
@@ -5147,6 +5227,13 @@ void OverlayWidget::startStreamingPlayer(
 	Expects(_streamed != nullptr);
 
 	const auto &player = _streamed->instance.player();
+	if (_livePhotoVideo) {
+		_pip = nullptr;
+		_streamingStartPaused = false;
+		_streamedPosition = 0;
+		restartAtSeekPosition(0);
+		return;
+	}
 	if (player.playing()) {
 		if (!_streamed->withSound) {
 			markStreamedReady();
@@ -5159,7 +5246,7 @@ void OverlayWidget::startStreamingPlayer(
 		return;
 	}
 
-	_streamedPosition = _document
+	_streamedPosition = streamingDocument()
 		? startStreaming.startTime
 		: _photo
 		? _photo->videoStartPosition()
@@ -5214,12 +5301,14 @@ void OverlayWidget::initStreamingThumbnail() {
 		: _document
 		? _documentMedia->thumbnailInline()
 		: _photoMedia->thumbnailInline();
-	const auto size = _photo
+	const auto size = (_photo && !_livePhotoVideo)
 		? QSize(
 			_photo->videoLocation(Data::PhotoSize::Large).width(),
 			_photo->videoLocation(Data::PhotoSize::Large).height())
 		: good
 		? good->size()
+		: _photo
+		? QSize(_photo->width(), _photo->height())
 		: _document->dimensions;
 	if (size.isEmpty()) {
 		return;
@@ -5252,11 +5341,12 @@ void OverlayWidget::initStreamingThumbnail() {
 void OverlayWidget::streamingReady(Streaming::Information &&info) {
 	markStreamedReady();
 	if (videoShown()) {
-		if (_document
+		const auto document = streamingDocument();
+		if (document
 			&& _streamed
 			&& _streamed->ready
-			&& (!_chosenQuality || _chosenQuality == _document)) {
-			if (const auto video = _document->video()) {
+			&& (!_chosenQuality || _chosenQuality == document)) {
+			if (const auto video = document->video()) {
 				video->realVideoSize = info.video.realSize;
 			}
 		}
@@ -5291,11 +5381,25 @@ bool OverlayWidget::createStreamingObjects() {
 
 	const auto origin = fileOrigin();
 	const auto callback = [=] { waitingAnimationCallback(); };
-	const auto video = _chosenQuality ? _chosenQuality : _document;
-	if (video) {
+	const auto original = streamingDocument();
+	const auto video = _chosenQuality ? _chosenQuality : original;
+	if (_livePhotoVideo) {
+		auto loader = _livePhotoVideo->createStreamingLoader(origin, false);
+		if (!loader) {
+			return false;
+		}
+		auto reader = std::make_shared<Streaming::Reader>(
+			std::move(loader),
+			&_livePhotoVideo->owner().cacheBigFile());
+		_streamed = std::make_unique<Streamed>(
+			std::make_shared<Streaming::Document>(
+				not_null<DocumentData*>{ _livePhotoVideo },
+				std::move(reader)),
+			callback);
+	} else if (video) {
 		_streamed = std::make_unique<Streamed>(
 			video,
-			_document,
+			not_null<DocumentData*>{ original },
 			_message,
 			origin,
 			callback);
@@ -5311,14 +5415,31 @@ bool OverlayWidget::createStreamingObjects() {
 	_streamed->instance.lockPlayer();
 	_streamed->withSound = video
 		&& !video->isSilentVideo()
-		&& (_document->isAudioFile()
-			|| _document->isVideoFile()
-			|| _document->isVoiceMessage()
-			|| _document->isVideoMessage());
+		&& (original->isAudioFile()
+			|| original->isVideoFile()
+			|| original->isVoiceMessage()
+			|| original->isVideoMessage());
+	_streamed->loop = _livePhotoVideo
+		? (_livePhotoVideo->isAnimation() || _livePhotoVideo->isSilentVideo())
+		: (!_streamed->withSound && !_stories);
+	if (_livePhotoVideo) {
+		_streamed->livePhotoMode = _streamed->loop
+			? PlaybackControls::LivePhotoMode::Loop
+			: PlaybackControls::LivePhotoMode::Once;
+	}
 	if (streamingRequiresControls()) {
+		const auto options = _livePhotoVideo
+			? PlaybackControls::Options{
+				.allowVolumeControl = _streamed->withSound,
+				.allowSpeedControl = false,
+				.allowPictureInPicture = false,
+				.livePhotoMode = _streamed->livePhotoMode,
+			}
+			: PlaybackControls::Options();
 		_streamed->controls = std::make_unique<PlaybackControls>(
 			_body,
-			static_cast<PlaybackControls::Delegate*>(this));
+			static_cast<PlaybackControls::Delegate*>(this),
+			options);
 		_streamed->controls->show();
 		_streamed->sponsored = PlaybackSponsored::Has(_message)
 			? std::make_unique<PlaybackSponsored>(
@@ -5341,8 +5462,9 @@ void OverlayWidget::updatePowerSaveBlocker(
 		const Player::TrackState &state) {
 	Expects(_streamed != nullptr);
 
-	const auto block = (_document != nullptr)
-		&& _document->isVideoFile()
+	const auto document = streamingDocument();
+	const auto block = document
+		&& document->isVideoFile()
 		&& !IsPausedOrPausing(state.state)
 		&& !IsStoppedOrStopping(state.state);
 
@@ -5409,14 +5531,14 @@ void OverlayWidget::handleStreamingError(Streaming::Error &&error) {
 	Expects(_document || _photo);
 
 	if (error == Streaming::Error::NotStreamable) {
-		if (_document) {
-			_document->setNotSupportsStreaming();
+		if (const auto document = streamingDocument()) {
+			document->setNotSupportsStreaming();
 		} else {
 			_photo->setVideoPlaybackFailed();
 		}
 	} else if (error == Streaming::Error::OpenFailed) {
-		if (_document) {
-			_document->setInappPlaybackFailed();
+		if (const auto document = streamingDocument()) {
+			document->setInappPlaybackFailed();
 		} else {
 			_photo->setVideoPlaybackFailed();
 		}
@@ -5580,8 +5702,16 @@ void OverlayWidget::playbackControlsFromFullScreen() {
 }
 
 void OverlayWidget::playbackControlsToPictureInPicture() {
-	if (_streamed && _streamed->controls) {
+	if (_streamed && _streamed->controls && !_livePhotoVideo) {
 		switchToPip();
+	}
+}
+
+void OverlayWidget::playbackControlsLivePhotoModeChanged(
+		PlaybackControls::LivePhotoMode mode) {
+	if (_streamed && _livePhotoVideo) {
+		setLivePhotoMode(mode);
+		activateControls();
 	}
 }
 
@@ -5617,7 +5747,16 @@ void OverlayWidget::playbackPauseResume() {
 	Expects(_streamed != nullptr);
 
 	_streamed->resumeOnCallEnd = false;
+	if (_livePhotoVideo
+		&& _streamed->livePhotoMode
+			== PlaybackControls::LivePhotoMode::Photo) {
+		setLivePhotoMode(PlaybackControls::LivePhotoMode::Once);
+		return;
+	}
 	if (_streamed->instance.player().failed()) {
+		if (_livePhotoVideo) {
+			_livePhotoVideo->clearInappPlaybackFailed();
+		}
 		clearStreaming();
 		if (!canInitStreaming() || !initStreaming()) {
 			redisplayContent();
@@ -5705,14 +5844,18 @@ void OverlayWidget::restartAtSeekPosition(crl::time position) {
 		.hwAllowed = Core::App().settings().hardwareAcceleratedVideo(),
 		.seekable = !_stories,
 	};
-	if (!_streamed->withSound) {
+	const auto livePhotoLoop = _livePhotoVideo
+		&& _streamed->livePhotoMode
+			== PlaybackControls::LivePhotoMode::Loop;
+	if (!_streamed->withSound || livePhotoLoop) {
 		options.mode = Streaming::Mode::Video;
-		options.loop = !_stories;
+		options.loop = _streamed->loop;
 	} else {
-		Assert(_document != nullptr);
+		const auto document = streamingDocument();
+		Assert(document != nullptr);
 		const auto messageId = _message ? _message->fullId() : FullMsgId();
-		options.audioId = AudioMsgId(_document, messageId);
-		options.speed = _stories
+		options.audioId = AudioMsgId(document, messageId);
+		options.speed = (_stories || _livePhotoVideo)
 			? 1.
 			: Core::App().settings().videoPlaybackSpeed();
 		if (_pip) {
@@ -5731,6 +5874,30 @@ void OverlayWidget::restartAtSeekPosition(crl::time position) {
 	updatePlaybackState();
 }
 
+void OverlayWidget::setLivePhotoMode(
+		PlaybackControls::LivePhotoMode mode) {
+	Expects(_streamed != nullptr);
+	Expects(_livePhotoVideo != nullptr);
+
+	_streamed->livePhotoMode = mode;
+	_streamed->loop = (mode == PlaybackControls::LivePhotoMode::Loop);
+	if (_streamed->controls) {
+		_streamed->controls->setLivePhotoMode(mode);
+	}
+	_streamingStartPaused = false;
+	_streamedPosition = 0;
+	if (mode == PlaybackControls::LivePhotoMode::Photo) {
+		_streamed->instance.stop();
+		initStreamingThumbnail();
+		updateContentRect();
+		updatePlaybackState();
+		update();
+		return;
+	}
+	restartAtSeekPosition(0);
+	update();
+}
+
 void OverlayWidget::playbackControlsSeekProgress(crl::time position) {
 	Expects(_streamed != nullptr);
 
@@ -5744,6 +5911,16 @@ void OverlayWidget::playbackControlsSeekProgress(crl::time position) {
 void OverlayWidget::playbackControlsSeekFinished(crl::time position) {
 	Expects(_streamed != nullptr);
 
+	if (_livePhotoVideo
+		&& _streamed->livePhotoMode
+			== PlaybackControls::LivePhotoMode::Photo) {
+		_streamed->livePhotoMode = PlaybackControls::LivePhotoMode::Once;
+		_streamed->loop = false;
+		if (_streamed->controls) {
+			_streamed->controls->setLivePhotoMode(
+				PlaybackControls::LivePhotoMode::Once);
+		}
+	}
 	_streamingStartPaused = !_streamed->pausedBySeek
 		&& !_streamed->instance.player().finished();
 	restartAtSeekPosition(position);
@@ -5779,6 +5956,9 @@ void OverlayWidget::playbackControlsVolumeChangeFinished() {
 }
 
 void OverlayWidget::playbackControlsSpeedChanged(float64 speed) {
+	if (_livePhotoVideo) {
+		return;
+	}
 	DEBUG_LOG(("Media playback speed: change to %1.").arg(speed));
 	if (_document) {
 		DEBUG_LOG(("Media playback speed: %1 to settings.").arg(speed));
@@ -5792,7 +5972,9 @@ void OverlayWidget::playbackControlsSpeedChanged(float64 speed) {
 }
 
 float64 OverlayWidget::playbackControlsCurrentSpeed(bool lastNonDefault) {
-	return Core::App().settings().videoPlaybackSpeed(lastNonDefault);
+	return _livePhotoVideo
+		? 1.
+		: Core::App().settings().videoPlaybackSpeed(lastNonDefault);
 }
 
 std::vector<VideoQuality> OverlayWidget::playbackControlsQualities() {
@@ -8052,6 +8234,16 @@ void OverlayWidget::preloadData(int delta) {
 			const auto &[i, ok] = photos.emplace((*photo)->createMediaView());
 			(*i)->wanted(Data::PhotoSize::Small, fileOrigin(entity));
 			(*photo)->load(fileOrigin(entity), LoadFromCloudOrLocal, true);
+			const auto media = entity.item ? entity.item->media() : nullptr;
+			const auto livePhotoVideo = (media && media->photo() == *photo)
+				? media->livePhotoVideo()
+				: nullptr;
+			if (livePhotoVideo) {
+				const auto &[j, added] = documents.emplace(
+					livePhotoVideo->createMediaView());
+				(*j)->goodThumbnailWanted();
+				(*j)->thumbnailWanted(fileOrigin(entity));
+			}
 		} else if (auto document = std::get_if<not_null<DocumentData*>>(
 				&entity.data)) {
 			const auto &[i, ok] = documents.emplace(
@@ -9132,6 +9324,11 @@ void OverlayWidget::updateHeader() {
 		} else {
 			_headerText = tr::lng_mediaview_single_photo(tr::now);
 		}
+	}
+	if (_livePhotoVideo) {
+		_headerText = tr::ayu_LivePhoto(tr::now)
+			+ u"  ·  "_q
+			+ _headerText;
 	}
 	_headerHasLink = computeOverviewType() != std::nullopt;
 	auto hwidth = st::mediaviewThickFont->width(_headerText);

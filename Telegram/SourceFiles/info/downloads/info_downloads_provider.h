@@ -10,6 +10,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "info/media/info_media_common.h"
 #include "base/weak_ptr.h"
 
+class DocumentData;
+
 namespace Data {
 struct DownloadedId;
 } // namespace Data
@@ -87,6 +89,7 @@ public:
 private:
 	struct Element {
 		not_null<HistoryItem*> item;
+		not_null<DocumentData*> document;
 		int64 started = 0; // unixtime * 1000
 		QString path;
 

@@ -575,5 +575,7 @@
   "CloudSyncRollback": "回滚待完成的恢复",
   "CloudSyncDelete": "删除云端备份",
   "CloudSyncDeleteWarning": "此操作会停止自动同步，并且只删除 AywGram manifest 和严格匹配的备份 chunks，不会删除本地设置。",
-  "CloudSyncExcluded": "始终排除：授权与会话密钥、账号密码、本地锁、令牌、账号顺序、本地文件与路径、硬件设备标识、数据库、消息历史、筛选器内容、最近项目、窗口位置、UI 缩放和硬件相关设置。代理服务器仅在单独启用后同步。"
+  "CloudSyncExcluded": "始终排除：授权与会话密钥、账号密码、本地锁、令牌、账号顺序、本地文件与路径、硬件设备标识、数据库、消息历史、筛选器内容、最近项目、窗口位置、UI 缩放和硬件相关设置。代理服务器仅在单独启用后同步。",
+  "LivePhoto": "动态照片",
+  "SaveLivePhotoVideo": "保存动态照片视频…"
 }

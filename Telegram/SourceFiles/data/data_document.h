@@ -307,6 +307,7 @@ public:
 	[[nodiscard]] bool useStreamingLoader() const;
 
 	void setInappPlaybackFailed();
+	void clearInappPlaybackFailed();
 	[[nodiscard]] bool inappPlaybackFailed() const;
 	[[nodiscard]] int videoPreloadPrefix() const;
 	[[nodiscard]] StorageFileLocation videoPreloadLocation() const;
