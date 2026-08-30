@@ -137,7 +137,7 @@ void AddCryptoDonate(
 	});
 }
 
-void BuildDonations(SectionBuilder &builder) {
+[[maybe_unused]] void BuildDonations(SectionBuilder &builder) {
 	builder.add([](const BuildContext &ctx) {
 		v::match(ctx, [&](const WidgetContext &wctx) {
 			const auto container = wctx.container;
@@ -220,7 +220,6 @@ const auto kMeta = BuildHelper({
 	.icon = &st::menuIconFave,
 }, [](SectionBuilder &builder) {
 	builder.addSkip();
-	BuildDonations(builder);
 	BuildOtherThings(builder);
 });
 
