@@ -168,10 +168,10 @@ void BuildLinks(SectionBuilder &builder) {
 		.id = u"ayu/crowdin"_q,
 		.title = tr::ayu_LinksTranslate(),
 		.icon = { &st::menuIconTranslate },
-		.label = rpl::single(QString("Crowdin")),
+		.label = rpl::single(u"GitHub"_q),
 		.onClick = [=] {
 			QDesktopServices::openUrl(
-				QString("https://translate.ayugram.one"));
+				u"https://github.com/Aywgram/Languages"_q);
 		},
 	});
 	builder.addButton({
