@@ -2,7 +2,6 @@
 
 ## Remote roles
 
-- `upstream`: an optional supplemental source. Enumerate every remote branch; identify the active line from dates and topology instead of assuming `dev`.
 - `ayugram`: public AyuGram. Review it separately from the supplemental source and Telegram.
 - `telegram`: official Telegram Desktop. Prefer sequential signed or annotated release tags, followed by separately reviewed `telegram/dev` commits.
 - `origin`: the distribution fork's publishing remote. Treat divergent feature branches as candidates, not automatic upstreams.
