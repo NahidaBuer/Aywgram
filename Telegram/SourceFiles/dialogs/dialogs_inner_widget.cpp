@@ -1965,12 +1965,12 @@ void InnerWidget::paintPeerSearchResult(
 			: context.selected
 			? &st::dialogsVerifiedIconOver
 			: &st::dialogsVerifiedIcon),
-		.exteraOfficial = &ThreeStateIcon(
-			st::dialogsExteraOfficialIcon,
+		.projectOfficial = &ThreeStateIcon(
+			st::dialogsProjectOfficialIcon,
 			context.active,
 			context.selected),
-		.exteraSupporter = &ThreeStateIcon(
-			st::dialogsExteraSupporterIcon,
+		.projectSupporter = &ThreeStateIcon(
+			st::dialogsProjectSupporterIcon,
 			context.active,
 			context.selected),
 		.premium = &ThreeStateIcon(

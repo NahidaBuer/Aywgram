@@ -27,24 +27,45 @@ public:
 	RCManager(RCManager &&) = delete;
 	RCManager &operator=(RCManager &&) = delete;
 
-	[[nodiscard]] const std::unordered_set<ID> &developers() const {
-		return _developers;
+	[[nodiscard]] const std::unordered_set<ID> &upstreamDevelopers() const {
+		return _upstreamDevelopers;
 	}
 
-	[[nodiscard]] const std::unordered_set<ID> &channels() const {
-		return _officialChannels;
+	[[nodiscard]] auto upstreamOfficialChannels() const
+	-> const std::unordered_set<ID> & {
+		return _upstreamOfficialChannels;
 	}
 
-	[[nodiscard]] const std::unordered_set<ID> &supporters() const {
-		return _supporters;
+	[[nodiscard]] const std::unordered_set<ID> &upstreamSupporters() const {
+		return _upstreamSupporters;
 	}
 
-	[[nodiscard]] const std::unordered_set<ID> &supporterChannels() const {
-		return _supporterChannels;
+	[[nodiscard]] auto upstreamSupporterChannels() const
+	-> const std::unordered_set<ID> & {
+		return _upstreamSupporterChannels;
 	}
 
-	[[nodiscard]] const std::unordered_map<ID, CustomBadge> &supporterCustomBadges() const {
-		return _customBadges;
+	[[nodiscard]] auto upstreamCustomBadges() const
+	-> const std::unordered_map<ID, CustomBadge> & {
+		return _upstreamCustomBadges;
+	}
+
+	[[nodiscard]] const std::unordered_set<ID> &aywGramDevelopers() const {
+		return _aywGramDevelopers;
+	}
+
+	[[nodiscard]] auto aywGramOfficialChannels() const
+	-> const std::unordered_set<ID> & {
+		return _aywGramOfficialChannels;
+	}
+
+	[[nodiscard]] const std::unordered_set<ID> &aywGramSupporters() const {
+		return _aywGramSupporters;
+	}
+
+	[[nodiscard]] auto aywGramSupporterChannels() const
+	-> const std::unordered_set<ID> & {
+		return _aywGramSupporterChannels;
 	}
 
 	[[nodiscard]] QString donateUsername() const {
@@ -66,11 +87,16 @@ public:
 private:
 	RCManager();
 
-	const std::unordered_set<ID> _developers;
-	const std::unordered_set<ID> _officialChannels;
-	const std::unordered_set<ID> _supporters;
-	const std::unordered_set<ID> _supporterChannels;
-	const std::unordered_map<ID, CustomBadge> _customBadges;
+	const std::unordered_set<ID> _upstreamDevelopers;
+	const std::unordered_set<ID> _upstreamOfficialChannels;
+	const std::unordered_set<ID> _upstreamSupporters;
+	const std::unordered_set<ID> _upstreamSupporterChannels;
+	const std::unordered_map<ID, CustomBadge> _upstreamCustomBadges;
+
+	const std::unordered_set<ID> _aywGramDevelopers;
+	const std::unordered_set<ID> _aywGramOfficialChannels;
+	const std::unordered_set<ID> _aywGramSupporters;
+	const std::unordered_set<ID> _aywGramSupporterChannels = {};
 
 	const QString _donateUsername = u"@ayugramOwner"_q;
 	const QString _donateAmountUsd = u"5.00"_q;

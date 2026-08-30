@@ -60,13 +60,19 @@ ID getDialogIdFromPeer(not_null<PeerData*> peer);
 
 ID getBareID(not_null<PeerData*> peer);
 
-bool isExteraPeer(ID peerId);
-bool isSupporterPeer(ID peerId);
-bool isCustomBadgePeer(ID peerId);
-CustomBadge getCustomBadge(ID peerId);
+bool isUpstreamPeer(ID peerId);
+bool isUpstreamSupporterPeer(ID peerId);
+bool isUpstreamCustomBadgePeer(ID peerId);
+bool isAywGramPeer(ID peerId);
+bool isAywGramSupporterPeer(ID peerId);
+CustomBadge getUpstreamCustomBadge(ID peerId);
 
-rpl::producer<Info::Profile::Badge::Content> ExteraBadgeTypeFromPeer(not_null<PeerData*> peer);
-Fn<void()> badgeClickHandler(not_null<PeerData *> peer);
+base::flags<Info::Profile::BadgeType> ProjectBadgeTypes();
+Info::Profile::Badge::Content ComputeProjectBadgeContent(
+	not_null<PeerData*> peer);
+rpl::producer<Info::Profile::Badge::Content> ProjectBadgeContentForPeer(
+	not_null<PeerData*> peer);
+Fn<void()> projectBadgeClickHandler(not_null<PeerData*> peer);
 
 bool isMessageHidden(not_null<HistoryItem*> item);
 

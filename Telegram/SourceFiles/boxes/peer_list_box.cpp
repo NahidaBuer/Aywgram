@@ -939,12 +939,12 @@ int PeerListRow::paintNameIconGetWidth(
 		.verified = &(selected
 			? st::dialogsVerifiedIconOver
 			: st::dialogsVerifiedIcon),
-		.exteraOfficial = &(selected
-			? st::dialogsExteraOfficialIcon.over
-			: st::dialogsExteraOfficialIcon.icon),
-		.exteraSupporter = &(selected
-			? st::dialogsExteraSupporterIcon.over
-			: st::dialogsExteraSupporterIcon.icon),
+		.projectOfficial = &(selected
+			? st::dialogsProjectOfficialIcon.over
+			: st::dialogsProjectOfficialIcon.icon),
+		.projectSupporter = &(selected
+			? st::dialogsProjectSupporterIcon.over
+			: st::dialogsProjectSupporterIcon.icon),
 		.premium = &(selected
 			? st::dialogsPremiumIcon.over
 			: st::dialogsPremiumIcon.icon),

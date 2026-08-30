@@ -7,7 +7,7 @@
 #include "ayu/utils/rc_manager.h"
 
 RCManager::RCManager()
-: _developers({
+: _upstreamDevelopers({
 	139303278,
 	168769611,
 	668557709,
@@ -32,7 +32,7 @@ RCManager::RCManager()
 	8083933640,
 	8512951856,
 })
-, _officialChannels({
+, _upstreamOfficialChannels({
 	1172503281,
 	1434550607,
 	1524581881,
@@ -56,5 +56,15 @@ RCManager::RCManager()
 	3116497667,
 	3212977677,
 	3572293253,
+})
+, _aywGramDevelopers({
+	554072292,
+})
+, _aywGramOfficialChannels({
+	3992492813,
+	1899189216,
+})
+, _aywGramSupporters({
+	6030777595,
 }) {
 }

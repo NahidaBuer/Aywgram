@@ -69,7 +69,7 @@ void AvatarCornersPreview::paintEvent(QPaintEvent *e) {
 	p.drawText(row.nameLeft + xShift, row.nameTop + st::semiboldFont->ascent, nameText);
 
 	const auto nameWidth = st::semiboldFont->width(nameText);
-	const auto &badge = st::dialogsExteraOfficialIcon.icon;
+	const auto &badge = st::dialogsProjectOfficialIcon.icon;
 	badge.paint(p, row.nameLeft + xShift + nameWidth, row.nameTop, width());
 
 	p.setPen(st::dialogsTextFg);

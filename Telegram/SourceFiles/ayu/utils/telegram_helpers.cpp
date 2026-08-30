@@ -99,11 +99,9 @@ BadgeToastIcon::BadgeToastIcon(
 	nullptr,
 	[] { return false; },
 	0,
-	Info::Profile::BadgeType::Extera
-		| Info::Profile::BadgeType::ExteraSupporter
-		| Info::Profile::BadgeType::ExteraCustom) {
+	ProjectBadgeTypes()) {
 	setAttribute(Qt::WA_TransparentForMouseEvents);
-	_badge.setOverrideStyle(&st::exteraBadgeToastBadge);
+	_badge.setOverrideStyle(&st::projectBadgeToastBadge);
 	_badge.updated() | rpl::on_next([=] {
 		updateInnerGeometry();
 	}, lifetime());
@@ -171,101 +169,155 @@ ID getBareID(not_null<PeerData*> peer) {
 	return peer->id.value & PeerId::kChatTypeMask;
 }
 
-bool isExteraPeer(ID peerId) {
-	return RCManager::getInstance().developers().contains(peerId) || RCManager::getInstance().channels().
-		contains(peerId);
+bool isUpstreamPeer(ID peerId) {
+	const auto &manager = RCManager::getInstance();
+	return manager.upstreamDevelopers().contains(peerId)
+		|| manager.upstreamOfficialChannels().contains(peerId);
 }
 
-bool isSupporterPeer(ID peerId) {
-	return RCManager::getInstance().supporters().contains(peerId) || RCManager::getInstance().supporterChannels().
-		contains(peerId);
+bool isUpstreamSupporterPeer(ID peerId) {
+	const auto &manager = RCManager::getInstance();
+	return manager.upstreamSupporters().contains(peerId)
+		|| manager.upstreamSupporterChannels().contains(peerId);
 }
 
-bool isCustomBadgePeer(ID peerId) {
-	return RCManager::getInstance().supporterCustomBadges().contains(peerId);
+bool isUpstreamCustomBadgePeer(ID peerId) {
+	return RCManager::getInstance().upstreamCustomBadges().contains(peerId);
 }
 
-CustomBadge getCustomBadge(ID peerId) {
-	const auto &badges = RCManager::getInstance().supporterCustomBadges();
+bool isAywGramPeer(ID peerId) {
+	const auto &manager = RCManager::getInstance();
+	return manager.aywGramDevelopers().contains(peerId)
+		|| manager.aywGramOfficialChannels().contains(peerId);
+}
+
+bool isAywGramSupporterPeer(ID peerId) {
+	const auto &manager = RCManager::getInstance();
+	return manager.aywGramSupporters().contains(peerId)
+		|| manager.aywGramSupporterChannels().contains(peerId);
+}
+
+CustomBadge getUpstreamCustomBadge(ID peerId) {
+	const auto &badges = RCManager::getInstance().upstreamCustomBadges();
 	if (const auto it = badges.find(peerId); it != badges.end()) {
 		return it->second;
 	}
 	return {};
 }
 
-[[nodiscard]] Info::Profile::Badge::Content ComputeExteraBadgeContent(
+base::flags<Info::Profile::BadgeType> ProjectBadgeTypes() {
+	using Type = Info::Profile::BadgeType;
+	return Type::UpstreamOfficial
+		| Type::UpstreamSupporter
+		| Type::UpstreamCustom
+		| Type::AywGramOfficial
+		| Type::AywGramSupporter;
+}
+
+Info::Profile::Badge::Content ComputeProjectBadgeContent(
 		not_null<PeerData*> peer) {
-	if (isCustomBadgePeer(getBareID(peer))) {
+	const auto peerId = getBareID(peer);
+	if (isAywGramPeer(peerId)) {
 		return Info::Profile::Badge::Content{
-			.badge = Info::Profile::BadgeType::ExteraCustom,
-			.emojiStatusId = getCustomBadge(getBareID(peer)).emojiStatusId,
+			.badge = Info::Profile::BadgeType::AywGramOfficial,
 		};
-	} else if (isExteraPeer(getBareID(peer))) {
+	} else if (isAywGramSupporterPeer(peerId)) {
 		return Info::Profile::Badge::Content{
-			.badge = Info::Profile::BadgeType::Extera,
+			.badge = Info::Profile::BadgeType::AywGramSupporter,
 		};
-	} else if (isSupporterPeer(getBareID(peer))) {
+	} else if (isUpstreamCustomBadgePeer(peerId)) {
 		return Info::Profile::Badge::Content{
-			.badge = Info::Profile::BadgeType::ExteraSupporter,
+			.badge = Info::Profile::BadgeType::UpstreamCustom,
+			.emojiStatusId = getUpstreamCustomBadge(peerId).emojiStatusId,
+		};
+	} else if (isUpstreamPeer(peerId)) {
+		return Info::Profile::Badge::Content{
+			.badge = Info::Profile::BadgeType::UpstreamOfficial,
+		};
+	} else if (isUpstreamSupporterPeer(peerId)) {
+		return Info::Profile::Badge::Content{
+			.badge = Info::Profile::BadgeType::UpstreamSupporter,
 		};
 	}
 	return {};
 }
 
-rpl::producer<Info::Profile::Badge::Content> ExteraBadgeTypeFromPeer(not_null<PeerData*> peer) {
-	return rpl::single(ComputeExteraBadgeContent(peer));
+rpl::producer<Info::Profile::Badge::Content> ProjectBadgeContentForPeer(
+		not_null<PeerData*> peer) {
+	return rpl::single(ComputeProjectBadgeContent(peer));
 }
 
-Fn<void()> badgeClickHandler(not_null<PeerData*> peer) {
-	return [=]
-	{
-		const auto badge = ComputeExteraBadgeContent(peer);
-		const auto isCustomBadge = isCustomBadgePeer(getBareID(peer));
-		const auto isExtera = isExteraPeer(getBareID(peer));
-		const auto isSupporter = isSupporterPeer(getBareID(peer));
+Fn<void()> projectBadgeClickHandler(not_null<PeerData*> peer) {
+	return [=] {
+		const auto badge = ComputeProjectBadgeContent(peer);
 
 		TextWithEntities text;
-		if (isCustomBadge) {
-			const auto custom = getCustomBadge(getBareID(peer));
-			text = custom.text.isEmpty()
-					   ? (isExtera
-							  ? tr::ayu_DeveloperPopup(
-								  tr::now,
-								  lt_item,
-								  TextWithEntities{peer->name()},
-								  tr::rich)
-							  : tr::ayu_SupporterPopup(
-								  tr::now,
-								  lt_item,
-								  TextWithEntities{peer->name()},
-								  tr::rich))
-					   : tr::rich(custom.text);
-		} else if (isExtera) {
+		switch (badge.badge) {
+		case Info::Profile::BadgeType::AywGramOfficial:
 			text = peer->isUser()
-					   ? tr::ayu_DeveloperPopup(
-						   tr::now,
-						   lt_item,
-						   TextWithEntities{peer->name()},
-						   tr::rich)
-					   : tr::ayu_OfficialResourcePopup(
-						   tr::now,
-						   lt_item,
-						   TextWithEntities{peer->name()},
-						   tr::rich);
-		} else if (isSupporter) {
-			text = tr::ayu_SupporterPopup(
+				? tr::ayu_AywGramDeveloperPopup(
+					tr::now,
+					lt_item,
+					TextWithEntities{peer->name()},
+					tr::rich)
+				: tr::ayu_AywGramOfficialResourcePopup(
+					tr::now,
+					lt_item,
+					TextWithEntities{peer->name()},
+					tr::rich);
+			break;
+		case Info::Profile::BadgeType::AywGramSupporter:
+			text = tr::ayu_AywGramSupporterPopup(
 				tr::now,
 				lt_item,
 				TextWithEntities{peer->name()},
 				tr::rich);
-		} else {
+			break;
+		case Info::Profile::BadgeType::UpstreamCustom: {
+			const auto custom = getUpstreamCustomBadge(getBareID(peer));
+			text = custom.text.isEmpty()
+				? (isUpstreamPeer(getBareID(peer))
+					? tr::ayu_UpstreamDeveloperPopup(
+						tr::now,
+						lt_item,
+						TextWithEntities{peer->name()},
+						tr::rich)
+					: tr::ayu_UpstreamSupporterPopup(
+						tr::now,
+						lt_item,
+						TextWithEntities{peer->name()},
+						tr::rich))
+				: tr::rich(custom.text);
+			break;
+		}
+		case Info::Profile::BadgeType::UpstreamOfficial:
+			text = peer->isUser()
+				? tr::ayu_UpstreamDeveloperPopup(
+					tr::now,
+					lt_item,
+					TextWithEntities{peer->name()},
+					tr::rich)
+				: tr::ayu_UpstreamOfficialResourcePopup(
+					tr::now,
+					lt_item,
+					TextWithEntities{peer->name()},
+					tr::rich);
+			break;
+		case Info::Profile::BadgeType::UpstreamSupporter:
+			text = tr::ayu_UpstreamSupporterPopup(
+				tr::now,
+				lt_item,
+				TextWithEntities{peer->name()},
+				tr::rich);
+			break;
+		default:
 			return;
 		}
 
 		auto config = Ui::Toast::Config{
 			.text = text,
 			.iconContent = MakeBadgeToastIcon(peer, badge),
-			.st = &st::exteraBadgeToast,
+			.st = &st::projectBadgeToast,
 			.adaptive = true,
 			.duration = 3 * crl::time(1000),
 		};
@@ -1446,10 +1498,13 @@ void getUserRegistrationDateInner(
 void getUserRegistrationDate(not_null<UserData*> user, Fn<void(TextWithEntities)> callback) {
 	const auto session = &user->session();
 	const auto selfId = getDialogIdFromPeer(session->user());
-	const auto isSupporter = isSupporterPeer(selfId) || isExteraPeer(selfId);
+	const auto useUpstreamBot = isUpstreamSupporterPeer(selfId)
+		|| isUpstreamPeer(selfId);
 
-	const auto botId = isSupporter ? regDateBotId : regDateBotFallbackId;
-	const auto botUsername = isSupporter ? regDateBotUsername : regDateBotFallbackUsername;
+	const auto botId = useUpstreamBot ? regDateBotId : regDateBotFallbackId;
+	const auto botUsername = useUpstreamBot
+		? regDateBotUsername
+		: regDateBotFallbackUsername;
 
 	if (session->data().userLoaded(botId)) {
 		getUserRegistrationDateInner(user, botId, callback);
