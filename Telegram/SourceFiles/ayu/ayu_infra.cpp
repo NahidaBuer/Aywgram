@@ -18,7 +18,6 @@
 #include "lang/lang_instance.h"
 #include "storage/localstorage.h"
 #include "ui/chat/chat_style_radius.h"
-#include "utils/rc_manager.h"
 
 #ifdef Q_OS_WIN
 #include "ayu/utils/windows_utils.h"
@@ -65,10 +64,6 @@ void initWorker() {
 	AyuWorker::initialize();
 }
 
-void initRCManager() {
-	RCManager::getInstance().start();
-}
-
 void initTranslator() {
 	Ayu::Translator::TranslateManager::init();
 }
@@ -86,7 +81,6 @@ void init() {
 	initUiSettings();
 	initIcon();
 	initWorker();
-	initRCManager();
 	initTranslator();
 	Ayu::RemoteMetadata::Init();
 	AyuCloud::InitSettingsSync();
