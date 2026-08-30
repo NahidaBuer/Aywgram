@@ -7,6 +7,8 @@
 - [Windows x64](building-win-x64.md)
 - [macOS](building-mac.md)
 - [Linux](building-linux.md)
+- Agent 构建规则：[Windows](agent-building-windows.md)、
+  [macOS](agent-building-macos.md)、[Linux](agent-building-linux.md)
 - [Telegram API 凭据](api_credentials.md)
 
 构建脚本和依赖版本会随 Telegram Desktop 上游变化。若文档与脚本不一致，以
