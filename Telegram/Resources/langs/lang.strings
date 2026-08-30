@@ -8861,8 +8861,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_SupportBoxSendProofInfo" = "Send a photo of the payment confirmation to **{item}**. Make sure the photo clearly shows the amount, date, and time of the transfer.";
 "ayu_SupportBoxReceiveBadgeHeader" = "Receive Your Badge";
 "ayu_SupportBoxReceiveBadgeInfo" = "After payment verification, you will receive a unique badge that will be displayed on your profile and visible to other users.";
-"ayu_CrashReporting" = "Crash Reporting";
-"ayu_CrashReportingDescription" = "When this option is enabled, you'll be prompted to send a report after the app crashes. You can decide whether to send it or not.";
 "ayu_ResetSettings" = "Reset Settings";
 "ayu_ResetSettingsConfirmation" = "Are you sure you want to reset **all** AywGram preferences to their defaults?";
 "ayu_DisableColorfulCover" = "Disable adaptive color";

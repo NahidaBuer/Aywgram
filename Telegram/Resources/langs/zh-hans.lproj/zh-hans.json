@@ -99,8 +99,6 @@
   "SupportBoxSendProofInfo": "请将付款确认截图发送至 **{item}**，并确保图片清晰显示转账金额、日期和时间。",
   "SupportBoxReceiveBadgeHeader": "\t领取您的徽章",
   "SupportBoxReceiveBadgeInfo": "付款验证通过后，你将获得一个专属徽章，它将显示在你的个人资料中，并对其他用户可见。",
-  "CrashReporting": "崩溃报告",
-  "CrashReportingDescription": "启用此选项后，应用崩溃时将提示你发送报告。你可以选择是否发送。",
   "ResetSettings": "重置设置",
   "ResetSettingsConfirmation": "你确定要重置 **全部** AywGram 设置到默认吗?",
   "DisableColorfulCover": "禁用自适应颜色",

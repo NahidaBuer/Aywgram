@@ -391,7 +391,6 @@ public:
 	[[nodiscard]] MessageMenuPlacement messageMenuPlacement(
 		const std::string &id,
 		MessageMenuPlacement fallback = MessageMenuPlacement::Normal) const;
-	[[nodiscard]] bool crashReporting() const { return _crashReporting.current(); }
 	[[nodiscard]] int avatarCorners() const { return _avatarCorners.current(); }
 	[[nodiscard]] bool singleCornerRadius() const { return _singleCornerRadius.current(); }
 	[[nodiscard]] bool streamerMode() const { return _streamerMode.current(); }
@@ -498,7 +497,6 @@ public:
 		const std::string &id,
 		MessageMenuPlacement placement);
 	void resetMessageMenuPlacements();
-	void setCrashReporting(bool val);
 	void setAvatarCorners(int val);
 	void setSingleCornerRadius(bool val);
 	void setStreamerMode(bool val);
@@ -694,8 +692,6 @@ public:
 	[[nodiscard]] rpl::producer<bool> inlineBotConsentValue() const { return _inlineBotConsent.value(); }
 	[[nodiscard]] rpl::producer<bool> autoTranslateChatsValue() const { return _autoTranslateChats.value(); }
 	[[nodiscard]] rpl::producer<bool> autoTranslateChatsChanges() const { return _autoTranslateChats.changes(); }
-	[[nodiscard]] rpl::producer<bool> crashReportingValue() const { return _crashReporting.value(); }
-	[[nodiscard]] rpl::producer<bool> crashReportingChanges() const { return _crashReporting.changes(); }
 	[[nodiscard]] rpl::producer<int> avatarCornersValue() const { return _avatarCorners.value(); }
 	[[nodiscard]] rpl::producer<int> avatarCornersChanges() const { return _avatarCorners.changes(); }
 	[[nodiscard]] rpl::producer<bool> singleCornerRadiusValue() const { return _singleCornerRadius.value(); }
@@ -811,7 +807,6 @@ private:
 	rpl::variable<bool> _messageMenuQuickLabels = false;
 	nlohmann::json _linkRules = nlohmann::json::object();
 	std::map<std::string, MessageMenuPlacement> _messageMenuPlacements;
-	rpl::variable<bool> _crashReporting = true;
 	rpl::variable<int> _avatarCorners = 23;
 	rpl::variable<bool> _singleCornerRadius = false;
 	rpl::variable<bool> _streamerMode = false;

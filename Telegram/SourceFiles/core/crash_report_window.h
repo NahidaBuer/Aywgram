@@ -11,10 +11,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtWidgets/QLineEdit>
 #include <QtWidgets/QTextEdit>
 #include <QtWidgets/QPushButton>
-#include <QtWidgets/QCheckBox>
-#include <QtNetwork/QNetworkReply>
-#include <QtNetwork/QHttpMultiPart>
-#include <QtNetwork/QNetworkAccessManager>
 
 namespace MTP {
 struct ProxyData;
@@ -66,13 +62,6 @@ public:
 
 };
 
-class PreLaunchCheckbox : public QCheckBox {
-public:
-	PreLaunchCheckbox(QWidget *parent);
-	void setText(const QString &text);
-
-};
-
 class NotStartedWindow : public PreLaunchWindow {
 public:
 	NotStartedWindow();
@@ -102,15 +91,9 @@ public:
 	}
 
 	void saveReport();
-	void sendReport();
 
 	void networkSettings();
 	void processContinue();
-
-	void checkingFinished();
-	void sendingError(QNetworkReply::NetworkError e);
-	void sendingFinished();
-	void sendingProgress(qint64 uploaded, qint64 total);
 
 	void updateRetry();
 	void updateSkip();
@@ -121,46 +104,28 @@ protected:
 
 private:
 	void proxyUpdated();
-	QString minidumpFileName();
 	void updateControls();
 
-	void excludeReportUsername();
-
-	QString getReportField(const QLatin1String &name, const QLatin1String &prefix);
-	void addReportFieldPart(const QLatin1String &name, const QLatin1String &prefix, QHttpMultiPart *multipart);
+	QString getReportField(const QLatin1String &prefix);
 
 	QByteArray _dumpraw;
 
-	PreLaunchLabel _label, _pleaseSendReport, _yourReportName, _minidump;
+	PreLaunchLabel _label, _reportAvailable, _yourReportName, _minidump;
 	PreLaunchLog _report;
-	PreLaunchButton _send, _sendSkip, _networkSettings, _continue, _showReport, _saveReport, _getApp;
-	PreLaunchCheckbox _includeUsername;
+	PreLaunchButton _networkSettings, _continue, _showReport, _saveReport, _getApp;
 
-	QString _minidumpName, _minidumpFull, _reportText;
-	QString _reportUsername, _reportTextNoUsername;
-	QByteArray getCrashReportRaw() const;
+	QString _minidumpName, _reportText;
 
 	bool _reportShown, _reportSaved;
 
-	enum SendingState {
-		SendingNoReport,
-		SendingUpdateCheck,
-		SendingNone,
-		SendingTooOld,
-		SendingTooMany,
-		SendingUnofficial,
-		SendingProgress,
-		SendingUploading,
-		SendingFail,
-		SendingDone,
+	enum ReportState {
+		ReportNone,
+		ReportUpdateCheck,
+		ReportAvailable,
 	};
-	SendingState _sendingState;
+	ReportState _reportState;
 
 	PreLaunchLabel _updating;
-
-	QNetworkAccessManager _sendManager;
-	QNetworkReply *_checkReply = nullptr;
-	QNetworkReply *_sendReply = nullptr;
 
 	enum UpdatingState {
 		UpdatingNone,
