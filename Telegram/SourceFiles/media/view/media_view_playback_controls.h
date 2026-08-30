@@ -80,7 +80,7 @@ public:
 	PlaybackControls(
 		QWidget *parent,
 		not_null<Delegate*> delegate,
-		Options options = {});
+		Options options);
 	~PlaybackControls();
 
 	void showAnimated();
