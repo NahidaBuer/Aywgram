@@ -9098,7 +9098,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_SuggestGhostModeStoryActionTextNo" = "No";
 "ayu_FirstLaunchAlert" = "AywGram is **free** software and should only be obtained from our **official sources**. You assume **full responsibility** for using this application with your account.";
 "ayu_LocalPremiumAlert" = "With local Telegram Premium, you won't get increased limits or be able to send animated emojis. Other users won't see your premium emoji and quote color.";
-"ayu_ExteraChatsAlert" = "Don't ask questions related to **AywGram** in **exteraGram** chats. Use the support links in AywGram settings instead.";
 "ayu_HideNextViewsDescriptionAyu" = "Hide my views forever, until Ghost Mode is disabled.";
 "ayu_EnableGhostModeStories" = "Enable Ghost Mode";
 "ayu_GhostModeIsActive" = "Ghost Mode is Active";
@@ -9199,9 +9198,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_SessionTerminated" = "Session **{item}** was terminated. You may still browse cached messages.";
 "ayu_InvalidConnectionLayerNote" = "You should re-login due to an error during the update.";
 "ayu_LocalPremiumNotice" = "You're using **local** Telegram Premium.\nIt **won't** give you any benefits.\n**Enjoy the star near your nickname!**";
-"ayu_DeveloperPopup" = "**{item}** is a member of the **exteraGram** development team.";
+"ayu_DeveloperPopup" = "**{item}** is a member of an **upstream project** development team.";
 "ayu_SupporterPopup" = "**{item}** supported an upstream project's development and received a badge.";
-"ayu_OfficialResourcePopup" = "**{item}** is an official resource recognized by upstream data.";
+"ayu_OfficialResourcePopup" = "**{item}** is an official resource of an **upstream project**.";
 "ayu_MutualContactInfo" = "This contact is mutual.";
 "ayu_SessionInfoOfficialApp" = "Official app";
 "ayu_SettingsWatermark" = "AywGram is developed and maintained by NahidaBuer.";

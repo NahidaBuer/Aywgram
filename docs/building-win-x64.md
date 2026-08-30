@@ -17,7 +17,7 @@ Windows 构建使用 **Visual Studio 2026** 和 **10.0.26100.0** Windows SDK。
 
 ```text
 BuildPath\
-├─ AyuGramDesktop\
+├─ AywGram\
 ├─ Libraries\
 └─ ThirdParty\
 ```
@@ -56,13 +56,13 @@ echo %VCToolsVersion%
 
 ```bat
 cd /d D:\TBuild
-git clone --recursive <本仓库地址> AyuGramDesktop
+git clone --recursive <本仓库地址> AywGram
 ```
 
 本仓库当前固定使用 Qt 6.11.1。只准备 x64 Release 构建所需的 Qt 6 和第三方库：
 
 ```bat
-AyuGramDesktop\Telegram\build\prepare\win.bat skip-debug qt6
+AywGram\Telegram\build\prepare\win.bat skip-debug qt6
 ```
 
 `prepare` 会下载 Qt 源码和其他依赖、应用 Telegram 补丁，并将静态 Qt 安装到
@@ -75,18 +75,18 @@ AyuGramDesktop\Telegram\build\prepare\win.bat skip-debug qt6
 进入仓库的 `Telegram` 目录，使用自己的 Telegram API 凭据配置 x64 工程：
 
 ```bat
-cd /d D:\TBuild\AyuGramDesktop\Telegram
+cd /d D:\TBuild\AywGram\Telegram
 configure.bat x64 qt6 -D TDESKTOP_API_ID=YOUR_API_ID -D TDESKTOP_API_HASH=YOUR_API_HASH
 ```
 
-可以在 Visual Studio 2026 中打开 `BuildPath\AyuGramDesktop\out\Telegram.slnx`，选择
+可以在 Visual Studio 2026 中打开 `BuildPath\AywGram\out\Telegram.slnx`，选择
 `Telegram` 目标和 Release 配置；也可以直接使用 Visual Studio 随附的 CMake：
 
 ```bat
 "C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" --build ..\out --config Release --target Telegram
 ```
 
-构建产物位于 `BuildPath\AyuGramDesktop\out\Release\AywGram.exe`。不要提交 `out`、
+构建产物位于 `BuildPath\AywGram\out\Release\AywGram.exe`。不要提交 `out`、
 `Libraries`、`ThirdParty` 或其中的缓存文件。
 
 ## Qt Visual Studio Tools

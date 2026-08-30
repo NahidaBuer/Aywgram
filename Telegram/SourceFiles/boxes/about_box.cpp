@@ -42,7 +42,7 @@ rpl::producer<TextWithEntities> Text() {
 		lt_gpl_link,
 		rpl::single(Ui::Text::Link(
 			"GNU GPL",
-			"https://github.com/NahidaBuer/AywGram/blob/dev/LICENSE")),
+			"https://github.com/NahidaBuer/AywGram/blob/main/LICENSE")),
 		lt_github_link,
 		rpl::single(Ui::Text::Link(
 			"GitHub",
@@ -88,12 +88,12 @@ void AboutBox(not_null<Ui::GenericBox*> box, Window::SessionController* controll
 
 	box->addButton(tr::lng_close(), [=] { box->closeBox(); });
 	box->addLeftButton(
-		rpl::single(QString("@AyuGramReleases")),
+		rpl::single(u"@AywGram"_q),
 		[box, controller]
 		{
 			box->closeBox();
 			controller->showPeerByLink(Window::PeerByLinkInfo{
-				.usernameOrId = QString("ayugramreleases"),
+				.usernameOrId = u"AywGram"_q,
 			});
 		});
 
@@ -262,4 +262,3 @@ void ArchiveHintBox(
 		box->addButton(std::move(button));
 	}
 }
-

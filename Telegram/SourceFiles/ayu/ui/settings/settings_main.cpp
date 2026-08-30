@@ -178,10 +178,10 @@ void BuildLinks(SectionBuilder &builder) {
 		.id = u"ayu/website"_q,
 		.title = tr::ayu_LinksDocumentation(),
 		.icon = { &st::menuIconIpAddress },
-		.label = rpl::single(QString("docs.ayugram.one")),
+		.label = rpl::single(u"GitHub Docs"_q),
 		.onClick = [=] {
 			QDesktopServices::openUrl(
-				QString("https://docs.ayugram.one"));
+				u"https://github.com/NahidaBuer/AywGram/tree/main/docs"_q);
 		},
 	});
 
