@@ -18,6 +18,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/version.h"
 #include "info/info_controller.h"
 #include "info/info_memento.h"
+#include "main/main_session.h"
 #include "mainwindow.h"
 #include "platform/platform_specific.h"
 #include "window/window_controller.h"
@@ -284,7 +285,7 @@ HttpChecker::HttpChecker(bool testing) : Checker(testing) {
 void HttpChecker::start() {
 	auto url = QUrl(QString::fromLatin1(kMetadataUrl));
 	auto query = QUrlQuery();
-	const auto period = std::max(UpdateDelayConstPart, 1);
+	const auto period = std::max(int(UpdateDelayConstPart), 1);
 	query.addQueryItem(
 		u"check"_q,
 		QString::number(base::unixtime::now() / period));
