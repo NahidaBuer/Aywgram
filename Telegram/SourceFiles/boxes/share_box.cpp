@@ -1948,6 +1948,7 @@ Api::SendAction ForwardSubmission::action(
 	auto result = Api::SendAction(
 		current->data().history(target.peerId),
 		resolveOptions(target, std::move(options)));
+	result.replyTo.messageId = FullMsgId(target.peerId, target.topicRootId);
 	result.replyTo.topicRootId = target.topicRootId;
 	result.replyTo.monoforumPeerId = target.monoforumPeerId;
 	result.clearDraft = false;
