@@ -69,9 +69,7 @@ void BuildVersionInfo(SectionBuilder &builder) {
 		return {
 			.widget = object_ptr<Ui::FlatLabel>(
 				ctx.container,
-				rpl::single(
-					QString("AywGram Desktop v")
-					+ QString::fromLatin1(AppVersionStr)),
+				rpl::single(u"AywGram Desktop v"_q + AppVersionString()),
 				st::boxTitle),
 			.align = style::al_top,
 		};

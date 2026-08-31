@@ -159,31 +159,6 @@ void ComputeExternalUpdater() {
 	}
 }
 
-QString InstallBetaVersionsSettingPath() {
-	return cWorkingDir() + u"tdata/devversion"_q;
-}
-
-void WriteInstallBetaVersionsSetting() {
-	QFile f(InstallBetaVersionsSettingPath());
-	if (f.open(QIODevice::WriteOnly)) {
-		f.write(cInstallBetaVersion() ? "1" : "0");
-	}
-}
-
-void ComputeInstallBetaVersions() {
-	const auto installBetaSettingPath = InstallBetaVersionsSettingPath();
-	if (cAlphaVersion()) {
-		cSetInstallBetaVersion(false);
-	} else if (QFile::exists(installBetaSettingPath)) {
-		QFile f(installBetaSettingPath);
-		if (f.open(QIODevice::ReadOnly)) {
-			cSetInstallBetaVersion(f.read(1) != "0");
-		}
-	} else if (AppBetaVersion) {
-		WriteInstallBetaVersionsSetting();
-	}
-}
-
 void ComputeInstallationTag() {
 	InstallationTag = 0;
 	auto file = QFile(cWorkingDir() + u"tdata/usertag"_q);
@@ -248,52 +223,10 @@ bool CheckPortableVersionFolder() {
 	}
 
 	const auto portable = cExeDir() + u"TelegramForcePortable"_q;
-	QFile key(portable + u"/tdata/alpha"_q);
-	if (cAlphaVersion()) {
-		Assert(*AlphaPrivateKey != 0);
-
-		cForceWorkingDir(portable);
-		QDir().mkpath(cWorkingDir() + u"tdata"_q);
-		cSetAlphaPrivateKey(QByteArray(AlphaPrivateKey));
-		if (!key.open(QIODevice::WriteOnly)) {
-			LOG(("FATAL: Could not open '%1' for writing private key!"
-				).arg(key.fileName()));
-			return false;
-		}
-		QDataStream dataStream(&key);
-		dataStream.setVersion(QDataStream::Qt_5_3);
-		dataStream << quint64(cRealAlphaVersion()) << cAlphaPrivateKey();
-		return true;
-	}
 	if (!QDir(portable).exists()) {
 		return true;
 	}
 	cForceWorkingDir(portable);
-	if (!key.exists()) {
-		return true;
-	}
-
-	if (!key.open(QIODevice::ReadOnly)) {
-		LOG(("FATAL: could not open '%1' for reading private key. "
-			"Delete it or reinstall private alpha version."
-			).arg(key.fileName()));
-		return false;
-	}
-	QDataStream dataStream(&key);
-	dataStream.setVersion(QDataStream::Qt_5_3);
-
-	quint64 v;
-	QByteArray k;
-	dataStream >> v >> k;
-	if (dataStream.status() != QDataStream::Ok || k.isEmpty()) {
-		LOG(("FATAL: '%1' is corrupted. "
-			"Delete it or reinstall private alpha version."
-			).arg(key.fileName()));
-		return false;
-	}
-	cSetAlphaVersion(AppVersion * 1000ULL);
-	cSetAlphaPrivateKey(k);
-	cSetRealAlphaVersion(v);
 	return true;
 }
 
@@ -451,16 +384,11 @@ void Launcher::workingFolderReady() {
 
 	ComputeDebugMode();
 	ComputeExternalUpdater();
-	ComputeInstallBetaVersions();
 	ComputeInstallationTag();
 }
 
 void Launcher::writeDebugModeSetting() {
 	WriteDebugModeSetting();
-}
-
-void Launcher::writeInstallBetaVersionsSetting() {
-	WriteInstallBetaVersionsSetting();
 }
 
 bool Launcher::checkPortableVersionFolder() {

@@ -132,3 +132,25 @@ PRIVATE
 set_target_properties(test_ayu_cloud_codec PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 )
+
+add_executable(test_update_metadata EXCLUDE_FROM_ALL)
+init_target(test_update_metadata "(tests)")
+
+target_include_directories(test_update_metadata PRIVATE ${src_loc})
+
+nice_target_sources(test_update_metadata ${src_loc}
+PRIVATE
+    core/update_metadata.cpp
+    core/update_metadata.h
+    tests/test_update_metadata.cpp
+)
+
+target_link_libraries(test_update_metadata
+PRIVATE
+    desktop-app::lib_base
+    desktop-app::external_qt
+)
+
+set_target_properties(test_update_metadata PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+)

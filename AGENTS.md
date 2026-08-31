@@ -72,6 +72,7 @@ Treat a successful build as compilation evidence, not UI or release approval.
 - On Windows, keep project text files with CRLF line endings.
 - Do not save source, header, build/config, style, or localization files as UTF-8 with BOM. Use UTF-8 without BOM.
 - When rewriting project text files for normalization, preserve file content otherwise and do not introduce a BOM.
+- Never hard-wrap Markdown prose or list items to an 80-column limit. Keep each paragraph or list item on one line unless Markdown syntax requires a deliberate line break.
 
 ## Commits
 

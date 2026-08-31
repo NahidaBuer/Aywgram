@@ -101,7 +101,7 @@ void AboutBox(not_null<Ui::GenericBox*> box, Window::SessionController* controll
 }
 
 QString currentVersionText() {
-	auto result = QString::fromLatin1(AppVersionStr);
+	auto result = AppVersionString();
 	if (cAlphaVersion()) {
 		result += u" alpha %1"_q.arg(cAlphaVersion() % 1000);
 	} else if (AppBetaVersion) {

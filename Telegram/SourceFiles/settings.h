@@ -30,10 +30,7 @@ inline bool rtl() {
 	return style::RightToLeft();
 }
 
-DeclareSetting(bool, InstallBetaVersion);
 DeclareSetting(uint64, AlphaVersion);
-DeclareSetting(uint64, RealAlphaVersion);
-DeclareSetting(QByteArray, AlphaPrivateKey);
 
 DeclareSetting(bool, AutoStart);
 DeclareSetting(bool, StartMinimized);

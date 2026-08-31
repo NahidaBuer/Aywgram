@@ -40,7 +40,6 @@ public:
 	bool validateCustomWorkingDir();
 	void workingFolderReady();
 	void writeDebugModeSetting();
-	void writeInstallBetaVersionsSetting();
 
 	virtual ~Launcher();
 

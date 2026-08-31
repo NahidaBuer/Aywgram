@@ -17,7 +17,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/platform/base_platform_info.h"
 #include "base/random.h"
 #include "ui/power_saving.h"
-#include "core/update_checker.h"
 #include "core/file_location.h"
 #include "core/application.h"
 #include "core/core_settings.h"
@@ -528,68 +527,6 @@ void rewriteSettingsIfNeeded() {
 	if (_oldSettingsVersion < AppVersion || _settingsRewriteNeeded) {
 		writeSettings();
 	}
-}
-
-const QString &AutoupdatePrefix(const QString &replaceWith = {}) {
-	Expects(!Core::UpdaterDisabled());
-
-	static auto value = QString();
-	if (!replaceWith.isEmpty()) {
-		value = replaceWith;
-	}
-	return value;
-}
-
-QString autoupdatePrefixFile() {
-	Expects(!Core::UpdaterDisabled());
-
-	return cWorkingDir() + "tdata/prefix";
-}
-
-const QString &readAutoupdatePrefixRaw() {
-	Expects(!Core::UpdaterDisabled());
-
-	const auto &result = AutoupdatePrefix();
-	if (!result.isEmpty()) {
-		return result;
-	}
-	QFile f(autoupdatePrefixFile());
-	if (f.open(QIODevice::ReadOnly)) {
-		const auto value = QString::fromUtf8(f.readAll());
-		if (!value.isEmpty()) {
-			return AutoupdatePrefix(value);
-		}
-	}
-	return AutoupdatePrefix("https://update.ayugram.one/");
-}
-
-void writeAutoupdatePrefix(const QString &prefix) {
-	if (Core::UpdaterDisabled()) {
-		return;
-	}
-
-	const auto current = readAutoupdatePrefixRaw();
-    const auto fixedPrefix = QString::fromStdString("https://update.ayugram.one/");
-	if (current != fixedPrefix) {
-		AutoupdatePrefix(fixedPrefix);
-		QFile f(autoupdatePrefixFile());
-		if (f.open(QIODevice::WriteOnly)) {
-			f.write(fixedPrefix.toUtf8());
-			f.close();
-		}
-		if (cAutoUpdate()) {
-			Core::UpdateChecker checker;
-			checker.start();
-		}
-	}
-}
-
-QString readAutoupdatePrefix() {
-	Expects(!Core::UpdaterDisabled());
-
-	static const auto RegExp = QRegularExpression("/+$");
-	auto result = readAutoupdatePrefixRaw();
-	return result.replace(RegExp, QString());
 }
 
 void writeBackground(const Data::WallPaper &paper, const QImage &image) {

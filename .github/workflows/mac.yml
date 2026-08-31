@@ -15,6 +15,14 @@ on:
         required: false
         default: ''
         type: string
+      notify:
+        required: false
+        default: true
+        type: boolean
+      update_metadata:
+        required: false
+        default: false
+        type: boolean
   workflow_dispatch:
     inputs:
       arch:
@@ -24,7 +32,6 @@ on:
         type: choice
         options:
           - arm64
-          - x86_64
       distribute:
         description: Upload to an existing prerelease and notify Telegram.
         required: true
@@ -34,6 +41,11 @@ on:
         description: Existing prerelease tag; required when distribute is enabled.
         required: false
         type: string
+      notify:
+        description: Notify the Telegram channel after uploading.
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -55,10 +67,11 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          NOTIFY_TELEGRAM: ${{ inputs.notify }}
         run: |
           set -euo pipefail
           case "$ARCH" in
-            arm64|x86_64) ;;
+            arm64) ;;
             *) echo "::error::Unsupported mac architecture: $ARCH"; exit 1;;
           esac
           if [ "$DISTRIBUTE" != true ]; then
@@ -68,18 +81,19 @@ jobs:
             echo '::error::release_tag is required when distribute is enabled.'
             exit 1
           fi
-          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHANNEL_ID" ]; then
+          if [ "$NOTIFY_TELEGRAM" = true ] \
+            && { [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHANNEL_ID" ]; }; then
             echo '::error::Configure TELEGRAM_BOT_TOKEN and TELEGRAM_CHANNEL_ID repository secrets.'
             exit 1
           fi
-          is_prerelease="$(
+          release_state="$(
             gh release view "$RELEASE_TAG" \
               --repo "$GH_REPO" \
-              --json isPrerelease \
-              --jq .isPrerelease
+              --json isDraft,isPrerelease \
+              --jq '.isDraft or .isPrerelease'
           )"
-          if [ "$is_prerelease" != true ]; then
-            echo "::error::Release $RELEASE_TAG is not a prerelease."
+          if [ "$release_state" != true ]; then
+            echo "::error::Release $RELEASE_TAG is neither draft nor prerelease."
             exit 1
           fi
 
@@ -102,6 +116,7 @@ jobs:
       - name: Clone.
         uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.release_tag || github.ref }}
           submodules: recursive
           path: ${{ env.REPO_NAME }}
 
@@ -153,8 +168,18 @@ jobs:
       - name: Clone.
         uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.release_tag || github.ref }}
           submodules: recursive
           path: ${{ env.REPO_NAME }}
+
+      - name: Resolve release version.
+        id: release_version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          cd "$REPO_NAME"
+          python3 .github/scripts/release_version.py --tag "$RELEASE_TAG" --apply --github-output "$GITHUB_OUTPUT"
 
       - name: Libraries cache.
         id: cache-libs
@@ -195,11 +220,23 @@ jobs:
         run: |
           set -euo pipefail
           cd "$REPO_NAME"
-          VERSION=$(grep 'AppVersionStr' Telegram/SourceFiles/core/version.h | cut -d '"' -f 2)
+          VERSION="${{ steps.release_version.outputs.version_name }}"
           ASSET_NAME="AywGram-v${VERSION}-mac-${{ inputs.arch }}.zip"
           ASSET_PATH="$GITHUB_WORKSPACE/dist/$ASSET_NAME"
           mkdir -p "$GITHUB_WORKSPACE/dist"
           ditto -c -k --sequesterRsrc --keepParent out/Release/AywGram.app "$ASSET_PATH"
+          test -x out/Release/AywGram.app/Contents/MacOS/AywGram
+          test -x out/Release/AywGram.app/Contents/Frameworks/Updater
+          if [ "${{ inputs.update_metadata }}" = true ]; then
+            python3 .github/scripts/update_release_metadata.py fragment \
+              --target mac-${{ inputs.arch }} \
+              --app-version "${{ steps.release_version.outputs.app_version }}" \
+              --revision "${{ steps.release_version.outputs.revision }}" \
+              --version-name "$VERSION" \
+              --release "${{ inputs.release_tag }}" \
+              --asset "$ASSET_PATH" \
+              --output "$GITHUB_WORKSPACE/dist/update-fragment-mac-${{ inputs.arch }}.json"
+          fi
           echo "asset_name=$ASSET_NAME" >> "$GITHUB_OUTPUT"
           echo "asset_path=$ASSET_PATH" >> "$GITHUB_OUTPUT"
 
@@ -223,4 +260,13 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
           TELEGRAM_TAGS: '#aywgram #mac #ci'
+          NOTIFY_TELEGRAM: ${{ inputs.notify }}
         run: bash "$REPO_NAME/.github/scripts/publish-prerelease.sh"
+
+      - uses: actions/upload-artifact@v7
+        if: inputs.update_metadata == true
+        name: Upload update metadata fragment.
+        with:
+          name: update-fragment-mac-${{ inputs.arch }}
+          path: dist/update-fragment-mac-${{ inputs.arch }}.json
+          retention-days: 1

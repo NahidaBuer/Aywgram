@@ -68,18 +68,13 @@ if %Build64% neq 0 (
 
 FOR /F "tokens=1,2* delims= " %%i in (%FullScriptPath%version) do set "%%i=%%j"
 
-set "VersionForPacker=%AppVersion%"
 if %AlphaVersion% neq 0 (
-  set "AppVersion=%AlphaVersion%"
-  set "AppVersionStrFull=%AppVersionStr%_%AlphaVersion%"
-  set "AlphaBetaParam=-alpha %AlphaVersion%"
-  set "AlphaKeyFile=talpha_%AlphaVersion%_key"
+  echo Closed alpha update packages are no longer supported.
+  exit /b 1
 ) else (
   if %BetaChannel% neq 0 (
-    set "AlphaBetaParam=-beta"
     set "AppVersionStrFull=%AppVersionStr%.beta"
   ) else (
-    set "AlphaBetaParam="
     set "AppVersionStrFull=%AppVersionStr%"
   )
 )
@@ -108,17 +103,17 @@ set "HomePath=%FullScriptPath%.."
 set "ResourcesPath=%HomePath%\Resources"
 set "SolutionPath=%HomePath%\..\out"
 if %Build64% neq 0 (
-  set "UpdateFile=tx64upd%AppVersion%"
+  set "UpdateFile=AywGram-v%AppVersionStr%-windows-x86_64.zip"
   set "SetupFile=tsetup-x64.%AppVersionStrFull%.exe"
   set "PortableFile=tportable-x64.%AppVersionStrFull%.zip"
   set "DumpSymsPath=%SolutionPath%\..\..\Libraries\win64\breakpad\src\tools\windows\dump_syms\Release\dump_syms.exe"
 ) else if %BuildARM% neq 0 (
-  set "UpdateFile=tarm64upd%AppVersion%"
+  set "UpdateFile=AywGram-v%AppVersionStr%-windows-arm64.zip"
   set "SetupFile=tsetup-arm64.%AppVersionStrFull%.exe"
   set "PortableFile=tportable-arm64.%AppVersionStrFull%.zip"
   set "DumpSymsPath=%SolutionPath%\..\..\Libraries\breakpad\src\tools\windows\dump_syms\Release\dump_syms.exe"
 ) else (
-  set "UpdateFile=tupdate%AppVersion%"
+  set "UpdateFile=AywGram-v%AppVersionStr%-windows-x86.zip"
   set "SetupFile=tsetup.%AppVersionStrFull%.exe"
   set "PortableFile=tportable.%AppVersionStrFull%.zip"
   set "DumpSymsPath=%SolutionPath%\..\..\Libraries\breakpad\src\tools\windows\dump_syms\Release\dump_syms.exe"
@@ -126,7 +121,7 @@ if %Build64% neq 0 (
 set "ReleasePath=%SolutionPath%\Release"
 set "DeployPath=%ReleasePath%\deploy\%AppVersionStrMajor%\%AppVersionStrFull%"
 set "SignPath=%HomePath%\..\..\DesktopPrivate\Sign.bat"
-set "BinaryName=Telegram"
+set "BinaryName=AywGram"
 set "DropboxSymbolsPath=Y:\Telegram\symbols"
 set "DropboxSymbolsPathFallback=%HomePath%\..\..\Dropbox\Telegram\symbols"
 set "FinalReleasePath=Z:\Projects\backup\tdesktop"
@@ -156,16 +151,7 @@ if %BuildUWP% neq 0 (
     exit /b 1
   )
 )
-if %AlphaVersion% neq 0 (
-  if exist %DeployPath%\ (
-    echo Deploy folder for version %AppVersionStr% already exists!
-    exit /b 1
-  )
-  if exist %ReleasePath%\%AlphaKeyFile% (
-    echo Alpha version key file for version %AppVersion% already exists!
-    exit /b 1
-  )
-) else (
+
   if exist %ReleasePath%\deploy\%AppVersionStrMajor%\%AppVersionStr%.alpha\ (
     echo Deploy folder for version %AppVersionStr%.alpha already exists!
     exit /b 1
@@ -178,11 +164,10 @@ if %AlphaVersion% neq 0 (
     echo Deploy folder for version %AppVersionStr% already exists!
     exit /b 1
   )
-  if exist %ReleasePath%\tupdate%AppVersion% (
+  if exist %ReleasePath%\%UpdateFile% (
     echo Update file for version %AppVersion% already exists!
     exit /b 1
   )
-)
 
 cd "%HomePath%"
 
@@ -219,23 +204,9 @@ if %BuildUWP% equ 0 (
   )
 
   if %BuildARM% neq 0 (
-    call Packer.exe -version %VersionForPacker% -path %BinaryName%.exe -path Updater.exe -target %BuildTarget% %AlphaBetaParam% || goto error
+    tar.exe -a -c -f "%UpdateFile%" "%BinaryName%.exe" "Updater.exe" || goto error
   ) else (
-    call Packer.exe -version %VersionForPacker% -path %BinaryName%.exe -path Updater.exe -path "modules\%Platform%\d3d\d3dcompiler_47.dll" -target %BuildTarget% %AlphaBetaParam% || goto error
-  )
-
-  if %AlphaVersion% neq 0 (
-    if not exist "%ReleasePath%\%AlphaKeyFile%" (
-      echo Alpha version key file not found!
-      exit /b 1
-    )
-
-    FOR /F "tokens=1* delims= " %%i in (%ReleasePath%\%AlphaKeyFile%) do set "AlphaSignature=%%i"
-  )
-
-  if %AlphaVersion% neq 0 (
-    set "UpdateFile=!UpdateFile!_!AlphaSignature!"
-    set "PortableFile=talpha!AlphaVersion!_!AlphaSignature!.zip"
+    tar.exe -a -c -f "%UpdateFile%" "%BinaryName%.exe" "Updater.exe" "modules" || goto error
   )
 ) else (
   call :sign "StartupTask.exe"
@@ -283,7 +254,7 @@ if %BuildUWP% neq 0 (
   move "%ReleasePath%\%BinaryName%.%Platform%.appx" "%DeployPath%\"
   move "%ReleasePath%\%BinaryName%.exe" "%DeployPath%\"
 
-  if "%AlphaBetaParam%" equ "" (
+  if %AlphaVersion% equ 0 (
     move "%ReleasePath%\AppX" "%DeployPath%\AppX"
   ) else (
     echo Leaving result in out\Release\AppX_arch for now..
@@ -304,11 +275,7 @@ if %BuildUWP% neq 0 (
   move "%ReleasePath%\Updater.exe" "%DeployPath%\" || goto error
   move "%ReleasePath%\%BinaryName%.pdb" "%DeployPath%\" || goto error
   move "%ReleasePath%\Updater.pdb" "%DeployPath%\" || goto error
-  if %AlphaVersion% equ 0 (
-    move "%ReleasePath%\%SetupFile%" "%DeployPath%\" || goto error
-  ) else (
-    move "%ReleasePath%\%AlphaKeyFile%" "%DeployPath%\" || goto error
-  )
+  move "%ReleasePath%\%SetupFile%" "%DeployPath%\" || goto error
   move "%ReleasePath%\%UpdateFile%" "%DeployPath%\" || goto error
 
   cd "%DeployPath%"
@@ -333,9 +300,7 @@ if %BuildUWP% equ 0 (
 
   if not exist "%DeployPath%\%UpdateFile%" goto error
   if not exist "%DeployPath%\%PortableFile%" goto error
-  if %AlphaVersion% equ 0 (
-    if not exist "%DeployPath%\%SetupFile%" goto error
-  )
+  if not exist "%DeployPath%\%SetupFile%" goto error
   if not exist "%DeployPath%\%BinaryName%.pdb" goto error
   if not exist "%DeployPath%\Updater.exe" goto error
   if not exist "%DeployPath%\Updater.pdb" goto error
@@ -343,11 +308,7 @@ if %BuildUWP% equ 0 (
 
   xcopy "%DeployPath%\%UpdateFile%" "%FinalDeployPath%\" /Y
   xcopy "%DeployPath%\%PortableFile%" "%FinalDeployPath%\" /Y
-  if %AlphaVersion% equ 0 (
-    xcopy "%DeployPath%\%SetupFile%" "%FinalDeployPath%\" /Y
-  ) else (
-    xcopy "%DeployPath%\%AlphaKeyFile%" "%FinalDeployPath%\" /Y
-  )
+  xcopy "%DeployPath%\%SetupFile%" "%FinalDeployPath%\" /Y
 )
 
 echo Version %AppVersionStrFull% is ready!

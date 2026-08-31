@@ -9,10 +9,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "mtproto/dedicated_file_loader.h"
 
-namespace Main {
-class Session;
-} // namespace Main
-
 namespace Core {
 
 bool UpdaterDisabled();
@@ -41,11 +37,9 @@ public:
 	void stop();
 	void test();
 
-	void setMtproto(base::weak_ptr<Main::Session> session);
-
 	State state() const;
-	int already() const;
-	int size() const;
+	int64 already() const;
+	int64 size() const;
 	bool percent() const;
 
 private:
@@ -55,6 +49,5 @@ private:
 
 bool checkReadyUpdate();
 void UpdateApplication();
-QString countAlphaVersionSignature(uint64 version);
 
 } // namespace Core

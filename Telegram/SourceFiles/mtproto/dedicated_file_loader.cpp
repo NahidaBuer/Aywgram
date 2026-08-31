@@ -152,10 +152,12 @@ WeakInstance::~WeakInstance() {
 }
 
 AbstractDedicatedLoader::AbstractDedicatedLoader(
-	const QString &filepath,
-	int chunkSize)
+		const QString &filepath,
+		int chunkSize,
+		int64 maxFileSize)
 : _filepath(filepath)
-, _chunkSize(chunkSize) {
+, _chunkSize(chunkSize)
+, _maxFileSize(maxFileSize) {
 	progress() | rpl::on_next([=](Progress progress) {
 		QMutexLocker lock(&_sizesMutex);
 		_alreadySize = progress.already;
@@ -220,6 +222,17 @@ void AbstractDedicatedLoader::wipeFolder() {
 	}
 }
 
+bool AbstractDedicatedLoader::wipeOutput() {
+	_output.close();
+	if (!_output.remove() || !_output.open(QIODevice::Append)) {
+		return false;
+	}
+	QMutexLocker lock(&_sizesMutex);
+	_alreadySize = 0;
+	_totalSize = 0;
+	return true;
+}
+
 bool AbstractDedicatedLoader::validateOutput() {
 	if (_filepath.isEmpty()) {
 		return false;
@@ -236,7 +249,7 @@ bool AbstractDedicatedLoader::validateOutput() {
 		return true;
 	}
 	const auto fullSize = info.size();
-	if (fullSize < _chunkSize || fullSize > kMaxFileSize) {
+	if (fullSize < _chunkSize || fullSize > _maxFileSize) {
 		return _output.remove();
 	}
 	const auto goodSize = int64((fullSize % _chunkSize)

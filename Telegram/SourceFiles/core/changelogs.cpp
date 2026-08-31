@@ -108,7 +108,7 @@ void Changelogs::addLocalLogs() {
 		const auto text = tr::lng_new_version_wrap(
 			tr::now,
 			lt_version,
-			QString::fromLatin1(AppVersionStr),
+			AppVersionString(),
 			lt_changes,
 			tr::lng_new_version_minor(tr::now),
 			lt_link,

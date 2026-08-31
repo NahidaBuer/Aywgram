@@ -12,10 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 Qt::LayoutDirection gLangDir = Qt::LeftToRight;
 
-bool gInstallBetaVersion = AppBetaVersion;
 uint64 gAlphaVersion = AppAlphaVersion;
-uint64 gRealAlphaVersion = AppAlphaVersion;
-QByteArray gAlphaPrivateKey;
 
 bool gManyInstance = false;
 QString gKeyFile;

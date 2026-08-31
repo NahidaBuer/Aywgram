@@ -46,10 +46,13 @@ private:
 
 class AbstractDedicatedLoader : public base::has_weak_ptr {
 public:
-	AbstractDedicatedLoader(const QString &filepath, int chunkSize);
-
 	static constexpr auto kChunkSize = 128 * 1024 * 8;
 	static constexpr auto kMaxFileSize = 256 * 1024 * 1024;
+
+	AbstractDedicatedLoader(
+		const QString &filepath,
+		int chunkSize,
+		int64 maxFileSize = kMaxFileSize);
 
 	struct Progress {
 		int64 already = 0;
@@ -67,7 +70,7 @@ public:
 
 	void start();
 	void wipeFolder();
-	void wipeOutput();
+	bool wipeOutput();
 
 	int64 alreadySize() const;
 	int64 totalSize() const;
@@ -96,6 +99,7 @@ private:
 
 	QString _filepath;
 	int _chunkSize = 0;
+	int64 _maxFileSize = 0;
 
 	QFile _output;
 	int64 _alreadySize = 0;

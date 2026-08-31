@@ -8,9 +8,6 @@ required=(
   GH_REPO
   GH_TOKEN
   RELEASE_TAG
-  TELEGRAM_BOT_TOKEN
-  TELEGRAM_CHANNEL_ID
-  TELEGRAM_TAGS
 )
 for name in "${required[@]}"; do
   if [ -z "${!name:-}" ]; then
@@ -28,14 +25,14 @@ if [ "$(basename "$ASSET_PATH")" != "$ASSET_NAME" ]; then
   exit 1
 fi
 
-is_prerelease="$(
+release_state="$(
   gh release view "$RELEASE_TAG" \
     --repo "$GH_REPO" \
-    --json isPrerelease \
-    --jq .isPrerelease
+    --json isDraft,isPrerelease \
+    --jq '.isDraft or .isPrerelease'
 )"
-if [ "$is_prerelease" != true ]; then
-  echo "::error::Release $RELEASE_TAG exists but is not a prerelease."
+if [ "$release_state" != true ]; then
+  echo "::error::Release $RELEASE_TAG is neither draft nor prerelease."
   exit 1
 fi
 
@@ -52,17 +49,26 @@ if [ -z "$download_url" ]; then
   exit 1
 fi
 
-message="<a href=\"${download_url}\">${ASSET_NAME}</a>
+if [ "${NOTIFY_TELEGRAM:-true}" = true ]; then
+  if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] \
+    || [ -z "${TELEGRAM_CHANNEL_ID:-}" ] \
+    || [ -z "${TELEGRAM_TAGS:-}" ]; then
+    echo "::error::Telegram notification variables are required."
+    exit 1
+  fi
+
+  message="<a href=\"${download_url}\">${ASSET_NAME}</a>
 
 ${TELEGRAM_TAGS}"
 
-curl --silent --show-error --fail \
-  --retry 3 \
-  --retry-delay 2 \
-  --data-urlencode "chat_id=${TELEGRAM_CHANNEL_ID}" \
-  --data-urlencode "parse_mode=HTML" \
-  --data-urlencode "disable_web_page_preview=true" \
-  --data-urlencode "text=${message}" \
-  "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
+  curl --silent --show-error --fail \
+    --retry 3 \
+    --retry-delay 2 \
+    --data-urlencode "chat_id=${TELEGRAM_CHANNEL_ID}" \
+    --data-urlencode "parse_mode=HTML" \
+    --data-urlencode "disable_web_page_preview=true" \
+    --data-urlencode "text=${message}" \
+    "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
+fi
 
 echo "Published $ASSET_NAME: $download_url"

@@ -22,7 +22,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/application.h"
 #include "core/core_settings.h"
 #include "core/file_utilities.h"
-#include "core/launcher.h"
 #include "core/update_checker.h"
 #include "data/data_auto_download.h"
 #include "data/data_session.h"
@@ -1082,19 +1081,8 @@ void BuildUpdateSection(SectionBuilder &builder, bool atTop) {
 		});
 	}
 	auto options = (Ui::SlideWrap<Ui::VerticalLayout>*)nullptr;
-	auto install = (Ui::SettingsButton*)nullptr;
 	auto check = (Ui::SettingsButton*)nullptr;
 	builder.scope([&] {
-		install = (cAlphaVersion() || KSandbox::isInside())
-			? nullptr
-			: builder.addButton({
-				.id = u"advanced/install_beta"_q,
-				.title = tr::lng_settings_install_beta(),
-				.st = &st::settingsButtonNoIcon,
-				.toggled = rpl::single(cInstallBetaVersion()),
-				.keywords = { u"beta"_q, u"update"_q, u"version"_q },
-			});
-
 		check = builder.addButton({
 			.id = u"advanced/check_update"_q,
 			.title = tr::lng_settings_check_now(),
@@ -1184,22 +1172,6 @@ void BuildUpdateSection(SectionBuilder &builder, bool atTop) {
 				setDefaultStatus(checker);
 			}
 		}, toggle->lifetime());
-
-		if (install) {
-			install->toggledValue(
-			) | rpl::filter([](bool toggled) {
-				return (toggled != cInstallBetaVersion());
-			}) | rpl::on_next([=](bool toggled) {
-				cSetInstallBetaVersion(toggled);
-				Core::Launcher::Instance().writeInstallBetaVersionsSetting();
-				Core::UpdateChecker checker;
-				checker.stop();
-				if (toggled) {
-					cSetLastUpdateCheck(0);
-				}
-				checker.start();
-			}, toggle->lifetime());
-		}
 
 		Core::UpdateChecker checker;
 
@@ -1442,13 +1414,6 @@ void SetupUpdate(not_null<Ui::VerticalLayout*> container) {
 			container,
 			object_ptr<Ui::VerticalLayout>(container)));
 	const auto inner = options->entity();
-	const auto install = (cAlphaVersion() || KSandbox::isInside())
-		? nullptr
-		: inner->add(object_ptr<Button>(
-			inner,
-			tr::lng_settings_install_beta(),
-			st::settingsButtonNoIcon));
-
 	const auto check = inner->add(object_ptr<Button>(
 		inner,
 		tr::lng_settings_check_now(),
@@ -1537,24 +1502,6 @@ void SetupUpdate(not_null<Ui::VerticalLayout*> container) {
 			setDefaultStatus(checker);
 		}
 	}, toggle->lifetime());
-
-	if (install) {
-		install->toggleOn(rpl::single(cInstallBetaVersion()));
-		install->toggledValue(
-		) | rpl::filter([](bool toggled) {
-			return (toggled != cInstallBetaVersion());
-		}) | rpl::on_next([=](bool toggled) {
-			cSetInstallBetaVersion(toggled);
-			Core::Launcher::Instance().writeInstallBetaVersionsSetting();
-
-			Core::UpdateChecker checker;
-			checker.stop();
-			if (toggled) {
-				cSetLastUpdateCheck(0);
-			}
-			checker.start();
-		}, toggle->lifetime());
-	}
 
 	Core::UpdateChecker checker;
 	options->toggleOn(rpl::combine(

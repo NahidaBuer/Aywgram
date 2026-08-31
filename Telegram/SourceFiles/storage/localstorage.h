@@ -55,9 +55,6 @@ void finish();
 void writeSettings();
 void rewriteSettingsIfNeeded();
 
-void writeAutoupdatePrefix(const QString &prefix);
-QString readAutoupdatePrefix();
-
 void writeBackground(const Data::WallPaper &paper, const QImage &image);
 bool readBackground();
 void moveLegacyBackground(
