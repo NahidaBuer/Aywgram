@@ -374,6 +374,13 @@ void MyWidget::paintEvent(QPaintEvent *e) {
 Keep `Telegram/Resources/langs/zh-hans.lproj/zh-hans.json` in sync when an
 `ayu_` key in `Telegram/Resources/langs/lang.strings` is mirrored there.
 
+Use the repository-owned `.agents/skills/aywgram-i18n` workflow for periodic
+localization audits, English source synchronization, release preparation, and
+localization-heavy upstream integrations. Keep `lang.strings`, bundled
+Simplified Chinese, and the translatable English source current with each
+relevant change; batch other language translations during dedicated i18n
+maintenance instead of requiring every feature change to update every locale.
+
 ### String Definitions
 
 Strings are defined in `Telegram/Resources/langs/lang.strings`:
