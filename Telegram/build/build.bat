@@ -33,35 +33,35 @@ if "%BuildTarget%" equ "win64" (
 
 if %Build64% neq 0 (
   if "%Platform%" neq "x64" (
-    echo Bad environment. Make sure to run from 'x64 Native Tools Command Prompt for VS 2022'.
+    echo Bad environment. Make sure to run from 'x64 Native Tools Command Prompt for VS 2026'.
     exit /b
   ) else if "%VSCMD_ARG_HOST_ARCH%" neq "x64" (
-    echo Bad environment. Make sure to run from 'x64 Native Tools Command Prompt for VS 2022'.
+    echo Bad environment. Make sure to run from 'x64 Native Tools Command Prompt for VS 2026'.
     exit /b
   ) else if "%VSCMD_ARG_TGT_ARCH%" neq "x64" (
-    echo Bad environment. Make sure to run from 'x64 Native Tools Command Prompt for VS 2022'.
+    echo Bad environment. Make sure to run from 'x64 Native Tools Command Prompt for VS 2026'.
     exit /b
   )
 ) else if %BuildARM% neq 0 (
   if "%Platform%" neq "arm64" (
-    echo Bad environment. Make sure to run from 'ARM64 Native Tools Command Prompt for VS 2022'.
+    echo Bad environment. Make sure to run from 'ARM64 Native Tools Command Prompt for VS 2026'.
     exit /b
   ) else if "%VSCMD_ARG_HOST_ARCH%" neq "arm64" (
-    echo Bad environment. Make sure to run from 'ARM64 Native Tools Command Prompt for VS 2022'.
+    echo Bad environment. Make sure to run from 'ARM64 Native Tools Command Prompt for VS 2026'.
     exit /b
   ) else if "%VSCMD_ARG_TGT_ARCH%" neq "arm64" (
-    echo Bad environment. Make sure to run from 'ARM64 Native Tools Command Prompt for VS 2022'.
+    echo Bad environment. Make sure to run from 'ARM64 Native Tools Command Prompt for VS 2026'.
     exit /b
   )
 ) else (
   if "%Platform%" neq "x86" (
-    echo Bad environment. Make sure to run from 'x86 Native Tools Command Prompt for VS 2022'.
+    echo Bad environment. Make sure to run from 'x86 Native Tools Command Prompt for VS 2026'.
     exit /b
   ) else if "%VSCMD_ARG_HOST_ARCH%" neq "x86" (
-    echo Bad environment. Make sure to run from 'x86 Native Tools Command Prompt for VS 2022'.
+    echo Bad environment. Make sure to run from 'x86 Native Tools Command Prompt for VS 2026'.
     exit /b
   ) else if "%VSCMD_ARG_TGT_ARCH%" neq "x86" (
-    echo Bad environment. Make sure to run from 'x86 Native Tools Command Prompt for VS 2022'.
+    echo Bad environment. Make sure to run from 'x86 Native Tools Command Prompt for VS 2026'.
     exit /b
   )
 )

@@ -19,7 +19,7 @@ L:\Telegram\win64\Libraries\    # 64-bit dependencies
 L:\Telegram\ThirdParty\         # Build tools
 ```
 
-Use Visual Studio 2022 and the Native Tools Command Prompt matching the
+Use Visual Studio 2026 and the Native Tools Command Prompt matching the
 target: x64 for `win64`, x86 for `win`, and ARM64 for `winarm`.
 Dependencies are normally in `../win64/Libraries` for 64-bit builds or
 `../Libraries` for 32-bit builds.
