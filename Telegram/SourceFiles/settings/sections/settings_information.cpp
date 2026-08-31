@@ -116,11 +116,11 @@ private:
 	rpl::variable<QString> _text;
 	rpl::event_stream<int> _unreadWidth;
 	rpl::event_stream<int> _premiumWidth;
-	rpl::event_stream<int> _exteraWidth;
+	rpl::event_stream<int> _projectWidth;
 
 	QPointer<Ui::RpWidget> _unread;
 	Info::Profile::Badge _badge;
-	Info::Profile::Badge _exteraBadge;
+	Info::Profile::Badge _projectBadge;
 
 };
 
@@ -142,15 +142,15 @@ ComposedBadge::ComposedBadge(
 		animationPaused,
 		kPlayStatusLimit,
 		Info::Profile::BadgeType::Premium)
-, _exteraBadge(
+, _projectBadge(
 		this,
 		st::infoPeerBadge,
 		session,
-		ExteraBadgeTypeFromPeer(session->user()),
+		ProjectBadgeContentForPeer(session->user()),
 		nullptr,
 		std::move(animationPaused),
 		0,
-		Info::Profile::BadgeType::Extera | Info::Profile::BadgeType::ExteraSupporter | Info::Profile::BadgeType::ExteraCustom) {
+		ProjectBadgeTypes()) {
 	if (hasUnread) {
 		_unread = Badge::CreateUnread(this, rpl::single(
 			rpl::empty
@@ -181,13 +181,13 @@ ComposedBadge::ComposedBadge(
 		}
 	}, lifetime());
 
-	_exteraBadge.updated(
+	_projectBadge.updated(
 	) | rpl::on_next([=] {
-		if (const auto widget = _exteraBadge.widget()) {
+		if (const auto widget = _projectBadge.widget()) {
 			widget->widthValue(
-			) | rpl::start_to_stream(_exteraWidth, widget->lifetime());
+			) | rpl::start_to_stream(_projectWidth, widget->lifetime());
 		} else {
-			_exteraWidth.fire(0);
+			_projectWidth.fire(0);
 		}
 	}, lifetime());
 
@@ -199,15 +199,15 @@ ComposedBadge::ComposedBadge(
 		_premiumWidth.events_starting_with(_badge.widget()
 			? _badge.widget()->width()
 			: 0),
-		_exteraWidth.events_starting_with(_exteraBadge.widget()
-			? _exteraBadge.widget()->width()
+		_projectWidth.events_starting_with(_projectBadge.widget()
+			? _projectBadge.widget()->width()
 			: 0),
 		std::move(textWidth),
 		button->sizeValue()
 	) | rpl::on_next([=](
 			int unreadWidth,
 			int premiumWidth,
-			int exteraWidth,
+			int projectWidth,
 			int textWidth,
 			const QSize &buttonSize) {
 		const auto &st = button->st();
@@ -215,13 +215,13 @@ ComposedBadge::ComposedBadge(
 		const auto textRightPosition = st.padding.left()
 			+ textWidth
 			+ skip;
-		const auto exteraGap = exteraWidth
+		const auto projectGap = projectWidth
 			? st::infoVerifiedCheckPosition.x()
 			: 0;
 		const auto minWidth = unreadWidth
 			+ premiumWidth
-			+ exteraGap
-			+ exteraWidth
+			+ projectGap
+			+ projectWidth
 			+ skip;
 		const auto maxTextWidth = buttonSize.width()
 			- minWidth
@@ -237,7 +237,7 @@ ComposedBadge::ComposedBadge(
 			0,
 			st.padding.top(),
 			buttonSize.height() - st.padding.top());
-		_exteraBadge.move(
+		_projectBadge.move(
 			premiumWidth,
 			st.padding.top(),
 			buttonSize.height() - st.padding.top());

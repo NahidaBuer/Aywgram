@@ -74,15 +74,15 @@ MessagePreview::MessagePreview(
 		FullMsgId(),
 		u"Update wehn?"_q);
 
-	const auto ayugramUser = HistoryView::GenerateUser(
+	const auto aywgramUser = HistoryView::GenerateUser(
 		history,
-		u"AyuGram Releases"_q);
+		u"AywGram"_q);
 	const auto messageItem = history->addNewLocalMessage({
 		.id = history->nextNonHistoryEntryId(),
 		.flags = (MessageFlag::FakeHistoryItem
 			| MessageFlag::HasFromId
 			| MessageFlag::HasReplyInfo),
-		.from = ayugramUser,
+		.from = aywgramUser,
 		.replyTo = FullReplyTo{
 			.messageId = _state->reply->data()->fullId(),
 		},

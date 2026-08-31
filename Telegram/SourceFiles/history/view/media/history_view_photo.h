@@ -47,6 +47,9 @@ public:
 
 	void draw(Painter &p, const PaintContext &context) const override;
 	TextState textState(QPoint point, StateRequest request) const override;
+	void clickHandlerActiveChanged(
+		const ClickHandlerPtr &p,
+		bool active) override;
 
 	PhotoData *getPhoto() const override {
 		return _data;
@@ -144,6 +147,7 @@ private:
 	void setStreamed(std::unique_ptr<Streamed> value);
 	void repaintStreamedContent();
 	void checkStreamedIsStarted() const;
+	void replayLivePhotoOnHover() const;
 	bool createStreamingObjects();
 	void handleStreamingUpdate(::Media::Streaming::Update &&update);
 	void handleStreamingError(::Media::Streaming::Error &&error);
@@ -159,6 +163,7 @@ private:
 	void togglePollingStory(bool enabled) const;
 
 	const not_null<PhotoData*> _data;
+	DocumentData *_livePhotoVideo = nullptr;
 	const FullStoryId _storyId;
 	mutable std::shared_ptr<Data::PhotoMedia> _dataMedia;
 	mutable std::unique_ptr<Streamed> _streamed;

@@ -61,14 +61,21 @@ public:
 	}
 
 	[[nodiscard]] QString find(not_null<WebPageData*> page) const;
+	[[nodiscard]] bool usedRewrite(const QString &link) const;
 
 	void request(const QString &link, bool force = false);
 	void cancel(const QString &link);
 
 private:
+	void requestAttempt(
+		const QString &original,
+		const QString &candidate,
+		bool fallbackToOriginal);
+
 	const not_null<Main::Session*> _session;
 	MTP::Sender _api;
 	base::flat_map<QString, WebPageData*> _cache;
+	base::flat_map<QString, bool> _usedRewrite;
 	rpl::event_stream<QString> _resolved;
 
 	QString _requestLink;

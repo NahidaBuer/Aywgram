@@ -126,6 +126,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ayu/ayu_settings.h"
 #include "ayu/features/forward/ayu_forward.h"
 #include "ayu/ui/context_menu/context_menu.h"
+#include "ayu/ui/context_menu/message_menu_registry.h"
 
 
 namespace HistoryView {
@@ -389,6 +390,15 @@ void AddPhotoActions(
 				CopyImage(photo);
 			}
 		}, &st::menuIconCopy);
+		if (const auto video = item && item->media()
+			? item->media()->livePhotoVideo()
+			: nullptr) {
+			AddSaveLivePhotoVideoAction(
+				menu,
+				item,
+				video,
+				list->controller());
+		}
 	}
 	if (photo->hasAttachedStickers()) {
 		const auto controller = list->controller();
@@ -691,9 +701,8 @@ bool AddForwardMessageAction(
 	const auto items = CollectForwardItemsForItem(item, asGroup);
 	const auto isAyuForward = IsAyuForwardForItems(items);
 	const auto itemId = item->fullId();
-	auto fwdSubmenu = std::make_unique<Ui::PopupMenu>(list, st::popupMenuWithIcons);
 	if (!isAyuForward) {
-		fwdSubmenu->addAction(tr::lng_context_forward_msg(tr::now), [=] {
+		menu->addAction(tr::lng_context_forward_msg(tr::now), [=] {
 			if (const auto item = owner->message(itemId)) {
 				const auto weak = base::make_weak(list);
 				Window::ShowNewForwardMessagesBox(
@@ -711,7 +720,7 @@ bool AddForwardMessageAction(
 			}
 		}, &st::menuIconForward);
 	}
-	fwdSubmenu->addAction(tr::ayu_ContextForwardMsgNoQuote(tr::now), [=] {
+	menu->addAction(tr::ayu_ContextForwardMsgNoQuote(tr::now), [=] {
 		if (const auto item = owner->message(itemId)) {
 			const auto weak = base::make_weak(list);
 			Window::ShowNewForwardMessagesBox(
@@ -729,7 +738,7 @@ bool AddForwardMessageAction(
 		}
 	}, &st::menuIconUserHide);
 	if (HasCaptionsForItems(items)) {
-		fwdSubmenu->addAction(tr::ayu_ContextForwardMsgNoCaption(tr::now), [=] {
+		menu->addAction(tr::ayu_ContextForwardMsgNoCaption(tr::now), [=] {
 			if (const auto item = owner->message(itemId)) {
 				const auto weak = base::make_weak(list);
 				Window::ShowNewForwardMessagesBox(
@@ -747,7 +756,7 @@ bool AddForwardMessageAction(
 			}
 		}, &st::menuIconCaptionHide);
 	}
-	fwdSubmenu->addAction(
+	menu->addAction(
 		tr::ayu_ForwardToSavedMessage(tr::now),
 		[owner, itemId] {
 			const auto item = owner->message(itemId);
@@ -773,12 +782,6 @@ bool AddForwardMessageAction(
 				});
 		},
 		&st::menuIconFave);
-	if (!fwdSubmenu->empty()) {
-		menu->addAction(
-			tr::ayu_ContextForward(tr::now),
-			std::move(fwdSubmenu),
-			&st::menuIconForward);
-	}
 	return true;
 }
 
@@ -2207,6 +2210,7 @@ base::unique_qptr<Ui::PopupMenu> FillContextMenu(
 				});
 		});
 	}
+	AyuUi::MessageMenu::ApplyLayout(result.get());
 	return result;
 }
 

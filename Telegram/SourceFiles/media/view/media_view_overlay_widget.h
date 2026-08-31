@@ -259,6 +259,8 @@ private:
 	void playbackControlsToFullScreen() override;
 	void playbackControlsFromFullScreen() override;
 	void playbackControlsToPictureInPicture() override;
+	void playbackControlsLivePhotoModeChanged(
+		PlaybackControls::LivePhotoMode mode) override;
 	void playbackControlsRotate() override;
 
 	void smtcPlay() override;
@@ -303,6 +305,7 @@ private:
 
 	void toMessage();
 	void saveAs();
+	void saveLivePhotoVideo();
 	void downloadMedia();
 	void saveCancel();
 	void showInFolder();
@@ -460,6 +463,7 @@ private:
 	void seekRelativeTime(crl::time time);
 	void restartAtProgress(float64 progress);
 	void restartAtSeekPosition(crl::time position);
+	void setLivePhotoMode(PlaybackControls::LivePhotoMode mode);
 	void flushPendingFrameStep();
 
 	void refreshClipControllerGeometry();
@@ -612,6 +616,8 @@ private:
 	[[nodiscard]] bool opaqueContentShown() const;
 	void clearStreaming(bool savePosition = true);
 	[[nodiscard]] bool canInitStreaming() const;
+	[[nodiscard]] bool livePhotoVideoCanBePlayed() const;
+	[[nodiscard]] DocumentData *streamingDocument() const;
 	[[nodiscard]] bool saveControlLocked() const;
 	void applyVideoQuality(VideoQuality value);
 
@@ -645,12 +651,14 @@ private:
 	rpl::lifetime _sessionLifetime;
 	PhotoData *_photo = nullptr;
 	DocumentData *_document = nullptr;
+	DocumentData *_livePhotoVideo = nullptr;
 	DocumentData *_chosenQuality = nullptr;
 	PhotoData *_videoCover = nullptr;
 	Media::VideoQuality _quality;
 	QString _documentLoadingTo;
 	std::shared_ptr<Data::PhotoMedia> _photoMedia;
 	std::shared_ptr<Data::DocumentMedia> _documentMedia;
+	std::shared_ptr<Data::DocumentMedia> _livePhotoVideoMedia;
 	std::shared_ptr<Data::PhotoMedia> _videoCoverMedia;
 	base::flat_set<std::shared_ptr<Data::PhotoMedia>> _preloadPhotos;
 	base::flat_set<std::shared_ptr<Data::DocumentMedia>> _preloadDocuments;

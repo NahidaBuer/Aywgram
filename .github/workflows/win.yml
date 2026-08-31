@@ -3,6 +3,10 @@ name: Windows.
 on:
   workflow_call:
     inputs:
+      arch:
+        required: false
+        default: arm64
+        type: string
       distribute:
         required: false
         default: false
@@ -11,8 +15,24 @@ on:
         required: false
         default: ''
         type: string
+      notify:
+        required: false
+        default: true
+        type: boolean
+      update_metadata:
+        required: false
+        default: false
+        type: boolean
   workflow_dispatch:
     inputs:
+      arch:
+        description: Windows architecture to build.
+        required: true
+        default: arm64
+        type: choice
+        options:
+          - arm64
+          - x64
       distribute:
         description: Upload to an existing prerelease and notify Telegram.
         required: true
@@ -22,6 +42,11 @@ on:
         description: Existing prerelease tag; required when distribute is enabled.
         required: false
         type: string
+      notify:
+        description: Notify the Telegram channel after uploading.
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -42,36 +67,42 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          NOTIFY_TELEGRAM: ${{ inputs.notify }}
         run: |
           set -euo pipefail
+          case "${{ inputs.arch }}" in
+            arm64|x64) ;;
+            *) echo "::error::Unsupported Windows architecture: ${{ inputs.arch }}"; exit 1;;
+          esac
           if [ -z "$RELEASE_TAG" ]; then
             echo '::error::release_tag is required when distribute is enabled.'
             exit 1
           fi
-          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHANNEL_ID" ]; then
+          if [ "$NOTIFY_TELEGRAM" = true ] \
+            && { [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHANNEL_ID" ]; }; then
             echo '::error::Configure TELEGRAM_BOT_TOKEN and TELEGRAM_CHANNEL_ID repository secrets.'
             exit 1
           fi
-          is_prerelease="$(
+          release_state="$(
             gh release view "$RELEASE_TAG" \
               --repo "$GH_REPO" \
-              --json isPrerelease \
-              --jq .isPrerelease
+              --json isDraft,isPrerelease \
+              --jq '.isDraft or .isPrerelease'
           )"
-          if [ "$is_prerelease" != true ]; then
-            echo "::error::Release $RELEASE_TAG is not a prerelease."
+          if [ "$release_state" != true ]; then
+            echo "::error::Release $RELEASE_TAG is neither draft nor prerelease."
             exit 1
           fi
 
   windows:
-    name: Windows on ARM (Qt 6)
-    runs-on: windows-11-arm
+    name: Windows ${{ inputs.arch }} (Qt 6)
+    runs-on: ${{ inputs.arch == 'arm64' && 'windows-11-arm' || 'windows-latest' }}
     needs: validate-distribution
 
     strategy:
       fail-fast: false
       matrix:
-        arch: [arm64]
+        arch: ["${{ inputs.arch }}"]
         qt: [qt6]
         generator: [""]
 
@@ -106,8 +137,18 @@ jobs:
       - name: Clone.
         uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.release_tag || github.ref }}
           submodules: recursive
           path: ${{ env.TBUILD }}\${{ env.REPO_NAME }}
+
+      - name: Resolve release version.
+        id: release_version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          cd "$TBUILD/$REPO_NAME"
+          python .github/scripts/release_version.py --tag "$RELEASE_TAG" --apply --github-output "$GITHUB_OUTPUT"
 
       - name: First set up.
         shell: bash
@@ -256,12 +297,11 @@ jobs:
         shell: bash
         run: |
           cd "$TBUILD/$REPO_NAME"
-          VERSION=$(grep 'AppVersionStr' Telegram/SourceFiles/core/version.h | cut -d '"' -f 2)
-
           ARCH=""
           if [ -n "${{ matrix.arch }}" ]; then
             case "${{ matrix.arch }}" in
               x64_x86) ARCH="x86";;
+              x64) ARCH="";;
               arm64) ARCH="arm";;
               *) ARCH="${{ matrix.arch }}";;
             esac
@@ -282,7 +322,11 @@ jobs:
           if [ -n "$API_ID" ] && [ -n "$API_HASH" ]; then
             API="-D TDESKTOP_API_ID=\"$API_ID\" -D TDESKTOP_API_HASH=\"$API_HASH\""
           fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          if [ "${{ matrix.arch }}" = arm64 ]; then
+            echo "target=windows-arm64" >> $GITHUB_OUTPUT
+          else
+            echo "target=windows-x86_64" >> $GITHUB_OUTPUT
+          fi
           echo "TDESKTOP_BUILD_API=$API" >> $GITHUB_ENV
 
       - name: Telegram Desktop build.
@@ -300,7 +344,7 @@ jobs:
           %TDESKTOP_BUILD_API% ^
           -D CMAKE_CONFIGURATION_TYPES=Release ^
           -D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT= ^
-          -D DESKTOP_APP_DISABLE_AUTOUPDATE=ON ^
+          -D DESKTOP_APP_DISABLE_AUTOUPDATE=OFF ^
           -D DESKTOP_APP_DISABLE_CRASH_REPORTS=OFF
 
           cmake --build ..\out --config Release --parallel %CMAKE_BUILD_PARALLEL_LEVEL%
@@ -310,14 +354,34 @@ jobs:
         if: env.UPLOAD_ARTIFACT == 'true'
         shell: pwsh
         run: |
-          $assetName = "AywGram-v${{ steps.matrix.outputs.version }}-windows-arm64.zip"
+          $target = "${{ steps.matrix.outputs.target }}"
+          $assetName = "AywGram-v${{ steps.release_version.outputs.version_name }}-$target.zip"
           $dist = Join-Path $env:GITHUB_WORKSPACE 'dist'
           $assetPath = Join-Path $dist $assetName
           $binary = Join-Path $env:TBUILD "$env:REPO_NAME\out\Release\AywGram.exe"
+          $updater = Join-Path $env:TBUILD "$env:REPO_NAME\out\Release\Updater.exe"
+          $modules = Join-Path $env:TBUILD "$env:REPO_NAME\out\Release\modules"
+          if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw "Missing AywGram.exe" }
+          if (-not (Test-Path -LiteralPath $updater -PathType Leaf)) { throw "Missing Updater.exe" }
           New-Item -ItemType Directory -Path $dist -Force | Out-Null
-          Compress-Archive -LiteralPath $binary -DestinationPath $assetPath -CompressionLevel Optimal
+          $items = @($binary, $updater)
+          if (Test-Path -LiteralPath $modules -PathType Container) { $items += $modules }
+          Compress-Archive -LiteralPath $items -DestinationPath $assetPath -CompressionLevel Optimal
           "asset_name=$assetName" >> $env:GITHUB_OUTPUT
           "asset_path=dist/$assetName" >> $env:GITHUB_OUTPUT
+
+      - name: Create update metadata fragment.
+        if: inputs.update_metadata == true
+        shell: bash
+        run: |
+          python "$TBUILD/$REPO_NAME/.github/scripts/update_release_metadata.py" fragment \
+            --target "${{ steps.matrix.outputs.target }}" \
+            --app-version "${{ steps.release_version.outputs.app_version }}" \
+            --revision "${{ steps.release_version.outputs.revision }}" \
+            --version-name "${{ steps.release_version.outputs.version_name }}" \
+            --release "${{ inputs.release_tag }}" \
+            --asset "${{ steps.package.outputs.asset_path }}" \
+            --output "dist/update-fragment-${{ steps.matrix.outputs.target }}.json"
 
       - uses: actions/upload-artifact@v7
         name: Upload artifact.
@@ -339,4 +403,13 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
           TELEGRAM_TAGS: '#aywgram #woa #ci'
+          NOTIFY_TELEGRAM: ${{ inputs.notify }}
         run: bash "$TBUILD/$REPO_NAME/.github/scripts/publish-prerelease.sh"
+
+      - uses: actions/upload-artifact@v7
+        if: inputs.update_metadata == true
+        name: Upload update metadata fragment.
+        with:
+          name: update-fragment-${{ steps.matrix.outputs.target }}
+          path: dist/update-fragment-${{ steps.matrix.outputs.target }}.json
+          retention-days: 1

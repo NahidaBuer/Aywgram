@@ -8,7 +8,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/media/history_view_save_document_action.h"
 
 #include "base/call_delayed.h"
+#include "core/application.h"
+#include "core/file_utilities.h"
+#include "core/mime_type.h"
 #include "data/data_document.h"
+#include "data/data_document_media.h"
+#include "data/data_download_manager.h"
 #include "data/data_file_click_handler.h"
 #include "data/data_file_origin.h"
 #include "data/data_peer.h"
@@ -19,7 +24,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history.h"
 #include "history/history_item.h"
 #include "lang/lang_keys.h"
+#include "main/main_session.h"
 #include "ui/toast/toast.h"
+#include "ui/boxes/confirm_box.h"
 #include "ui/widgets/menu/menu_add_action_callback.h"
 #include "ui/widgets/menu/menu_add_action_callback_factory.h"
 #include "ui/widgets/menu/menu_multiline_action.h"
@@ -30,8 +37,76 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_chat_helpers.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_widgets.h"
+#include "boxes/abstract_box.h"
+
+#include <QtCore/QDir>
+#include <QtCore/QFile>
+#include <QtCore/QFileInfo>
+#include <QtCore/QSaveFile>
+#include <QtWidgets/QApplication>
 
 namespace HistoryView {
+namespace {
+
+QString LivePhotoVideoFileNameForSave(
+		not_null<DocumentData*> document,
+		const QString &current) {
+	const auto info = QFileInfo(current);
+	const auto mime = Core::MimeTypeForName(document->mimeString());
+	const auto patterns = mime.globPatterns();
+	const auto pattern = patterns.isEmpty() ? QString() : patterns.front();
+	auto name = document->filename();
+	if (name.isEmpty() && !current.isEmpty()) {
+		name = info.fileName();
+	}
+	if (name.isEmpty()) {
+		name = pattern.isEmpty()
+			? u".mov"_q
+			: QString(pattern).replace('*', QString());
+	}
+	const auto filter = pattern.isEmpty()
+		? (u"MOV Video (*.mov);;"_q + FileDialog::AllFilesFilter())
+		: (mime.filterString() + u";;"_q + FileDialog::AllFilesFilter());
+	return FileNameForSave(
+		&document->session(),
+		tr::lng_save_video(tr::now),
+		filter,
+		u"video"_q,
+		name,
+		true,
+		current.isEmpty() ? QDir() : info.dir());
+}
+
+void ShowLivePhotoVideoSaveFailed() {
+	Ui::show(Ui::MakeInformBox(tr::lng_download_finish_failed()));
+}
+
+void TrackLoadedLivePhotoVideo(
+		FullMsgId itemId,
+		not_null<DocumentData*> document,
+		const QString &path) {
+	if (const auto item = document->owner().message(itemId)) {
+		auto &manager = Core::App().downloadManager();
+		manager.addLoaded({
+			.item = item,
+			.document = document,
+		}, path, manager.computeNextStartDate());
+	}
+}
+
+void TrackLoadingLivePhotoVideo(
+		FullMsgId itemId,
+		not_null<DocumentData*> document) {
+	if (const auto item = document->owner().message(itemId)) {
+		Core::App().downloadManager().addLoading({
+			.item = item,
+			.document = document,
+			.forceShowInManager = true,
+		});
+	}
+}
+
+} // namespace
 
 void AddSaveDocumentAction(
 		const Ui::Menu::MenuCallback &addAction,
@@ -127,6 +202,92 @@ void AddSaveDocumentAction(
 		item,
 		document,
 		list->controller());
+}
+
+void SaveLivePhotoVideo(
+		FullMsgId itemId,
+		not_null<DocumentData*> document) {
+	if (document->isNull()) {
+		return;
+	}
+	InvokeQueued(qApp, crl::guard(&document->session(), [=] {
+		const auto current = document->filepath(true);
+		const auto target = LivePhotoVideoFileNameForSave(document, current);
+		if (target.isEmpty()) {
+			return;
+		}
+
+		const auto media = document->createMediaView();
+		const auto bytes = media->bytes();
+		if (!bytes.isEmpty()) {
+			auto output = QSaveFile(target);
+			const auto saved = output.open(QIODevice::WriteOnly)
+				&& (output.write(bytes) == bytes.size())
+				&& output.commit();
+			if (!saved) {
+				output.cancelWriting();
+				ShowLivePhotoVideoSaveFailed();
+				return;
+			}
+			TrackLoadedLivePhotoVideo(itemId, document, target);
+			return;
+		}
+
+		const auto &location = document->location(true);
+		if (location.accessEnable()) {
+			const auto source = location.name();
+			const auto saved = (source == target) || [&] {
+				QFile::remove(target);
+				return QFile::copy(source, target);
+			}();
+			location.accessDisable();
+			if (!saved) {
+				ShowLivePhotoVideoSaveFailed();
+				return;
+			}
+			TrackLoadedLivePhotoVideo(itemId, document, target);
+			return;
+		}
+
+		document->save(itemId ? itemId : Data::FileOrigin(), target);
+		if (document->loading() && !document->loadingFilePath().isEmpty()) {
+			TrackLoadingLivePhotoVideo(itemId, document);
+		} else if (QFileInfo::exists(target)) {
+			TrackLoadedLivePhotoVideo(itemId, document, target);
+		} else {
+			ShowLivePhotoVideoSaveFailed();
+		}
+	}));
+}
+
+void AddSaveLivePhotoVideoAction(
+		const Ui::Menu::MenuCallback &addAction,
+		not_null<HistoryItem*> item,
+		not_null<DocumentData*> document,
+		not_null<Window::SessionController*> controller) {
+	const auto contextId = item->fullId();
+	const auto duration = st::defaultDropdownMenu.menu.ripple.hideDuration;
+	addAction(
+		tr::ayu_SaveLivePhotoVideo(tr::now),
+		base::fn_delayed(duration, controller, [=] {
+			SaveLivePhotoVideo(contextId, document);
+		}),
+		&st::menuIconDownload);
+}
+
+void AddSaveLivePhotoVideoAction(
+		not_null<Ui::PopupMenu*> menu,
+		HistoryItem *item,
+		not_null<DocumentData*> document,
+		not_null<Window::SessionController*> controller) {
+	if (!item || ItemHasTtl(item)) {
+		return;
+	}
+	AddSaveLivePhotoVideoAction(
+		Ui::Menu::CreateAddActionCallback(menu),
+		item,
+		document,
+		controller);
 }
 
 } // namespace HistoryView

@@ -29,7 +29,6 @@ const auto kMeta = BuildHelper({
 }, [](SectionBuilder &builder) {
 	const auto controller = builder.controller();
 	const auto session = builder.session();
-	const auto show = controller->uiShow();
 
 	builder.addSkip();
 	builder.addSubsectionTitle(tr::ayu_SessionTransferExportHeader());
@@ -39,7 +38,7 @@ const auto kMeta = BuildHelper({
 		.icon = { &st::menuIconCopy },
 		.onClick = [=] {
 			Ayu::SessionTransfer::ConfirmCopySession(
-				show,
+				controller->uiShow(),
 				&session->account());
 		},
 	});
@@ -49,7 +48,7 @@ const auto kMeta = BuildHelper({
 		.icon = { &st::menuIconExport },
 		.onClick = [=] {
 			Ayu::SessionTransfer::ConfirmExportEnvelope(
-				show,
+				controller->uiShow(),
 				&session->account());
 		},
 	});
@@ -60,7 +59,7 @@ const auto kMeta = BuildHelper({
 		.title = tr::ayu_SessionTransferImport(),
 		.icon = { &st::menuIconImportTheme },
 		.onClick = [=] {
-			Ayu::SessionTransfer::ShowImportBox(show);
+			Ayu::SessionTransfer::ShowImportBox(controller->uiShow());
 		},
 	});
 	builder.addSkip();

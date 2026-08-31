@@ -414,6 +414,29 @@ private:
 
 };
 
+class TLViewer final : public base::has_weak_ptr {
+public:
+	TLViewer(not_null<Delegate*> delegate, int32 layer, QByteArray payload);
+	~TLViewer();
+
+	[[nodiscard]] bool active() const;
+	void show(int32 layer, QByteArray payload);
+	void minimize();
+
+	[[nodiscard]] rpl::producer<Controller::Event> events() const {
+		return _events.events();
+	}
+	[[nodiscard]] rpl::lifetime &lifetime() {
+		return _lifetime;
+	}
+
+private:
+	const not_null<Delegate*> _delegate;
+	std::unique_ptr<Controller> _controller;
+	rpl::event_stream<Controller::Event> _events;
+	rpl::lifetime _lifetime;
+};
+
 Shown::Shown(
 	not_null<Delegate*> delegate,
 	not_null<Main::Session*> session,
@@ -703,6 +726,37 @@ void TonSite::moveTo(QString uri) {
 }
 
 void TonSite::minimize() {
+	if (_controller) {
+		_controller->minimize();
+	}
+}
+
+TLViewer::TLViewer(
+		not_null<Delegate*> delegate,
+		int32 layer,
+		QByteArray payload)
+: _delegate(delegate)
+, _controller(std::make_unique<Controller>(_delegate)) {
+	_controller->events(
+	) | rpl::start_to_stream(_events, _controller->lifetime());
+	show(layer, std::move(payload));
+}
+
+TLViewer::~TLViewer() {
+	if (_controller) {
+		_controller->destroyWindow();
+	}
+}
+
+bool TLViewer::active() const {
+	return _controller && _controller->active();
+}
+
+void TLViewer::show(int32 layer, QByteArray payload) {
+	_controller->showTLViewer(layer, std::move(payload));
+}
+
+void TLViewer::minimize() {
 	if (_controller) {
 		_controller->minimize();
 	}
@@ -1215,6 +1269,37 @@ void Instance::showTonSite(
 			break;
 		}
 	}, _tonSite->lifetime());
+}
+
+void Instance::showTLViewer(int32 layer, QByteArray payload) {
+	if (Platform::IsMac()) {
+		Core::App().hideMediaView();
+	}
+	if (_tlViewer) {
+		_tlViewer->show(layer, std::move(payload));
+		return;
+	}
+	_tlViewer = std::make_unique<TLViewer>(
+		_delegate,
+		layer,
+		std::move(payload));
+	_tlViewer->events() | rpl::on_next([=](Controller::Event event) {
+		using Type = Controller::Event::Type;
+		switch (event.type) {
+		case Type::Close: {
+			const auto weak = base::make_weak(_tlViewer);
+			crl::on_main(weak, [=] {
+				destroyLater(base::take(_tlViewer));
+			});
+		} break;
+		case Type::Quit:
+			Shortcuts::Launch(Shortcuts::Command::Quit);
+			break;
+		default:
+			// The TL viewer deliberately has no external navigation path.
+			break;
+		}
+	}, _tlViewer->lifetime());
 }
 
 Instance::RichMessageGeneration Instance::CaptureRichMessageGeneration(
@@ -1791,6 +1876,9 @@ bool Instance::closeActive() {
 	} else if (_tonSite && _tonSite->active()) {
 		destroyLater(base::take(_tonSite));
 		return true;
+	} else if (_tlViewer && _tlViewer->active()) {
+		destroyLater(base::take(_tlViewer));
+		return true;
 	}
 	const auto key = activeMarkdownKey();
 	if (key.isEmpty()) {
@@ -1807,6 +1895,9 @@ bool Instance::minimizeActive() {
 	} else if (_tonSite && _tonSite->active()) {
 		_tonSite->minimize();
 		return true;
+	} else if (_tlViewer && _tlViewer->active()) {
+		_tlViewer->minimize();
+		return true;
 	}
 	const auto i = _markdowns.find(activeMarkdownKey());
 	if (i == end(_markdowns)) {
@@ -1819,6 +1910,7 @@ bool Instance::minimizeActive() {
 void Instance::closeLegacyWindows() {
 	destroyLater(base::take(_shown));
 	destroyLater(base::take(_tonSite));
+	destroyLater(base::take(_tlViewer));
 }
 
 void Instance::closeAll() {

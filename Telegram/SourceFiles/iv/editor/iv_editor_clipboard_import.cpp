@@ -1042,12 +1042,19 @@ void ParseMarkdownInline(
 				const auto inner = text.mid(
 					open + 1,
 					closeBracket - open - 1);
-				if (!url.isEmpty() && !inner.isEmpty()) {
+				if (!url.isEmpty() && (!inner.isEmpty() || ch == u'!')) {
 					flush(i);
-					ParseMarkdownInline(
-						state,
-						inner,
-						WithMarkdownTag(tag, url));
+					if (inner.isEmpty()) {
+						AppendMarkdownRun(
+							state,
+							QStringView(url),
+							WithMarkdownTag(tag, url));
+					} else {
+						ParseMarkdownInline(
+							state,
+							inner,
+							WithMarkdownTag(tag, url));
+					}
 					state.marked = true;
 					state.beyondComposeField = true;
 					i = closeParen + 1;

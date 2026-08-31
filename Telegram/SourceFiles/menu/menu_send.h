@@ -49,6 +49,7 @@ enum class ActionType : uchar {
 	EditCover,
 	RemoveCover,
 	ChangePrice,
+	OpenMarkdownEditor,
 };
 struct Action {
 	using Type = ActionType;

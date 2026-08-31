@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "boxes/connection_box.h"
 
+#include "ayu/cloud/ayu_settings_sync.h"
+
 #include "base/call_delayed.h"
 #include "base/qt/qt_key_modifiers.h"
 #include "base/qthelp_regex.h"
@@ -2507,6 +2509,7 @@ void ProxiesBoxController::setTryIPv6(bool enabled) {
 
 void ProxiesBoxController::saveDelayed() {
 	Core::App().proxyRotationSettingsChanged();
+	AyuCloud::MarkSettingsDirty();
 	_saveTimer.callOnce(kSaveSettingsDelayedTimeout);
 }
 

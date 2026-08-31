@@ -3,11 +3,11 @@ name: Prerelease.
 on:
   push:
     tags:
-      - 'pre-release-*'
+      - 'pre-release-v*'
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Existing pre-release-* tag to build and publish.
+        description: Existing pre-release-v<base>-<revision> tag to build and publish.
         required: true
         type: string
 
@@ -28,6 +28,7 @@ jobs:
       linux_previous_asset_id: ${{ steps.release.outputs.linux_previous_asset_id }}
       mac_previous_asset_id: ${{ steps.release.outputs.mac_previous_asset_id }}
       release_tag: ${{ steps.release.outputs.release_tag }}
+      source_sha: ${{ steps.release.outputs.source_sha }}
       started_at: ${{ steps.release.outputs.started_at }}
       version: ${{ steps.release.outputs.version }}
       windows_previous_asset_id: ${{ steps.release.outputs.windows_previous_asset_id }}
@@ -35,6 +36,15 @@ jobs:
     steps:
       - name: Clone.
         uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+
+      - name: Validate release version.
+        id: version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: python3 .github/scripts/release_version.py --tag "$RELEASE_TAG" --github-output "$GITHUB_OUTPUT"
 
       - name: Create or update prerelease.
         id: release
@@ -43,18 +53,13 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
         run: |
           set -euo pipefail
           release_tag="${RELEASE_TAG_INPUT:-$GITHUB_REF_NAME}"
-          case "$release_tag" in
-            pre-release-*) ;;
-            *)
-              echo "::error::Prerelease tag must match pre-release-*; got $release_tag."
-              exit 1
-              ;;
-          esac
           started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          version="$(grep 'AppVersionStr' Telegram/SourceFiles/core/version.h | cut -d '"' -f 2)"
+          source_sha="$(git rev-parse HEAD)"
+          version="$VERSION_NAME"
           title="AywGram v${version} CI"
           notes="$RUNNER_TEMP/prerelease-notes.md"
 
@@ -63,7 +68,7 @@ jobs:
 
           - Source version: \`${version}\`
           - Trigger tag: \`${release_tag}\`
-          - Commit: [\`${GITHUB_SHA}\`](https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA})
+          - Commit: [\`${source_sha}\`](https://github.com/${GITHUB_REPOSITORY}/commit/${source_sha})
           - Workflow: [${GITHUB_RUN_ID}](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})
           - Started: \`${started_at}\`
 
@@ -76,15 +81,13 @@ jobs:
           | Windows ARM64 | \`AywGram-v${version}-windows-arm64.zip\` | ⏳ Building |
           | Windows x86_64 | \`AywGram-v${version}-windows-x86_64.zip\` | 📤 Upload manually |
 
-          ## Windows x86_64 manual upload
+          ## Optional manual uploads
 
-          This workflow does not build Windows x86_64. The locally built Release archive should be uploaded to this prerelease.
+          This workflow does not build Windows x86_64. Upload an updater-compatible Release archive to this prerelease, then run the Refresh update metadata workflow.
 
-          Expected filename: \`AywGram-v${version}-windows-x86_64.zip\`
+          Expected filenames:
 
-          Upload it on the GitHub Release page or run:
-
-          \`gh release upload "${release_tag}" "AywGram-v${version}-windows-x86_64.zip" --clobber\`
+          - \`AywGram-v${version}-windows-x86_64.zip\`
           EOF
 
           if gh release view "$release_tag" --repo "$GH_REPO" >/dev/null 2>&1; then
@@ -116,14 +119,16 @@ jobs:
           release_json="$RUNNER_TEMP/release.json"
           gh api "repos/${GH_REPO}/releases/tags/${release_tag}" > "$release_json"
           linux_asset="AywGram-v${version}-linux-x86_64.tar.gz"
-          mac_asset="AywGram-v${version}-mac-arm64.zip"
-          windows_asset="AywGram-v${version}-windows-arm64.zip"
+          mac_arm_asset="AywGram-v${version}-mac-arm64.zip"
+          windows_arm_asset="AywGram-v${version}-windows-arm64.zip"
+          windows_x86_asset="AywGram-v${version}-windows-x86_64.zip"
           while IFS=$'\t' read -r asset_id asset_name; do
             case "$asset_name" in
-              AywGram-v*-linux-x86_64.tar.gz|AywGram-v*-mac-arm64.zip|AywGram-v*-windows-arm64.zip)
+              AywGram-v*-linux-x86_64.tar.gz|AywGram-v*-mac-arm64.zip|AywGram-v*-windows-arm64.zip|AywGram-v*-windows-x86_64.zip)
                 if [ "$asset_name" != "$linux_asset" ] \
-                  && [ "$asset_name" != "$mac_asset" ] \
-                  && [ "$asset_name" != "$windows_asset" ]; then
+                  && [ "$asset_name" != "$mac_arm_asset" ] \
+                  && [ "$asset_name" != "$windows_arm_asset" ] \
+                  && [ "$asset_name" != "$windows_x86_asset" ]; then
                   echo "Removing managed asset from another source version: $asset_name"
                   gh api --method DELETE "repos/${GH_REPO}/releases/assets/${asset_id}"
                 fi
@@ -139,12 +144,15 @@ jobs:
               "$release_json"
           }
 
-          echo "linux_previous_asset_id=$(previous_asset_id "AywGram-v${version}-linux-x86_64.tar.gz")" >> "$GITHUB_OUTPUT"
-          echo "mac_previous_asset_id=$(previous_asset_id "AywGram-v${version}-mac-arm64.zip")" >> "$GITHUB_OUTPUT"
-          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
-          echo "started_at=$started_at" >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "windows_previous_asset_id=$(previous_asset_id "AywGram-v${version}-windows-arm64.zip")" >> "$GITHUB_OUTPUT"
+          {
+            echo "linux_previous_asset_id=$(previous_asset_id "AywGram-v${version}-linux-x86_64.tar.gz")"
+            echo "mac_previous_asset_id=$(previous_asset_id "AywGram-v${version}-mac-arm64.zip")"
+            echo "release_tag=$release_tag"
+            echo "source_sha=$source_sha"
+            echo "started_at=$started_at"
+            echo "version=$version"
+            echo "windows_previous_asset_id=$(previous_asset_id "AywGram-v${version}-windows-arm64.zip")"
+          } >> "$GITHUB_OUTPUT"
 
   linux:
     name: Linux x86_64
@@ -152,6 +160,7 @@ jobs:
     uses: ./.github/workflows/linux.yml
     with:
       distribute: true
+      update_metadata: true
       release_tag: ${{ needs.prepare.outputs.release_tag }}
     secrets: inherit
 
@@ -162,6 +171,7 @@ jobs:
     with:
       arch: arm64
       distribute: true
+      update_metadata: true
       release_tag: ${{ needs.prepare.outputs.release_tag }}
     secrets: inherit
 
@@ -171,13 +181,89 @@ jobs:
     uses: ./.github/workflows/win.yml
     with:
       distribute: true
+      update_metadata: true
       release_tag: ${{ needs.prepare.outputs.release_tag }}
     secrets: inherit
+
+  metadata:
+    name: Publish rolling update metadata
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && (needs.linux.result == 'success' || needs.mac.result == 'success' || needs.windows.result == 'success') }}
+    needs: [prepare, linux, mac, windows]
+    runs-on: ubuntu-latest
+    concurrency:
+      group: update-metadata-release
+      cancel-in-progress: false
+
+    steps:
+      - name: Clone.
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.release_tag }}
+
+      - name: Download successful metadata fragments.
+        uses: actions/download-artifact@v8
+        with:
+          pattern: update-fragment-*
+          path: fragments
+          merge-multiple: true
+
+      - name: Merge into the sole metadata release.
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mapfile -t metadata_releases < <(
+            gh api --paginate "repos/${GH_REPO}/releases?per_page=100" \
+              --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name'
+          )
+          if [ "${#metadata_releases[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one published non-prerelease metadata Release; found ${#metadata_releases[@]}."
+            exit 1
+          fi
+          metadata_release="${metadata_releases[0]}"
+          release_json="$RUNNER_TEMP/metadata-release.json"
+          gh api "repos/${GH_REPO}/releases/tags/${metadata_release}" > "$release_json"
+          unexpected_assets="$(jq -r '[.assets[]? | select(.name != "update-metadata.json") | .name] | join(", ")' "$release_json")"
+          if [ -n "$unexpected_assets" ]; then
+            echo "::error::The metadata Release contains non-metadata assets: $unexpected_assets"
+            exit 1
+          fi
+
+          mkdir -p previous output
+          base_arguments=()
+          if gh release download "$metadata_release" \
+            --repo "$GH_REPO" \
+            --pattern update-metadata.json \
+            --dir previous; then
+            base_arguments=(--base previous/update-metadata.json)
+          fi
+          arguments=(
+            merge
+            "${base_arguments[@]}"
+            --feed-release "$metadata_release"
+            --output output/update-metadata.json
+          )
+          while IFS= read -r fragment; do
+            arguments+=(--fragment "$fragment")
+          done < <(find fragments -type f -name '*.json' -print | sort)
+          python3 .github/scripts/update_release_metadata.py "${arguments[@]}"
+          python3 -m json.tool output/update-metadata.json >/dev/null
+          python3 .github/scripts/update_release_metadata.py notes \
+            --metadata output/update-metadata.json \
+            --output output/release-notes.md
+          gh release upload "$metadata_release" output/update-metadata.json \
+            --repo "$GH_REPO" \
+            --clobber
+          gh release edit "$metadata_release" \
+            --repo "$GH_REPO" \
+            --notes-file output/release-notes.md
 
   finalize:
     name: Finalize prerelease status
     if: ${{ always() && needs.prepare.result == 'success' }}
-    needs: [prepare, linux, mac, windows]
+    needs: [prepare, linux, mac, windows, metadata]
     runs-on: ubuntu-latest
 
     steps:
@@ -190,7 +276,9 @@ jobs:
           LINUX_RESULT: ${{ needs.linux.result }}
           MAC_PREVIOUS_ASSET_ID: ${{ needs.prepare.outputs.mac_previous_asset_id }}
           MAC_RESULT: ${{ needs.mac.result }}
+          METADATA_RESULT: ${{ needs.metadata.result }}
           RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
           STARTED_AT: ${{ needs.prepare.outputs.started_at }}
           VERSION: ${{ needs.prepare.outputs.version }}
           WINDOWS_PREVIOUS_ASSET_ID: ${{ needs.prepare.outputs.windows_previous_asset_id }}
@@ -241,7 +329,7 @@ jobs:
             printf 'Automated CI prerelease for AywGram v%s.\n\n' "$VERSION"
             printf -- '- Source version: `%s`\n' "$VERSION"
             printf -- '- Trigger tag: `%s`\n' "$RELEASE_TAG"
-            printf -- '- Commit: [`%s`](https://github.com/%s/commit/%s)\n' "$GITHUB_SHA" "$GITHUB_REPOSITORY" "$GITHUB_SHA"
+            printf -- '- Commit: [`%s`](https://github.com/%s/commit/%s)\n' "$SOURCE_SHA" "$GITHUB_REPOSITORY" "$SOURCE_SHA"
             printf -- '- Workflow: [%s](https://github.com/%s/actions/runs/%s)\n' "$GITHUB_RUN_ID" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
             printf -- '- Started: `%s`\n\n' "$STARTED_AT"
             printf '## Build status\n\n'
@@ -251,11 +339,12 @@ jobs:
             asset_row 'mac ARM64' "AywGram-v${VERSION}-mac-arm64.zip" "$MAC_RESULT" "$MAC_PREVIOUS_ASSET_ID"
             asset_row 'Windows ARM64' "AywGram-v${VERSION}-windows-arm64.zip" "$WINDOWS_RESULT" "$WINDOWS_PREVIOUS_ASSET_ID"
             manual_asset_row 'Windows x86_64' "AywGram-v${VERSION}-windows-x86_64.zip"
-            printf '\n## Windows x86_64 manual upload\n\n'
-            printf 'This workflow does not build Windows x86_64. The locally built Release archive should be uploaded to this prerelease.\n\n'
-            printf 'Expected filename: `AywGram-v%s-windows-x86_64.zip`\n\n' "$VERSION"
-            printf 'Upload it on the GitHub Release page or run:\n\n'
-            printf '`gh release upload "%s" "AywGram-v%s-windows-x86_64.zip" --clobber`\n' "$RELEASE_TAG" "$VERSION"
+            printf '\n## Update metadata\n\n'
+            printf 'Automatic metadata refresh result: `%s`.\n\n' "$METADATA_RESULT"
+            printf 'The workflow updates the repository\x27s sole published Release with successful build fragments.\n'
+            printf 'After manually uploading an updater-compatible archive, run the Refresh update metadata workflow.\n\n'
+            printf 'Recognized optional filenames:\n\n'
+            printf -- '- `AywGram-v%s-windows-x86_64.zip`\n' "$VERSION"
           } > "$notes"
 
           gh release edit "$RELEASE_TAG" \

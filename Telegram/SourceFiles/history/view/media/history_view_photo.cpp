@@ -33,6 +33,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/power_saving.h"
 #include "ui/ui_utility.h"
 #include "data/data_session.h"
+#include "data/data_document.h"
+#include "data/data_media_types.h"
 #include "data/data_stories.h"
 #include "data/data_streaming.h"
 #include "data/data_photo.h"
@@ -93,6 +95,33 @@ using Data::PhotoSize;
 		: CountDesiredMediaSize(dimensions);
 }
 
+void PaintLivePhotoBadge(
+		Painter &p,
+		QRect geometry,
+		const PaintContext &context) {
+	const auto text = u"LIVE"_q;
+	const auto padding = st::msgDateImgPadding;
+	const auto width = st::msgDateFont->width(text) + 2 * padding.x();
+	const auto height = st::msgDateFont->height + 2 * padding.y();
+	const auto rect = QRect(
+		geometry.x() + st::msgDateImgDelta,
+		geometry.y() + st::msgDateImgDelta,
+		width,
+		height);
+	p.setPen(Qt::NoPen);
+	p.setBrush(context.selected()
+		? context.st->msgDateImgBgSelected()
+		: context.st->msgDateImgBg());
+	p.drawRoundedRect(rect, height / 2., height / 2.);
+	p.setFont(st::msgDateFont);
+	p.setPen(context.st->msgDateImgFg());
+	p.drawTextLeft(
+		rect.x() + padding.x(),
+		rect.y() + padding.y(),
+		geometry.width(),
+		text);
+}
+
 } // namespace
 
 struct Photo::Streamed {
@@ -116,6 +145,9 @@ Photo::Photo(
 	bool spoiler)
 : File(parent, realParent)
 , _data(photo)
+, _livePhotoVideo(realParent->media()
+	? realParent->media()->livePhotoVideo()
+	: nullptr)
 , _storyId(realParent->media()
 	? realParent->media()->storyId()
 	: FullStoryId())
@@ -141,7 +173,11 @@ Photo::Photo(
 Photo::~Photo() {
 	if (_streamed || _dataMedia) {
 		if (_streamed) {
-			_data->owner().streaming().keepAlive(_data);
+			if (_livePhotoVideo) {
+				_data->owner().streaming().keepAlive(_livePhotoVideo);
+			} else {
+				_data->owner().streaming().keepAlive(_data);
+			}
 			stopAnimation();
 		}
 		if (_dataMedia) {
@@ -371,6 +407,13 @@ void Photo::draw(Painter &p, const PaintContext &context) const {
 	const auto radial = isRadialAnimation();
 
 	auto rthumb = style::rtlrect(paintx, painty, paintw, painth, width());
+	const auto livePhotoRevealed = _livePhotoVideo
+		&& (!_spoiler || _spoiler->revealed);
+	if (livePhotoRevealed && videoAutoplayEnabled() && !_streamed) {
+		const_cast<Photo*>(this)->playAnimation(true);
+	} else {
+		checkStreamedIsStarted();
+	}
 	if (_serviceWidth > 0) {
 		paintUserpicFrame(p, context, rthumb.topLeft());
 	} else {
@@ -488,6 +531,9 @@ void Photo::draw(Painter &p, const PaintContext &context) const {
 		}
 		drawPurchasedTag(p, geometry, context);
 	}
+	if (livePhotoRevealed) {
+		PaintLivePhotoBadge(p, rthumb, context);
+	}
 
 	// date
 	if (!inWebPage && (!bubble || isBubbleBottom())) {
@@ -583,7 +629,12 @@ void Photo::validateImageCache(
 		outer,
 		HostedInstantViewMediaPixelScale(_parent));
 	const auto blurredValue = large ? 0 : 1;
-	if (_imageCache.size() == (scaled * ratio)
+	const auto streamed = _livePhotoVideo
+		&& _streamed
+		&& _streamed->instance.player().ready()
+		&& !_streamed->instance.player().videoSize().isEmpty();
+	if (!streamed
+		&& _imageCache.size() == (scaled * ratio)
 		&& _imageCacheRounding == rounding
 		&& _imageCacheBlurred == blurredValue) {
 		return;
@@ -622,6 +673,16 @@ QImage Photo::prepareImageCache(QSize outer) const {
 
 QImage Photo::prepareImageCacheWithLarge(QSize outer, Image *large) const {
 	using Size = PhotoSize;
+	if (_livePhotoVideo
+		&& _streamed
+		&& _streamed->instance.player().ready()
+		&& !_streamed->instance.player().videoSize().isEmpty()) {
+		auto request = ::Media::Streaming::FrameRequest();
+		request.outer = request.resize = outer * style::DevicePixelRatio();
+		auto result = _streamed->instance.frame(request);
+		_streamed->instance.markFrameShown();
+		return result;
+	}
 	auto blurred = (Image*)nullptr;
 	if (const auto embedded = _dataMedia->thumbnailInline()) {
 		blurred = embedded;
@@ -855,6 +916,13 @@ void Photo::drawGrouped(
 		}
 	}
 	const auto radial = isRadialAnimation();
+	const auto livePhotoRevealed = _livePhotoVideo
+		&& (!_spoiler || _spoiler->revealed);
+	if (livePhotoRevealed && videoAutoplayEnabled() && !_streamed) {
+		const_cast<Photo*>(this)->playAnimation(true);
+	} else {
+		checkStreamedIsStarted();
+	}
 
 	const auto revealed = _spoiler
 		? _spoiler->revealAnimation.value(_spoiler->revealed ? 1. : 0.)
@@ -967,6 +1035,9 @@ void Photo::drawGrouped(
 			_realParent,
 			context);
 	}
+	if (livePhotoRevealed) {
+		PaintLivePhotoBadge(p, geometry, context);
+	}
 }
 
 TextState Photo::getStateGrouped(
@@ -1055,7 +1126,11 @@ void Photo::validateGroupedCache(
 		| (uint64(options) << 16)
 		| (uint64(rounding.key()) << 8)
 		| (uint64(loadLevel));
-	if (*cacheKey == key) {
+	const auto streamed = _livePhotoVideo
+		&& _streamed
+		&& _streamed->instance.player().ready()
+		&& !_streamed->instance.player().videoSize().isEmpty();
+	if (!streamed && *cacheKey == key) {
 		return;
 	}
 
@@ -1076,11 +1151,13 @@ void Photo::validateGroupedCache(
 		? _dataMedia->thumbnailInline()
 		: Image::BlankMedia().get();
 
-	*cacheKey = key;
-	auto prepared = Images::Prepare(
-		image->original(),
-		pixSize * ratio,
-		{ .options = options, .outer = { width, height } });
+	*cacheKey = streamed ? 0 : key;
+	auto prepared = streamed
+		? prepareImageCacheWithLarge({ width, height }, image)
+		: Images::Prepare(
+			image->original(),
+			pixSize * ratio,
+			{ .options = options, .outer = { width, height } });
 	auto rounded = Images::Round(
 		std::move(prepared),
 		MediaRoundingMask(rounding));
@@ -1090,10 +1167,13 @@ void Photo::validateGroupedCache(
 bool Photo::createStreamingObjects() {
 	using namespace ::Media::Streaming;
 
-	setStreamed(std::make_unique<Streamed>(
-		history()->owner().streaming().sharedDocument(
-			_data,
-			_realParent->fullId())));
+	const auto origin = Data::FileOrigin(_realParent->fullId());
+	const auto shared = _livePhotoVideo
+		? history()->owner().streaming().sharedDocument(
+			not_null<DocumentData*>{ _livePhotoVideo },
+			origin)
+		: history()->owner().streaming().sharedDocument(_data, origin);
+	setStreamed(std::make_unique<Streamed>(shared));
 	_streamed->instance.player().updates(
 	) | rpl::on_next_error([=](Update &&update) {
 		handleStreamingUpdate(std::move(update));
@@ -1115,6 +1195,7 @@ void Photo::setStreamed(std::unique_ptr<Streamed> value) {
 	const auto removed = (_streamed && !value);
 	const auto set = (!_streamed && value);
 	_streamed = std::move(value);
+	_imageCache = QImage();
 	if (set) {
 		history()->owner().registerHeavyViewPart(_parent);
 		togglePollingStory(true);
@@ -1141,7 +1222,11 @@ void Photo::handleStreamingUpdate(::Media::Streaming::Update &&update) {
 }
 
 void Photo::handleStreamingError(::Media::Streaming::Error &&error) {
-	_data->setVideoPlaybackFailed();
+	if (_livePhotoVideo) {
+		_livePhotoVideo->setInappPlaybackFailed();
+	} else {
+		_data->setVideoPlaybackFailed();
+	}
 	stopAnimation();
 }
 
@@ -1159,7 +1244,9 @@ void Photo::streamingReady(::Media::Streaming::Information &&info) {
 }
 
 void Photo::checkAnimation() {
-	if (_streamed && !videoAutoplayEnabled()) {
+	if (_streamed
+		&& (!videoAutoplayEnabled()
+			|| (_spoiler && !_spoiler->revealed))) {
 		stopAnimation();
 	}
 }
@@ -1178,12 +1265,16 @@ void Photo::playAnimation(bool autoplay) {
 	}
 	if (_streamed) {
 		stopAnimation();
-	} else if (_data->videoCanBePlayed()) {
+	} else if (_livePhotoVideo || _data->videoCanBePlayed()) {
 		if (!videoAutoplayEnabled()) {
 			history()->owner().checkPlayingAnimations();
 		}
 		if (!createStreamingObjects()) {
-			_data->setVideoPlaybackFailed();
+			if (_livePhotoVideo) {
+				_livePhotoVideo->setInappPlaybackFailed();
+			} else {
+				_data->setVideoPlaybackFailed();
+			}
 			return;
 		}
 	}
@@ -1195,20 +1286,64 @@ void Photo::checkStreamedIsStarted() const {
 	} else if (_streamed->instance.paused()) {
 		_streamed->instance.resume();
 	}
+	const auto livePhotoLoops = _livePhotoVideo
+		&& (_livePhotoVideo->isAnimation()
+			|| _livePhotoVideo->isSilentVideo());
+	if (_livePhotoVideo
+		&& !livePhotoLoops
+		&& _streamed->instance.player().finished()) {
+		return;
+	}
 	if (_streamed
 		&& !_streamed->instance.active()
 		&& !_streamed->instance.failed()) {
-		const auto position = _data->videoStartPosition();
+		const auto position = _livePhotoVideo
+			? crl::time(0)
+			: _data->videoStartPosition();
 		auto options = ::Media::Streaming::PlaybackOptions();
 		options.position = position;
 		options.mode = ::Media::Streaming::Mode::Video;
-		options.loop = true;
+		options.loop = !_livePhotoVideo || livePhotoLoops;
 		_streamed->instance.play(options);
 	}
 }
 
+void Photo::clickHandlerActiveChanged(
+		const ClickHandlerPtr &p,
+		bool active) {
+	File::clickHandlerActiveChanged(p, active);
+	if (active && p == _openl) {
+		replayLivePhotoOnHover();
+	}
+}
+
+void Photo::replayLivePhotoOnHover() const {
+	if (!_livePhotoVideo
+		|| !_streamed
+		|| !videoAutoplayEnabled()
+		|| (_spoiler && !_spoiler->revealed)
+		|| _livePhotoVideo->isAnimation()
+		|| _livePhotoVideo->isSilentVideo()
+		|| !_streamed->instance.player().finished()) {
+		return;
+	}
+	auto options = ::Media::Streaming::PlaybackOptions();
+	options.position = 0;
+	options.mode = ::Media::Streaming::Mode::Video;
+	options.loop = false;
+	_streamed->instance.play(options);
+}
+
 bool Photo::videoAutoplayEnabled() const {
-	return Data::AutoDownload::ShouldAutoPlay(
+	if (_livePhotoVideo && _livePhotoVideo->inappPlaybackFailed()) {
+		return false;
+	}
+	return _livePhotoVideo
+		? Data::AutoDownload::ShouldAutoPlay(
+			_data->session().settings().autoDownload(),
+			_realParent->history()->peer,
+			not_null<DocumentData*>{ _livePhotoVideo })
+		: Data::AutoDownload::ShouldAutoPlay(
 		_data->session().settings().autoDownload(),
 		_realParent->history()->peer,
 		_data);
@@ -1217,6 +1352,9 @@ bool Photo::videoAutoplayEnabled() const {
 void Photo::hideSpoilers() {
 	if (_spoiler) {
 		_spoiler->revealed = false;
+		if (_livePhotoVideo) {
+			stopAnimation();
+		}
 	}
 }
 

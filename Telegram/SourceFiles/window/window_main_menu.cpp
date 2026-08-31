@@ -321,15 +321,15 @@ MainMenu::MainMenu(
 	[=] { return controller->isGifPausedAtLeastFor(GifPauseReason::Layer); },
 	kPlayStatusLimit,
 	Info::Profile::BadgeType::Premium))
-, _exteraBadge(std::make_unique<Info::Profile::Badge>(
+, _projectBadge(std::make_unique<Info::Profile::Badge>(
 	this,
 	st::infoPeerBadge,
 	&controller->session(),
-	ExteraBadgeTypeFromPeer(controller->session().user()),
+	ProjectBadgeContentForPeer(controller->session().user()),
 	nullptr,
 	[=] { return controller->isGifPausedAtLeastFor(GifPauseReason::Layer); },
 	0,
-	Info::Profile::BadgeType::Extera | Info::Profile::BadgeType::ExteraSupporter | Info::Profile::BadgeType::ExteraCustom))
+	ProjectBadgeTypes()))
 , _scroll(this, st::defaultSolidScroll)
 , _inner(_scroll->setOwnedWidget(
 	object_ptr<Ui::VerticalLayout>(_scroll.data())))
@@ -416,22 +416,15 @@ MainMenu::MainMenu(
 	rpl::combine(
 		_toggleAccounts->rightSkipValue(),
 		rpl::single(rpl::empty) | rpl::then(_badge->updated()),
-		rpl::single(rpl::empty) | rpl::then(_exteraBadge->updated())
+		rpl::single(rpl::empty) | rpl::then(_projectBadge->updated())
 	) | rpl::on_next([=] {
 		moveBadge();
 	}, lifetime());
 	_badge->setPremiumClickCallback([=] {
 		chooseEmojiStatus();
 	});
-	{
-		const auto user = controller->session().user();
-		const auto isCustomBadge = isCustomBadgePeer(getBareID(user));
-		const auto isExtera = isExteraPeer(getBareID(user));
-		const auto isSupporter = isSupporterPeer(getBareID(user));
-		if (isExtera || isSupporter || isCustomBadge) {
-			_exteraBadge->setPremiumClickCallback(badgeClickHandler(user));
-		}
-	}
+	const auto user = controller->session().user();
+	_projectBadge->setPremiumClickCallback(projectBadgeClickHandler(user));
 
 	_controller->session().downloaderTaskFinished(
 	) | rpl::on_next([=] {
@@ -485,20 +478,20 @@ void MainMenu::moveBadge() {
 	const auto badgeWidth = _badge->widget()
 		? _badge->widget()->width()
 		: 0;
-	const auto exteraBadgeWidth = _exteraBadge->widget()
-		? _exteraBadge->widget()->width()
+	const auto projectBadgeWidth = _projectBadge->widget()
+		? _projectBadge->widget()->width()
 		: 0;
-	if (!badgeWidth && !exteraBadgeWidth) {
+	if (!badgeWidth && !projectBadgeWidth) {
 		return;
 	}
 	const auto nameGap = badgeWidth ? st::semiboldFont->spacew : 0;
-	const auto exteraGap = exteraBadgeWidth
+	const auto projectGap = projectBadgeWidth
 		? st::infoVerifiedCheckPosition.x()
 		: 0;
 	const auto reserved = nameGap
 		+ badgeWidth
-		+ exteraGap
-		+ exteraBadgeWidth;
+		+ projectGap
+		+ projectBadgeWidth;
 	const auto available = width()
 		- st::mainMenuCoverNameLeft
 		- _toggleAccounts->rightSkip()
@@ -512,8 +505,8 @@ void MainMenu::moveBadge() {
 			st::mainMenuCoverNameTop,
 			st::mainMenuCoverNameTop + st::semiboldFont->height);
 	}
-	if (_exteraBadge->widget()) {
-		_exteraBadge->move(
+	if (_projectBadge->widget()) {
+		_projectBadge->move(
 			nameEnd + nameGap + badgeWidth,
 			st::mainMenuCoverNameTop,
 			st::mainMenuCoverNameTop + st::semiboldFont->height);
@@ -1035,17 +1028,17 @@ void MainMenu::drawName(Painter &p) {
 	const auto badgeWidth = _badge->widget()
 		? _badge->widget()->width()
 		: 0;
-	const auto exteraBadgeWidth = _exteraBadge->widget()
-		? _exteraBadge->widget()->width()
+	const auto projectBadgeWidth = _projectBadge->widget()
+		? _projectBadge->widget()->width()
 		: 0;
 	const auto nameGap = badgeWidth ? st::semiboldFont->spacew : 0;
-	const auto exteraGap = exteraBadgeWidth
+	const auto projectGap = projectBadgeWidth
 		? st::infoVerifiedCheckPosition.x()
 		: 0;
 	const auto reserved = nameGap
 		+ badgeWidth
-		+ exteraGap
-		+ exteraBadgeWidth;
+		+ projectGap
+		+ projectBadgeWidth;
 	_name.drawLeftElided(
 		p,
 		st::mainMenuCoverNameLeft,

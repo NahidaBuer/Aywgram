@@ -1,0 +1,4 @@
+interface:
+  display_name: "AywGram i18n Maintenance"
+  short_description: "Audit and maintain AywGram localization catalogs"
+  default_prompt: "Use $aywgram-i18n to audit localization keys and repair catalog drift."

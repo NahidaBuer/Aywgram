@@ -59,13 +59,13 @@ topBarRecentActions: IconButton {
 	}
 }
 
-exteraBadgeToast: Toast(defaultToast) {
+projectBadgeToast: Toast(defaultToast) {
 	minWidth: 40px;
 	maxWidth: 480px;
 	padding: margins(54px, 13px, 19px, 12px);
 }
 
-exteraBadgeToastBadge: InfoPeerBadge(infoPeerBadge) {
+projectBadgeToastBadge: InfoPeerBadge(infoPeerBadge) {
 	premiumFg: toastFg;
 }
 

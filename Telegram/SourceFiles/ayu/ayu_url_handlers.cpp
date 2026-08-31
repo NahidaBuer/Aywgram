@@ -23,6 +23,8 @@
 
 #include <QDesktopServices>
 
+#include <optional>
+
 namespace AyuUrlHandlers {
 
 bool ResolveUser(
@@ -150,7 +152,7 @@ struct ResolvedSetting {
 	::Settings::Type section = ::Settings::AyuMain::Id();
 };
 
-[[nodiscard]] ResolvedSetting ResolveSetting(
+[[nodiscard]] std::optional<ResolvedSetting> ResolveSetting(
 		const QString &controlId,
 		not_null<::Main::Session*> session) {
 	const auto &registry = ::Settings::Builder::SearchRegistry::Instance();
@@ -160,19 +162,19 @@ struct ResolvedSetting {
 			continue;
 		}
 		if (entry.id == controlId) {
-			return {
+			return ResolvedSetting{
 				.controlId = entry.id,
 				.section = entry.section,
 			};
 		}
 		if (entry.altIds.contains(controlId)) {
-			return {
+			return ResolvedSetting{
 				.controlId = entry.id,
 				.section = entry.section,
 			};
 		}
 	}
-	return { .controlId = controlId };
+	return std::nullopt;
 }
 
 bool HandleAyuSettings(
@@ -188,14 +190,17 @@ bool HandleAyuSettings(
 		qthelp::UrlParamNameTransform::ToLower);
 	const auto settingName = params.value(u"s"_q);
 
-	if (settingName.isEmpty()) {
-		controller->showSettings(::Settings::AyuMain::Id());
-	} else {
-		const auto resolved = ResolveSetting(
+	const auto resolved = settingName.isEmpty()
+		? std::optional<ResolvedSetting>()
+		: ResolveSetting(
 			u"ayu/"_q + settingName,
 			&controller->session());
-		controller->window().setHighlightControlId(resolved.controlId);
-		controller->showSettings(resolved.section);
+	if (!resolved) {
+		controller->window().setHighlightControlId(QString());
+		controller->showSettings(::Settings::AyuMain::Id());
+	} else {
+		controller->window().setHighlightControlId(resolved->controlId);
+		controller->showSettings(resolved->section);
 	}
 	controller->window().activate();
 	return true;

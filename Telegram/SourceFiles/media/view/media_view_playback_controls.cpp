@@ -32,11 +32,20 @@ constexpr auto kEps = 0.005;
 
 PlaybackControls::PlaybackControls(
 	QWidget *parent,
-	not_null<Delegate*> delegate)
+	not_null<Delegate*> delegate,
+	Options options)
 : RpWidget(parent)
 , _delegate(delegate)
-, _speedControllable(Media::Audio::SupportsSpeedControl())
-, _qualitiesList(_delegate->playbackControlsQualities())
+, _options(options)
+, _livePhotoMode(options.livePhotoMode)
+, _speedControllable(
+	_options.allowSpeedControl && Media::Audio::SupportsSpeedControl())
+, _volumeControlVisible(
+	_options.allowVolumeControl
+		&& (!_livePhotoMode || *_livePhotoMode == LivePhotoMode::Once))
+, _qualitiesList(_options.allowSpeedControl
+	? _delegate->playbackControlsQualities()
+	: std::vector<Media::VideoQuality>())
 , _playPauseResume(this, st::mediaviewPlayButton)
 , _playbackSlider(this, st::mediaviewPlayback)
 , _playbackProgress(std::make_unique<PlaybackProgress>())
@@ -47,6 +56,9 @@ PlaybackControls::PlaybackControls(
 	: nullptr)
 , _fullScreenToggle(this, st::mediaviewFullScreenButton)
 , _pictureInPicture(this, st::mediaviewPipButton)
+, _livePhotoModeToggle(_livePhotoMode
+	? object_ptr<Ui::IconButton>(this, st::mediaviewLivePhotoModeButton)
+	: nullptr)
 , _playedAlready(this, st::mediaviewPlayProgressLabel)
 , _toPlayLeft(this, st::mediaviewPlayProgressLabel)
 , _speedController(_speedToggle
@@ -76,10 +88,13 @@ PlaybackControls::PlaybackControls(
 		fadeUpdated(opacity);
 	});
 
-	_speedToggle->setSpeed(_speedControllable
-		? _delegate->playbackControlsCurrentSpeed(false)
-		: 1.);
+	if (_speedToggle) {
+		_speedToggle->setSpeed(_speedControllable
+			? _delegate->playbackControlsCurrentSpeed(false)
+			: 1.);
+	}
 	updateSpeedToggleQuality();
+	applyOptionsVisibility();
 
 	if (const auto controller = _speedController.get()) {
 		controller->menuToggledValue(
@@ -91,6 +106,18 @@ PlaybackControls::PlaybackControls(
 	_pictureInPicture->addClickHandler([=] {
 		_delegate->playbackControlsToPictureInPicture();
 	});
+	if (_livePhotoModeToggle) {
+		updateLivePhotoModeIcon();
+		_livePhotoModeToggle->addClickHandler([=] {
+			const auto next = (*_livePhotoMode == LivePhotoMode::Photo)
+				? LivePhotoMode::Loop
+				: (*_livePhotoMode == LivePhotoMode::Loop)
+				? LivePhotoMode::Once
+				: LivePhotoMode::Photo;
+			setLivePhotoMode(next);
+			_delegate->playbackControlsLivePhotoModeChanged(next);
+		});
+	}
 
 	_volumeController->setValue(_delegate->playbackControlsCurrentVolume());
 	_volumeController->setChangeProgressCallback([=](float64 value) {
@@ -174,6 +201,7 @@ template <typename Callback>
 void PlaybackControls::startFading(Callback start) {
 	if (!_fadeAnimation->animating()) {
 		showChildren();
+		applyOptionsVisibility();
 		_playbackSlider->disablePaint(true);
 		_volumeController->disablePaint(true);
 		_childrenHidden = false;
@@ -231,6 +259,9 @@ void PlaybackControls::saveQuality(Media::VideoQuality quality) {
 }
 
 void PlaybackControls::updateSpeedToggleQuality() {
+	if (!_speedToggle) {
+		return;
+	}
 	const auto qualities = _delegate->playbackControlsQualities();
 	if (_qualitiesList != qualities) {
 		_qualitiesList = qualities;
@@ -255,6 +286,9 @@ void PlaybackControls::updatePlayback(const Player::TrackState &state) {
 }
 
 void PlaybackControls::updateVolumeToggleIcon() {
+	if (!_volumeControlVisible) {
+		return;
+	}
 	const auto volume = _delegate->playbackControlsCurrentVolume();
 	_volumeToggle->setIconOverride([&] {
 		return (volume <= 0.)
@@ -461,6 +495,43 @@ void PlaybackControls::setInFullScreen(bool inFullScreen) {
 	}
 }
 
+void PlaybackControls::setLivePhotoMode(LivePhotoMode mode) {
+	if (!_livePhotoModeToggle || _livePhotoMode == mode) {
+		return;
+	}
+	_livePhotoMode = mode;
+	_volumeControlVisible = _options.allowVolumeControl
+		&& mode == LivePhotoMode::Once;
+	updateLivePhotoModeIcon();
+	updateVolumeToggleIcon();
+	applyOptionsVisibility();
+	resizeEvent(nullptr);
+	refreshFadeCache();
+}
+
+void PlaybackControls::updateLivePhotoModeIcon() {
+	Expects(_livePhotoModeToggle != nullptr);
+	Expects(_livePhotoMode.has_value());
+
+	const auto normal = (*_livePhotoMode == LivePhotoMode::Photo)
+		? nullptr
+		: (*_livePhotoMode == LivePhotoMode::Loop)
+		? &st::mediaviewLivePhotoLoopIcon
+		: &st::mediaviewLivePhotoOnceIcon;
+	const auto over = (*_livePhotoMode == LivePhotoMode::Photo)
+		? nullptr
+		: (*_livePhotoMode == LivePhotoMode::Loop)
+		? &st::mediaviewLivePhotoLoopIconOver
+		: &st::mediaviewLivePhotoOnceIconOver;
+	_livePhotoModeToggle->setIconOverride(normal, over);
+}
+
+void PlaybackControls::applyOptionsVisibility() {
+	_volumeToggle->setVisible(_volumeControlVisible);
+	_volumeController->setVisible(_volumeControlVisible);
+	_pictureInPicture->setVisible(_options.allowPictureInPicture);
+}
+
 void PlaybackControls::resizeEvent(QResizeEvent *e) {
 	const auto textSkip = st::mediaviewPlayProgressSkip;
 	const auto textLeft = st::mediaviewPlayProgressLeft;
@@ -490,19 +561,33 @@ void PlaybackControls::resizeEvent(QResizeEvent *e) {
 		_speedToggle->moveToRight(right, st::mediaviewButtonsTop);
 		right += _speedToggle->width() + st::mediaviewPipButtonSkip;
 	}
-	_pictureInPicture->moveToRight(right, st::mediaviewButtonsTop);
-	right += _pictureInPicture->width() + st::mediaviewFullScreenButtonSkip;
+	if (_options.allowPictureInPicture) {
+		_pictureInPicture->moveToRight(right, st::mediaviewButtonsTop);
+		right += _pictureInPicture->width()
+			+ st::mediaviewFullScreenButtonSkip;
+	}
+	if (_livePhotoModeToggle) {
+		_livePhotoModeToggle->moveToRight(right, st::mediaviewButtonsTop);
+		right += _livePhotoModeToggle->width()
+			+ st::mediaviewFullScreenButtonSkip;
+	}
 	_fullScreenToggle->moveToRight(right, st::mediaviewButtonsTop);
 
 	updateDownloadProgressPosition();
 
-	auto left = st::mediaviewVolumeToggleLeft;
-	_volumeToggle->moveToLeft(left, st::mediaviewVolumeTop);
-	left += _volumeToggle->width() + st::mediaviewVolumeSkip;
-	_volumeController->resize(
-		st::mediaviewVolumeWidth,
-		st::mediaviewPlayback.seekSize.height());
-	_volumeController->moveToLeft(left, st::mediaviewVolumeTop + (_volumeToggle->height() - _volumeController->height()) / 2);
+	if (_volumeControlVisible) {
+		auto left = st::mediaviewVolumeToggleLeft;
+		_volumeToggle->moveToLeft(left, st::mediaviewVolumeTop);
+		left += _volumeToggle->width() + st::mediaviewVolumeSkip;
+		_volumeController->resize(
+			st::mediaviewVolumeWidth,
+			st::mediaviewPlayback.seekSize.height());
+		_volumeController->moveToLeft(
+			left,
+			st::mediaviewVolumeTop
+				+ (_volumeToggle->height()
+					- _volumeController->height()) / 2);
+	}
 }
 
 void PlaybackControls::updateDownloadProgressPosition() {
@@ -525,6 +610,7 @@ void PlaybackControls::paintEvent(QPaintEvent *e) {
 	}
 	if (_childrenHidden) {
 		showChildren();
+		applyOptionsVisibility();
 		_playbackSlider->setFadeOpacity(1.);
 		_volumeController->setFadeOpacity(1.);
 		_childrenHidden = false;
@@ -541,13 +627,15 @@ bool PlaybackControls::hasMenu() const {
 }
 
 bool PlaybackControls::dragging() const {
-	return _volumeController->isChanging()
+	return (_volumeControlVisible && _volumeController->isChanging())
 		|| _playbackSlider->isChanging()
 		|| _playPauseResume->isOver()
-		|| _volumeToggle->isOver()
+		|| (_volumeControlVisible && _volumeToggle->isOver())
 		|| (_speedToggle && _speedToggle->isOver())
 		|| _fullScreenToggle->isOver()
-		|| _pictureInPicture->isOver()
+		|| (_livePhotoModeToggle && _livePhotoModeToggle->isOver())
+		|| (_options.allowPictureInPicture
+			&& _pictureInPicture->isOver())
 		|| hasMenu();
 }
 

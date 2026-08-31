@@ -1,0 +1,169 @@
+name: Refresh update metadata
+
+on:
+  workflow_dispatch:
+    inputs:
+      prerelease_tag:
+        description: Prerelease to scan; leave empty to use the newest published prerelease.
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  select:
+    name: Select releases
+    runs-on: ubuntu-latest
+    outputs:
+      metadata_release: ${{ steps.releases.outputs.metadata_release }}
+      prerelease_tag: ${{ steps.releases.outputs.prerelease_tag }}
+
+    steps:
+      - name: Select the metadata carrier and asset prerelease.
+        id: releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          GH_REPO: ${{ github.repository }}
+          PRERELEASE_INPUT: ${{ inputs.prerelease_tag }}
+        run: |
+          set -euo pipefail
+          mapfile -t metadata_releases < <(
+            gh api --paginate "repos/${GH_REPO}/releases?per_page=100" \
+              --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name'
+          )
+          if [ "${#metadata_releases[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one published non-prerelease metadata Release; found ${#metadata_releases[@]}."
+            exit 1
+          fi
+          metadata_release="${metadata_releases[0]}"
+
+          if [ -n "$PRERELEASE_INPUT" ]; then
+            prerelease_json="$RUNNER_TEMP/prerelease.json"
+            if ! gh api "repos/${GH_REPO}/releases/tags/${PRERELEASE_INPUT}" > "$prerelease_json"; then
+              echo "::error::Prerelease $PRERELEASE_INPUT does not exist."
+              exit 1
+            fi
+            if [ "$(jq -r '(.draft == false) and (.prerelease == true)' "$prerelease_json")" != true ]; then
+              echo "::error::Release $PRERELEASE_INPUT is not a published prerelease."
+              exit 1
+            fi
+            prerelease_tag="$PRERELEASE_INPUT"
+          else
+            prerelease_tag="$(
+              gh api "repos/${GH_REPO}/releases?per_page=100" \
+                --jq '[.[] | select(.draft == false and .prerelease == true)][0].tag_name // ""'
+            )"
+          fi
+          if [ -z "$prerelease_tag" ]; then
+            echo '::error::No published prerelease was found.'
+            exit 1
+          fi
+
+          metadata_json="$RUNNER_TEMP/metadata-release.json"
+          gh api "repos/${GH_REPO}/releases/tags/${metadata_release}" > "$metadata_json"
+          unexpected_assets="$(jq -r '[.assets[]? | select(.name != "update-metadata.json") | .name] | join(", ")' "$metadata_json")"
+          if [ -n "$unexpected_assets" ]; then
+            echo "::error::The metadata Release contains non-metadata assets: $unexpected_assets"
+            exit 1
+          fi
+
+          echo "metadata_release=$metadata_release" >> "$GITHUB_OUTPUT"
+          echo "prerelease_tag=$prerelease_tag" >> "$GITHUB_OUTPUT"
+
+  refresh:
+    name: Scan prerelease assets and refresh metadata
+    needs: select
+    runs-on: ubuntu-latest
+    concurrency:
+      group: update-metadata-release
+      cancel-in-progress: false
+
+    steps:
+      - name: Clone the selected prerelease source.
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.select.outputs.prerelease_tag }}
+
+      - name: Validate release version.
+        id: version
+        shell: bash
+        env:
+          PRERELEASE_TAG: ${{ needs.select.outputs.prerelease_tag }}
+        run: python3 .github/scripts/release_version.py --tag "$PRERELEASE_TAG" --github-output "$GITHUB_OUTPUT"
+
+      - name: Scan assets and update rolling metadata.
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          GH_REPO: ${{ github.repository }}
+          METADATA_RELEASE: ${{ needs.select.outputs.metadata_release }}
+          PRERELEASE_TAG: ${{ needs.select.outputs.prerelease_tag }}
+          APP_VERSION: ${{ steps.version.outputs.app_version }}
+          RELEASE_REVISION: ${{ steps.version.outputs.revision }}
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
+        run: |
+          set -euo pipefail
+
+          prerelease_json="$RUNNER_TEMP/prerelease.json"
+          gh api "repos/${GH_REPO}/releases/tags/${PRERELEASE_TAG}" > "$prerelease_json"
+          mkdir -p assets fragments previous output
+          found=0
+          while IFS='|' read -r target asset_name; do
+            if ! jq -e --arg name "$asset_name" \
+              '.assets[]? | select(.name == $name)' \
+              "$prerelease_json" >/dev/null; then
+              continue
+            fi
+            gh release download "$PRERELEASE_TAG" \
+              --repo "$GH_REPO" \
+              --pattern "$asset_name" \
+              --dir assets
+            python3 .github/scripts/update_release_metadata.py fragment \
+              --target "$target" \
+              --app-version "$APP_VERSION" \
+              --revision "$RELEASE_REVISION" \
+              --version-name "$VERSION_NAME" \
+              --release "$PRERELEASE_TAG" \
+              --asset "assets/$asset_name" \
+              --output "fragments/$target.json"
+            found=$((found + 1))
+          done <<EOF
+          windows-x86_64|AywGram-v${VERSION_NAME}-windows-x86_64.zip
+          windows-arm64|AywGram-v${VERSION_NAME}-windows-arm64.zip
+          mac-arm64|AywGram-v${VERSION_NAME}-mac-arm64.zip
+          linux-x86_64|AywGram-v${VERSION_NAME}-linux-x86_64.tar.gz
+          EOF
+          if [ "$found" -eq 0 ]; then
+            echo "::error::Prerelease $PRERELEASE_TAG has no updater assets for AywGram v$VERSION_NAME."
+            exit 1
+          fi
+
+          base_arguments=()
+          if gh release download "$METADATA_RELEASE" \
+            --repo "$GH_REPO" \
+            --pattern update-metadata.json \
+            --dir previous; then
+            base_arguments=(--base previous/update-metadata.json)
+          fi
+          arguments=(
+            merge
+            "${base_arguments[@]}"
+            --feed-release "$METADATA_RELEASE"
+            --output output/update-metadata.json
+          )
+          while IFS= read -r fragment; do
+            arguments+=(--fragment "$fragment")
+          done < <(find fragments -type f -name '*.json' -print | sort)
+          python3 .github/scripts/update_release_metadata.py "${arguments[@]}"
+          python3 -m json.tool output/update-metadata.json >/dev/null
+          python3 .github/scripts/update_release_metadata.py notes \
+            --metadata output/update-metadata.json \
+            --output output/release-notes.md
+          gh release upload "$METADATA_RELEASE" output/update-metadata.json \
+            --repo "$GH_REPO" \
+            --clobber
+          gh release edit "$METADATA_RELEASE" \
+            --repo "$GH_REPO" \
+            --notes-file output/release-notes.md

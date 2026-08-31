@@ -7,12 +7,14 @@
 #include "ayu/ui/settings/settings_chats.h"
 
 #include "lang_auto.h"
+#include "ayu/ayu_account_settings.h"
 #include "ayu/ayu_settings.h"
 #include "ayu/ui/boxes/edit_mark_box.h"
 #include "ayu/ui/components/message_preview.h"
 #include "ayu/ui/settings/ayu_builder.h"
 #include "ayu/ui/settings/settings_ayu_utils.h"
 #include "ayu/ui/settings/settings_main.h"
+#include "ayu/ui/settings/settings_message_menu.h"
 #include "settings/settings_builder.h"
 #include "settings/settings_common.h"
 #include "styles/style_ayu_icons.h"
@@ -21,6 +23,7 @@
 #include "ui/wrap/vertical_layout.h"
 #include "window/window_session_controller.h"
 
+#include <algorithm>
 #include <memory>
 
 namespace Settings {
@@ -406,85 +409,13 @@ void BuildMessageAppearance(
 }
 
 void BuildContextMenuElements(SectionBuilder &builder, AyuSectionBuilder &ayu) {
-	auto *settings = &AyuSettings::getInstance();
-
 	builder.addSubsectionTitle(tr::ayu_ContextMenuElementsHeader());
-
-	const auto options = std::vector{
-		tr::ayu_SettingsContextMenuItemHidden(tr::now),
-		tr::ayu_SettingsContextMenuItemShown(tr::now),
-		tr::ayu_SettingsContextMenuItemExtended(tr::now),
-	};
-
-	ayu.addChooseButton({
-		.id = u"ayu/showReactionsPanelInContextMenu"_q,
-		.title = tr::ayu_SettingsContextMenuReactionsPanel(),
-		.boxTitle = tr::ayu_SettingsContextMenuTitle(),
-		.initialSelection = static_cast<int>(settings->showReactionsPanelInContextMenu()),
-		.options = options,
-		.setter = [](int i) { AyuSettings::getInstance().setShowReactionsPanelInContextMenu(static_cast<ContextMenuVisibility>(i)); },
-		.icon = { &st::menuIconReactions },
+	builder.addSectionButton({
+		.title = tr::ayu_SettingsMessageMenuLayout(),
+		.targetSection = AyuMessageMenu::Id(),
+		.icon = { &st::menuIconShowAll },
 	});
-	ayu.addChooseButton({
-		.id = u"ayu/showViewsPanelInContextMenu"_q,
-		.title = tr::ayu_SettingsContextMenuViewsPanel(),
-		.boxTitle = tr::ayu_SettingsContextMenuTitle(),
-		.initialSelection = static_cast<int>(settings->showViewsPanelInContextMenu()),
-		.options = options,
-		.setter = [](int i) { AyuSettings::getInstance().setShowViewsPanelInContextMenu(static_cast<ContextMenuVisibility>(i)); },
-		.icon = { &st::menuIconShowInChat },
-	});
-	ayu.addChooseButton({
-		.id = u"ayu/showHideMessageInContextMenu"_q,
-		.title = tr::ayu_ContextHideMessage(),
-		.boxTitle = tr::ayu_SettingsContextMenuTitle(),
-		.initialSelection = static_cast<int>(settings->showHideMessageInContextMenu()),
-		.options = options,
-		.setter = [](int i) { AyuSettings::getInstance().setShowHideMessageInContextMenu(static_cast<ContextMenuVisibility>(i)); },
-		.icon = { &st::menuIconClear },
-	});
-	ayu.addChooseButton({
-		.id = u"ayu/showUserMessagesInContextMenu"_q,
-		.title = tr::ayu_UserMessagesMenuText(),
-		.boxTitle = tr::ayu_SettingsContextMenuTitle(),
-		.initialSelection = static_cast<int>(settings->showUserMessagesInContextMenu()),
-		.options = options,
-		.setter = [](int i) { AyuSettings::getInstance().setShowUserMessagesInContextMenu(static_cast<ContextMenuVisibility>(i)); },
-		.icon = { &st::menuIconTTL },
-	});
-	ayu.addChooseButton({
-		.id = u"ayu/showMessageDetailsInContextMenu"_q,
-		.title = tr::ayu_MessageDetailsPC(),
-		.boxTitle = tr::ayu_SettingsContextMenuTitle(),
-		.initialSelection = static_cast<int>(settings->showMessageDetailsInContextMenu()),
-		.options = options,
-		.setter = [](int i) { AyuSettings::getInstance().setShowMessageDetailsInContextMenu(static_cast<ContextMenuVisibility>(i)); },
-		.icon = { &st::menuIconInfo },
-	});
-	ayu.addChooseButton({
-		.id = u"ayu/showRepeatMessageInContextMenu"_q,
-		.title = tr::ayu_RepeatMessage(),
-		.boxTitle = tr::ayu_SettingsContextMenuTitle(),
-		.initialSelection = static_cast<int>(settings->showRepeatMessageInContextMenu()),
-		.options = options,
-		.setter = [](int i) { AyuSettings::getInstance().setShowRepeatMessageInContextMenu(static_cast<ContextMenuVisibility>(i)); },
-		.icon = { &st::ayuRepeatMenuIcon },
-	});
-	if (settings->filtersEnabled()) {
-		ayu.addChooseButton({
-			.id = u"ayu/showAddFilterInContextMenu"_q,
-			.title = tr::ayu_RegexFilterQuickAdd(),
-			.boxTitle = tr::ayu_SettingsContextMenuTitle(),
-			.initialSelection = static_cast<int>(settings->showAddFilterInContextMenu()),
-			.options = options,
-			.setter = [](int i) { AyuSettings::getInstance().setShowAddFilterInContextMenu(static_cast<ContextMenuVisibility>(i)); },
-			.icon = { &st::menuIconAddToFolder },
-		});
-	}
-
-	builder.addSkip();
-	builder.addDividerText(tr::ayu_SettingsContextMenuDescription());
-	builder.addSkip();
+	ayu.addSectionDivider();
 }
 
 void BuildMessageFieldElements(SectionBuilder &builder, AyuSectionBuilder &ayu) {
@@ -540,6 +471,61 @@ void BuildMessageFieldElements(SectionBuilder &builder, AyuSectionBuilder &ayu) 
 		.icon = { &st::messageFieldCocoonAiIcon },
 	});
 
+	ayu.addSettingToggle({
+		.id = u"ayu/alwaysShowScheduledButton"_q,
+		.title = tr::ayu_AlwaysShowScheduledButton(),
+		.getter = &AyuSettings::alwaysShowScheduledButton,
+		.setter = &AyuSettings::setAlwaysShowScheduledButton,
+		.icon = { &st::menuIconSchedule },
+	});
+	builder.addDividerText(
+		tr::ayu_AlwaysShowScheduledButtonDescription());
+	ayu.addSettingToggle({
+		.id = u"ayu/autoTranslateChats"_q,
+		.title = tr::ayu_AutoTranslateChats(),
+		.getter = &AyuSettings::autoTranslateChats,
+		.setter = &AyuSettings::setAutoTranslateChats,
+		.icon = { &st::menuIconTranslate },
+	});
+	builder.addDividerText(tr::ayu_AutoTranslateChatsDescription());
+
+	ayu.addSectionDivider();
+}
+
+void BuildCloudDrafts(SectionBuilder &builder, AyuSectionBuilder &ayu) {
+	const auto controller = builder.controller();
+	const auto session = controller ? &controller->session() : nullptr;
+
+	builder.addSubsectionTitle(tr::ayu_CloudDraftsHeader());
+	ayu.addToggle({
+		.id = u"ayu/drafts/ignoreRemoteText"_q,
+		.title = tr::ayu_IgnoreRemoteTextDrafts(),
+		.getter = [=] {
+			return session
+				&& AyuAccountSettings::IgnoreRemoteText(session);
+		},
+		.setter = [=](bool value) {
+			if (session) {
+				AyuAccountSettings::SetIgnoreRemoteText(session, value);
+			}
+		},
+	});
+	builder.addDividerText(tr::ayu_IgnoreRemoteTextDraftsDescription());
+
+	ayu.addToggle({
+		.id = u"ayu/drafts/blockLocalTextUpload"_q,
+		.title = tr::ayu_BlockLocalTextDraftUpload(),
+		.getter = [=] {
+			return session
+				&& AyuAccountSettings::BlockLocalTextUpload(session);
+		},
+		.setter = [=](bool value) {
+			if (session) {
+				AyuAccountSettings::SetBlockLocalTextUpload(session, value);
+			}
+		},
+	});
+	builder.addDividerText(tr::ayu_BlockLocalTextDraftUploadDescription());
 	ayu.addSectionDivider();
 }
 
@@ -575,6 +561,7 @@ const auto kMeta = BuildHelper({
 
 	builder.addSkip();
 	BuildChatBehavior(builder, ayu);
+	BuildCloudDrafts(builder, ayu);
 	BuildSearch(builder, ayu);
 	BuildMarks(builder, ayu, previewState);
 	BuildMessageAppearance(builder, ayu, previewState);

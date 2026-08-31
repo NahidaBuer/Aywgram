@@ -38,6 +38,13 @@ enum class ContextMenuVisibility {
 	VisibleWithModifier = 2,
 };
 
+enum class MessageMenuPlacement {
+	Quick = 0,
+	Normal = 1,
+	Extended = 2,
+	Hidden = 3,
+};
+
 enum class TranslationProvider {
 	Telegram = 0,
 	Google = 1,
@@ -67,6 +74,13 @@ NLOHMANN_JSON_SERIALIZE_ENUM(ContextMenuVisibility, {
 	{ContextMenuVisibility::Hidden, 0},
 	{ContextMenuVisibility::Visible, 1},
 	{ContextMenuVisibility::VisibleWithModifier, 2},
+})
+
+NLOHMANN_JSON_SERIALIZE_ENUM(MessageMenuPlacement, {
+	{MessageMenuPlacement::Quick, "quick"},
+	{MessageMenuPlacement::Normal, "normal"},
+	{MessageMenuPlacement::Extended, "extended"},
+	{MessageMenuPlacement::Hidden, "hidden"},
 })
 
 NLOHMANN_JSON_SERIALIZE_ENUM(TranslationProvider, {
@@ -249,6 +263,14 @@ public:
 	static void load();
 	static void save();
 	static void reset();
+	[[nodiscard]] static nlohmann::json CloudExportGlobal();
+	[[nodiscard]] static nlohmann::json CloudExportAccount(uint64 userId);
+	[[nodiscard]] static bool CloudValidateGlobal(const nlohmann::json &data);
+	[[nodiscard]] static bool CloudValidateAccount(
+		uint64 userId,
+		const nlohmann::json &data);
+	static bool CloudApplyGlobal(const nlohmann::json &data);
+	static bool CloudApplyAccount(uint64 userId, const nlohmann::json &data);
 
 	[[nodiscard]] static GhostModeAccountSettings &ghost(not_null<Main::Session*> session);
 	[[nodiscard]] static GhostModeAccountSettings &ghost(uint64 userId);
@@ -277,6 +299,7 @@ public:
 	[[nodiscard]] bool semiTransparentDeletedMessages() const { return _semiTransparentDeletedMessages.current(); }
 	[[nodiscard]] bool disableAds() const { return _disableAds.current(); }
 	[[nodiscard]] bool disableStories() const { return _disableStories.current(); }
+	[[nodiscard]] bool openCommunityOnlyFromBadge() const { return _openCommunityOnlyFromBadge.current(); }
 	[[nodiscard]] bool disableCustomBackgrounds() const { return _disableCustomBackgrounds.current(); }
 	[[nodiscard]] bool hidePremiumStatuses() const { return _hidePremiumStatuses.current(); }
 	[[nodiscard]] bool showOnlyAddedEmojisAndStickers() const { return _showOnlyAddedEmojisAndStickers.current(); }
@@ -312,6 +335,7 @@ public:
 	[[nodiscard]] ContextMenuVisibility showHideMessageInContextMenu() const { return _showHideMessageInContextMenu.current(); }
 	[[nodiscard]] ContextMenuVisibility showUserMessagesInContextMenu() const { return _showUserMessagesInContextMenu.current(); }
 	[[nodiscard]] ContextMenuVisibility showMessageDetailsInContextMenu() const { return _showMessageDetailsInContextMenu.current(); }
+	[[nodiscard]] bool alwaysShowScheduledButton() const { return _alwaysShowScheduledButton.current(); }
 	[[nodiscard]] ContextMenuVisibility showRepeatMessageInContextMenu() const { return _showRepeatMessageInContextMenu.current(); }
 	[[nodiscard]] ContextMenuVisibility showAddFilterInContextMenu() const { return _showAddFilterInContextMenu.current(); }
 	[[nodiscard]] bool showAttachButtonInMessageField() const { return _showAttachButtonInMessageField.current(); }
@@ -358,7 +382,15 @@ public:
 	[[nodiscard]] TranslationProvider translationProvider() const { return _translationProvider.current(); }
 	[[nodiscard]] bool adaptiveCoverColor() const { return _adaptiveCoverColor.current(); }
 	[[nodiscard]] bool improveLinkPreviews() const { return _improveLinkPreviews.current(); }
-	[[nodiscard]] bool crashReporting() const { return _crashReporting.current(); }
+	[[nodiscard]] bool autoInlineBotQueries() const { return _autoInlineBotQueries.current(); }
+	[[nodiscard]] bool inlineBotConsent() const { return _inlineBotConsent.current(); }
+	[[nodiscard]] bool autoTranslateChats() const { return _autoTranslateChats.current(); }
+	[[nodiscard]] bool messageMenuQuickLabels() const { return _messageMenuQuickLabels.current(); }
+	[[nodiscard]] const nlohmann::json &linkRules() const { return _linkRules; }
+	[[nodiscard]] const std::map<std::string, MessageMenuPlacement> &messageMenuPlacements() const { return _messageMenuPlacements; }
+	[[nodiscard]] MessageMenuPlacement messageMenuPlacement(
+		const std::string &id,
+		MessageMenuPlacement fallback = MessageMenuPlacement::Normal) const;
 	[[nodiscard]] int avatarCorners() const { return _avatarCorners.current(); }
 	[[nodiscard]] bool singleCornerRadius() const { return _singleCornerRadius.current(); }
 	[[nodiscard]] bool streamerMode() const { return _streamerMode.current(); }
@@ -373,6 +405,7 @@ public:
 	void setSemiTransparentDeletedMessages(bool val);
 	void setDisableAds(bool val);
 	void setDisableStories(bool val);
+	void setOpenCommunityOnlyFromBadge(bool val);
 	void setDisableCustomBackgrounds(bool val);
 	void setHidePremiumStatuses(bool val);
 	void setShowOnlyAddedEmojisAndStickers(bool val);
@@ -408,6 +441,7 @@ public:
 	void setShowHideMessageInContextMenu(ContextMenuVisibility val);
 	void setShowUserMessagesInContextMenu(ContextMenuVisibility val);
 	void setShowMessageDetailsInContextMenu(ContextMenuVisibility val);
+	void setAlwaysShowScheduledButton(bool val);
 	void setShowRepeatMessageInContextMenu(ContextMenuVisibility val);
 	void setShowAddFilterInContextMenu(ContextMenuVisibility val);
 	void setShowAttachButtonInMessageField(bool val);
@@ -454,7 +488,15 @@ public:
 	void setTranslationProvider(TranslationProvider val);
 	void setAdaptiveCoverColor(bool val);
 	void setImproveLinkPreviews(bool val);
-	void setCrashReporting(bool val);
+	void setAutoInlineBotQueries(bool val);
+	void setInlineBotConsent(bool val);
+	void setAutoTranslateChats(bool val);
+	void setMessageMenuQuickLabels(bool val);
+	void setLinkRules(nlohmann::json val);
+	void setMessageMenuPlacement(
+		const std::string &id,
+		MessageMenuPlacement placement);
+	void resetMessageMenuPlacements();
 	void setAvatarCorners(int val);
 	void setSingleCornerRadius(bool val);
 	void setStreamerMode(bool val);
@@ -551,6 +593,8 @@ public:
 	[[nodiscard]] rpl::producer<ContextMenuVisibility> showUserMessagesInContextMenuChanges() const { return _showUserMessagesInContextMenu.changes(); }
 	[[nodiscard]] rpl::producer<ContextMenuVisibility> showMessageDetailsInContextMenuValue() const { return _showMessageDetailsInContextMenu.value(); }
 	[[nodiscard]] rpl::producer<ContextMenuVisibility> showMessageDetailsInContextMenuChanges() const { return _showMessageDetailsInContextMenu.changes(); }
+	[[nodiscard]] rpl::producer<bool> alwaysShowScheduledButtonValue() const { return _alwaysShowScheduledButton.value(); }
+	[[nodiscard]] rpl::producer<bool> alwaysShowScheduledButtonChanges() const { return _alwaysShowScheduledButton.changes(); }
 	[[nodiscard]] rpl::producer<ContextMenuVisibility> showRepeatMessageInContextMenuValue() const { return _showRepeatMessageInContextMenu.value(); }
 	[[nodiscard]] rpl::producer<ContextMenuVisibility> showRepeatMessageInContextMenuChanges() const { return _showRepeatMessageInContextMenu.changes(); }
 	[[nodiscard]] rpl::producer<ContextMenuVisibility> showAddFilterInContextMenuValue() const { return _showAddFilterInContextMenu.value(); }
@@ -643,8 +687,11 @@ public:
 	[[nodiscard]] rpl::producer<bool> adaptiveCoverColorChanges() const { return _adaptiveCoverColor.changes(); }
 	[[nodiscard]] rpl::producer<bool> improveLinkPreviewsValue() const { return _improveLinkPreviews.value(); }
 	[[nodiscard]] rpl::producer<bool> improveLinkPreviewsChanges() const { return _improveLinkPreviews.changes(); }
-	[[nodiscard]] rpl::producer<bool> crashReportingValue() const { return _crashReporting.value(); }
-	[[nodiscard]] rpl::producer<bool> crashReportingChanges() const { return _crashReporting.changes(); }
+	[[nodiscard]] rpl::producer<bool> autoInlineBotQueriesValue() const { return _autoInlineBotQueries.value(); }
+	[[nodiscard]] rpl::producer<bool> autoInlineBotQueriesChanges() const { return _autoInlineBotQueries.changes(); }
+	[[nodiscard]] rpl::producer<bool> inlineBotConsentValue() const { return _inlineBotConsent.value(); }
+	[[nodiscard]] rpl::producer<bool> autoTranslateChatsValue() const { return _autoTranslateChats.value(); }
+	[[nodiscard]] rpl::producer<bool> autoTranslateChatsChanges() const { return _autoTranslateChats.changes(); }
 	[[nodiscard]] rpl::producer<int> avatarCornersValue() const { return _avatarCorners.value(); }
 	[[nodiscard]] rpl::producer<int> avatarCornersChanges() const { return _avatarCorners.changes(); }
 	[[nodiscard]] rpl::producer<bool> singleCornerRadiusValue() const { return _singleCornerRadius.value(); }
@@ -671,6 +718,7 @@ private:
 	rpl::variable<bool> _semiTransparentDeletedMessages = false;
 	rpl::variable<bool> _disableAds = true;
 	rpl::variable<bool> _disableStories = false;
+	rpl::variable<bool> _openCommunityOnlyFromBadge = true;
 	rpl::variable<bool> _disableCustomBackgrounds = false;
 	rpl::variable<bool> _showOnlyAddedEmojisAndStickers = false;
 	rpl::variable<bool> _collapseSimilarChannels = true;
@@ -705,6 +753,7 @@ private:
 	rpl::variable<ContextMenuVisibility> _showHideMessageInContextMenu = ContextMenuVisibility::Hidden;
 	rpl::variable<ContextMenuVisibility> _showUserMessagesInContextMenu = ContextMenuVisibility::VisibleWithModifier;
 	rpl::variable<ContextMenuVisibility> _showMessageDetailsInContextMenu = ContextMenuVisibility::VisibleWithModifier;
+	rpl::variable<bool> _alwaysShowScheduledButton = false;
 	rpl::variable<ContextMenuVisibility> _showRepeatMessageInContextMenu = ContextMenuVisibility::Hidden;
 	rpl::variable<ContextMenuVisibility> _showAddFilterInContextMenu = ContextMenuVisibility::Visible;
 	rpl::variable<bool> _showAttachButtonInMessageField = true;
@@ -752,7 +801,12 @@ private:
 	rpl::variable<TranslationProvider> _translationProvider = TranslationProvider::Telegram;
 	rpl::variable<bool> _adaptiveCoverColor = true;
 	rpl::variable<bool> _improveLinkPreviews = false;
-	rpl::variable<bool> _crashReporting = true;
+	rpl::variable<bool> _autoInlineBotQueries = false;
+	rpl::variable<bool> _inlineBotConsent = false;
+	rpl::variable<bool> _autoTranslateChats = false;
+	rpl::variable<bool> _messageMenuQuickLabels = false;
+	nlohmann::json _linkRules = nlohmann::json::object();
+	std::map<std::string, MessageMenuPlacement> _messageMenuPlacements;
 	rpl::variable<int> _avatarCorners = 23;
 	rpl::variable<bool> _singleCornerRadius = false;
 	rpl::variable<bool> _streamerMode = false;

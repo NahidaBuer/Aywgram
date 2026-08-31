@@ -7,6 +7,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "storage/storage_account.h"
 
+#include "ayu/ayu_account_settings.h"
+#include "ayu/cloud/ayu_settings_sync.h"
+
 #include "storage/localstorage.h"
 #include "storage/storage_domain.h"
 #include "storage/storage_encryption.h"
@@ -765,6 +768,9 @@ void Account::writeMap() {
 
 void Account::reset() {
 	_writeSearchSuggestionsTimer.cancel();
+	_writePrefsTimer.cancel();
+	_prefs.clear();
+	_prefsChanged = false;
 
 	auto names = collectGoodNames();
 	_draftsMap.clear();
@@ -1061,6 +1067,7 @@ void Account::writeSessionSettings(Main::SessionSettings *stored) {
 
 	FileWriteDescriptor file(_settingsKey, _basePath);
 	file.writeEncrypted(data, _localKey);
+	AyuCloud::MarkSettingsDirty();
 }
 
 ReadSettingsContext Account::prepareReadSettingsContext() const {
@@ -1218,6 +1225,7 @@ template <typename Callback>
 void EnumerateDrafts(
 		const Data::HistoryDrafts &map,
 		bool supportMode,
+		bool preserveLocal,
 		const base::flat_map<Data::DraftKey, MessageDraftSource> &sources,
 		Callback &&callback) {
 	for (const auto &[key, draft] : map) {
@@ -1232,7 +1240,8 @@ void EnumerateDrafts(
 					key.topicRootId(),
 					key.monoforumPeerId()));
 			const auto cloud = (i != end(map)) ? i->second.get() : nullptr;
-			if (Data::DraftsAreEqual(draft.get(), cloud)) {
+			if (!preserveLocal
+				&& Data::DraftsAreEqual(draft.get(), cloud)) {
 				continue;
 			}
 		}
@@ -1287,6 +1296,8 @@ void Account::writeDrafts(not_null<History*> history) {
 	const auto peerId = history->peer->id;
 	const auto &map = history->draftsMap();
 	const auto supportMode = history->session().supportMode();
+	const auto preserveLocal = AyuAccountSettings::IsolationEnabled(
+		&history->session());
 	const auto sourcesIt = _draftSources.find(history);
 	const auto &sources = (sourcesIt != _draftSources.end())
 		? sourcesIt->second
@@ -1295,6 +1306,7 @@ void Account::writeDrafts(not_null<History*> history) {
 	EnumerateDrafts(
 		map,
 		supportMode,
+		preserveLocal,
 		sources,
 		[&](auto&&...) { ++count; });
 	if (!count) {
@@ -1338,6 +1350,7 @@ void Account::writeDrafts(not_null<History*> history) {
 	EnumerateDrafts(
 		map,
 		supportMode,
+		preserveLocal,
 		sources,
 		sizeCallback);
 
@@ -1373,6 +1386,7 @@ void Account::writeDrafts(not_null<History*> history) {
 	EnumerateDrafts(
 		map,
 		supportMode,
+		preserveLocal,
 		sources,
 		writeCallback);
 
@@ -1386,6 +1400,8 @@ void Account::writeDraftCursors(not_null<History*> history) {
 	const auto peerId = history->peer->id;
 	const auto &map = history->draftsMap();
 	const auto supportMode = history->session().supportMode();
+	const auto preserveLocal = AyuAccountSettings::IsolationEnabled(
+		&history->session());
 	const auto sourcesIt = _draftSources.find(history);
 	const auto &sources = (sourcesIt != _draftSources.end())
 		? sourcesIt->second
@@ -1394,6 +1410,7 @@ void Account::writeDraftCursors(not_null<History*> history) {
 	EnumerateDrafts(
 		map,
 		supportMode,
+		preserveLocal,
 		sources,
 		[&](auto&&...) { ++count; });
 	if (!count) {
@@ -1432,6 +1449,7 @@ void Account::writeDraftCursors(not_null<History*> history) {
 	EnumerateDrafts(
 		map,
 		supportMode,
+		preserveLocal,
 		sources,
 		writeCallback);
 
@@ -1562,7 +1580,8 @@ void Account::readDraftsWithCursors(not_null<History*> history) {
 
 	quint64 tag = 0;
 	draft.stream >> tag;
-	if (tag != kRichDraftsTag
+	if (tag != kDraftsTag2
+		&& tag != kRichDraftsTag
 		&& tag != kMultiDraftTag
 		&& tag != kMultiDraftTagOld) {
 		readDraftsWithCursorsLegacy(history, draft, tag);
@@ -3796,6 +3815,37 @@ void Account::writePrefs() {
 		FileWriteDescriptor file(_prefsKey, _basePath);
 		file.writeEncrypted(data, _localKey);
 	}
+}
+
+base::flat_map<QByteArray, bool> Account::readBooleanPrefsByPrefix(
+		std::string_view prefix) const {
+	const auto rawPrefix = QByteArray(prefix.data(), int(prefix.size()));
+	auto result = base::flat_map<QByteArray, bool>();
+	for (const auto &[key, value] : _prefs) {
+		if (key.startsWith(rawPrefix)) {
+			result.emplace(key, !value.isEmpty());
+		}
+	}
+	return result;
+}
+
+void Account::replaceBooleanPrefsByPrefix(
+		std::string_view prefix,
+		const base::flat_map<QByteArray, bool> &values) {
+	const auto rawPrefix = QByteArray(prefix.data(), int(prefix.size()));
+	for (auto i = _prefs.begin(); i != _prefs.end();) {
+		if (i->first.startsWith(rawPrefix)) {
+			i = _prefs.erase(i);
+		} else {
+			++i;
+		}
+	}
+	for (const auto &[key, value] : values) {
+		if (key.startsWith(rawPrefix)) {
+			_prefs.emplace(key, value ? "\x1"_q : QByteArray());
+		}
+	}
+	writePrefsDelayed();
 }
 
 void Account::readPrefs() {

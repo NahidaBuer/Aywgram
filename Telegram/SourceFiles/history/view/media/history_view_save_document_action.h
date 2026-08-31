@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
+#include "data/data_msg_id.h"
+
 class DocumentData;
 class HistoryItem;
 
@@ -37,5 +39,21 @@ void AddSaveDocumentAction(
 	HistoryItem *item,
 	not_null<DocumentData*> document,
 	not_null<ListWidget*> list);
+
+void SaveLivePhotoVideo(
+	FullMsgId itemId,
+	not_null<DocumentData*> document);
+
+void AddSaveLivePhotoVideoAction(
+	const Ui::Menu::MenuCallback &addAction,
+	not_null<HistoryItem*> item,
+	not_null<DocumentData*> document,
+	not_null<Window::SessionController*> controller);
+
+void AddSaveLivePhotoVideoAction(
+	not_null<Ui::PopupMenu*> menu,
+	HistoryItem *item,
+	not_null<DocumentData*> document,
+	not_null<Window::SessionController*> controller);
 
 } // namespace HistoryView

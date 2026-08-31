@@ -20,7 +20,7 @@ cd $HomePath
 
 ProjectPath="$HomePath/../out"
 ReleasePath="$ProjectPath/Release"
-BinaryName="Telegram"
+BinaryName="AywGram"
 
 if ! command -v cmake >/dev/null 2>&1; then
   ln -s cmake3 /usr/bin/cmake
@@ -52,4 +52,3 @@ rm -rf "$ReleasePath/root"
 mkdir "$ReleasePath/root"
 mv "$ReleasePath/$BinaryName" "$ReleasePath/root/"
 mv "$ReleasePath/Updater" "$ReleasePath/root/"
-mv "$ReleasePath/Packer" "$ReleasePath/root/"

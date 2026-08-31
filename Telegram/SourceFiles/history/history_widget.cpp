@@ -31,6 +31,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "boxes/star_gift_box.h"
 #include "boxes/peers/edit_peer_permissions_box.h" // ShowAboutGigagroup.
 #include "boxes/peers/edit_peer_requests_box.h"
+#include "ayu/ayu_chat_settings.h"
 #include "core/core_settings.h"
 #include "core/file_utilities.h"
 #include "core/mime_type.h"
@@ -1114,6 +1115,9 @@ HistoryWidget::HistoryWidget(
 		if (flags & PeerUpdateFlag::StarsPerMessage) {
 			updateFieldPlaceholder();
 			updateSendButtonType();
+			refreshScheduledToggle();
+			updateControlsVisibility();
+			updateControlsGeometry();
 		}
 		if (flags & PeerUpdateFlag::GiftSettings) {
 			refreshSendGiftToggle();
@@ -1358,7 +1362,7 @@ void HistoryWidget::refreshGiftToChannelShown() {
 	_giftToChannel->setVisible(channel
 		&& channel->isBroadcast()
 		&& channel->stargiftsAvailable()
-		&& isExteraPeer(getBareID(channel)));
+		&& isUpstreamPeer(getBareID(channel)));
 }
 
 void HistoryWidget::refreshDirectMessageShown() {
@@ -1619,20 +1623,15 @@ void HistoryWidget::offerRichPaste(not_null<const QMimeData*> data) {
 					}
 					_field->setTextCursor(cursor);
 				}
-				showRichEditorWithPaste(copy);
+				showRichEditor(copy);
 			}),
 		});
 	});
 }
 
-void HistoryWidget::showRichEditorWithPaste(
-		std::shared_ptr<QMimeData> data) {
-	_pendingRichPaste = std::move(data);
-	showRichEditor();
-	_pendingRichPaste = nullptr;
-}
-
-void HistoryWidget::showRichEditor() {
+void HistoryWidget::showRichEditor(
+		std::shared_ptr<QMimeData> initialPaste,
+		std::optional<TextWithTags> fieldToReplace) {
 	if (!_history) {
 		return;
 	}
@@ -1656,27 +1655,53 @@ void HistoryWidget::showRichEditor() {
 	using Options = Iv::Editor::ComposeBoxOptions;
 	const auto support = session().supportMode();
 	auto options = Options();
-	options.initialPaste = _pendingRichPaste;
+	options.initialPaste = std::move(initialPaste);
 	if (support) {
 		options.scope = Options::Scope::Detached;
 		options.returnText = crl::guard(this, [=](TextWithTags text) {
 			setFieldText(text);
 		});
 	}
+	auto migrated = crl::guard(this, [=] {
+		if (fieldToReplace
+			&& _field->getTextWithTags() != *fieldToReplace) {
+			return;
+		}
+		if (support) {
+			migrateSupportFieldToRichEditor();
+		} else {
+			migrateFieldToRichEditor();
+		}
+	});
+	auto onMigrated = Fn<void()>();
+	if (fieldToReplace) {
+		options.initialPasteApplied = std::move(migrated);
+	} else {
+		onMigrated = std::move(migrated);
+	}
 	Iv::Editor::ShowComposeBox(
 		window,
 		_history->peer,
 		prepareSendAction({}),
 		sendMenuDetails(),
-		_field->getTextWithAppliedMarkdown(),
-		crl::guard(this, [=] {
-			if (support) {
-				migrateSupportFieldToRichEditor();
-			} else {
-				migrateFieldToRichEditor();
-			}
-		}),
+		fieldToReplace
+			? TextWithTags()
+			: _field->getTextWithAppliedMarkdown(),
+		std::move(onMigrated),
 		std::move(options));
+}
+
+void HistoryWidget::openMarkdownInRichEditor() {
+	if (!canOpenMarkdownEditor()) {
+		return;
+	}
+	const auto source = _field->getTextWithTags();
+	if (source.text.trimmed().isEmpty()) {
+		return;
+	}
+	auto data = std::make_shared<QMimeData>();
+	data->setText(source.text);
+	showRichEditor(std::move(data), source);
 }
 
 void HistoryWidget::migrateSupportFieldToRichEditor() {
@@ -2134,7 +2159,16 @@ void HistoryWidget::updateInlineBotQuery() {
 	if (!_history) {
 		return;
 	}
-	const auto query = parseInlineBotQuery();
+	const auto fieldText = _field->getTextWithTags().text;
+	if (!_automaticInlineSuppressedText.isEmpty()
+		&& _automaticInlineSuppressedText != fieldText) {
+		_automaticInlineSuppressedText.clear();
+	}
+	auto query = parseInlineBotQuery();
+	if (query.automatic && _automaticInlineSuppressedText == fieldText) {
+		query = {};
+	}
+	_inlineBotAutomatic = query.automatic;
 	if (_inlineBotUsername != query.username) {
 		_inlineBotUsername = query.username;
 		if (_inlineBotResolveRequestId) {
@@ -2167,8 +2201,12 @@ void HistoryWidget::updateInlineBotQuery() {
 				_inlineBotResolveRequestId = 0;
 				const auto query = parseInlineBotQuery();
 				if (_inlineBotUsername == query.username) {
+					const auto pinned = !query.expectedBotId
+						|| (resolvedBot
+							&& resolvedBot->id.value == peerFromUser(
+								UserId(query.expectedBotId)).value);
 					applyInlineBotQuery(
-						query.lookingUpBot ? resolvedBot : query.bot,
+						query.lookingUpBot && pinned ? resolvedBot : query.bot,
 						query.query);
 				} else {
 					clearInlineBot();
@@ -2547,7 +2585,8 @@ void HistoryWidget::clearRichDraft() {
 			&draft)) {
 		session().api().saveDraftToCloud(
 			not_null{ _history },
-			*cloudDraft);
+			*cloudDraft,
+			CloudDraftSavePurpose::PlainText);
 	}
 }
 
@@ -3965,6 +4004,11 @@ void HistoryWidget::setupFastButtonMode() {
 }
 
 void HistoryWidget::setupScheduledToggle() {
+	const auto refresh = [=] {
+		refreshScheduledToggle();
+		updateControlsVisibility();
+		updateControlsGeometry();
+	};
 	controller()->activeChatValue(
 	) | rpl::map([=](Dialogs::Key key) -> rpl::producer<> {
 		if (const auto history = key.history()) {
@@ -3975,17 +4019,29 @@ void HistoryWidget::setupScheduledToggle() {
 		}
 		return rpl::never<rpl::empty_value>();
 	}) | rpl::flatten_latest(
-	) | rpl::on_next([=] {
-		refreshScheduledToggle();
-		updateControlsVisibility();
-		updateControlsGeometry();
+	) | rpl::on_next(refresh, lifetime());
+
+	AyuChatSettings::Changes(
+	) | rpl::filter([=](const AyuChatSettings::Change &change) {
+		return (change.feature
+				== AyuChatSettings::Feature::ShowScheduledButton)
+			&& (!change.peer
+				|| (_peer && (change.peer->migrateToOrMe()
+					== _peer->migrateToOrMe())));
+	}) | rpl::on_next([=](const auto &) {
+		refresh();
 	}, lifetime());
 }
 
 void HistoryWidget::refreshScheduledToggle() {
+	const auto always = _peer
+		&& !_peer->starsPerMessageChecked()
+		&& AyuChatSettings::Resolve(
+			_peer,
+			AyuChatSettings::Feature::ShowScheduledButton);
 	const auto has = _history
 		&& _canSendMessages
-		&& (session().scheduledMessages().count(_history) > 0);
+		&& ((session().scheduledMessages().count(_history) > 0) || always);
 	if (!_scheduled && has) {
 		_scheduled.create(this, st::historyScheduledToggle);
 		_scheduled->setAccessibleName(tr::lng_scheduled_messages(tr::now));
@@ -5429,6 +5485,13 @@ void HistoryWidget::checkReplyReturns() {
 
 void HistoryWidget::cancelInlineBot() {
 	const auto &textWithTags = _field->getTextWithTags();
+	if (_inlineBotAutomatic) {
+		_automaticInlineSuppressedText = textWithTags.text;
+		_inlineBotAutomatic = false;
+		_inlineBotUsername.clear();
+		clearInlineBot();
+		return;
+	}
 	if (textWithTags.text.size() > _inlineBotUsername.size() + 2) {
 		setFieldText(
 			{ '@' + _inlineBotUsername + ' ', TextWithTags::Tags() },
@@ -5468,7 +5531,9 @@ void HistoryWidget::setupSendMenu(
 		controller()->uiShow(),
 		[=] { return sendButtonMenuDetails(); },
 		[=](Action value, Details details) {
-			if (value.type == ActionType::CaptionUp
+			if (value.type == ActionType::OpenMarkdownEditor) {
+				openMarkdownInRichEditor();
+			} else if (value.type == ActionType::CaptionUp
 				|| value.type == ActionType::CaptionDown
 				|| value.type == ActionType::SpoilerOn
 				|| value.type == ActionType::SpoilerOff
@@ -6122,6 +6187,16 @@ SendMenu::Details HistoryWidget::sendButtonDefaultDetails() const {
 	if (!hasSendableContent() && !_previewDrawPreview) {
 		result.effectAllowed = false;
 	}
+	result.markdownEditorAllowed = _history
+		&& canOpenMarkdownEditor()
+		&& !_field->getTextWithTags().text.trimmed().isEmpty()
+		&& _forwardPanel->items().empty()
+		&& !_inlineBot
+		&& !shownRichMessage()
+		&& result.spoiler == SendMenu::SpoilerState::None
+		&& result.caption == SendMenu::CaptionState::None
+		&& result.photoQuality == SendMenu::PhotoQualityState::None
+		&& result.cover == SendMenu::CoverState::None;
 	return result;
 }
 
@@ -7449,6 +7524,16 @@ bool HistoryWidget::canShowRichEditor() const {
 			&& _replyEditMsg
 			&& _replyEditMsg->media()
 			&& !_replyEditMsg->media()->webpage())
+		&& Iv::Editor::CanAuthorRichMessages(&session());
+}
+
+bool HistoryWidget::canOpenMarkdownEditor() const {
+	return _history
+		&& !editingMessage()
+		&& _send->isVisible()
+		&& _field->isVisible()
+		&& !_voiceRecordBar->isActive()
+		&& _canSendTexts
 		&& Iv::Editor::CanAuthorRichMessages(&session());
 }
 
@@ -11683,7 +11768,9 @@ HistoryWidget::~HistoryWidget() {
 	if (_history) {
 		// Saving a draft on account switching.
 		saveFieldToHistoryLocalDraft();
-		session().api().saveDraftToCloudDelayed(_history);
+		session().api().saveDraftToCloudDelayed(
+			_history,
+			CloudDraftSavePurpose::PlainText);
 		setHistory(nullptr);
 
 		session().data().itemVisibilitiesUpdated();

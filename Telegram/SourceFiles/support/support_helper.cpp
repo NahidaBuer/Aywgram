@@ -382,7 +382,9 @@ void Helper::updateOccupiedHistory(
 		History *history) {
 	if (isOccupiedByMe(_occupiedHistory)) {
 		_occupiedHistory->clearCloudDraft(kTopicRootId, kMonoforumPeerId);
-		_session->api().saveDraftToCloudDelayed(_occupiedHistory);
+		_session->api().saveDraftToCloudDelayed(
+			_occupiedHistory,
+			CloudDraftSavePurpose::RichLifecycle);
 	}
 	_occupiedHistory = history;
 	occupyInDraft();
@@ -409,7 +411,9 @@ void Helper::occupyInDraft() {
 			kTopicRootId,
 			kMonoforumPeerId,
 			&draft);
-		_session->api().saveDraftToCloudDelayed(_occupiedHistory);
+		_session->api().saveDraftToCloudDelayed(
+			_occupiedHistory,
+			CloudDraftSavePurpose::RichLifecycle);
 		_reoccupyTimer.callEach(kReoccupyEach);
 	}
 }
@@ -421,7 +425,9 @@ void Helper::reoccupy() {
 			kTopicRootId,
 			kMonoforumPeerId,
 			&draft);
-		_session->api().saveDraftToCloudDelayed(_occupiedHistory);
+		_session->api().saveDraftToCloudDelayed(
+			_occupiedHistory,
+			CloudDraftSavePurpose::RichLifecycle);
 	}
 }
 

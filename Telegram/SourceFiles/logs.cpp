@@ -343,9 +343,8 @@ void start() {
 		LogsData = nullptr;
 	}
 
-	LOG(("Launched version: %1, install beta: %2, alpha: %3, debug mode: %4"
+	LOG(("Launched version: %1, alpha: %2, debug mode: %3"
 		).arg(AppVersion
-		).arg(Logs::b(cInstallBetaVersion())
 		).arg(cAlphaVersion()
 		).arg(Logs::b(DebugEnabled())));
 	LOG(("Executable dir: %1, name: %2").arg(cExeDir(), cExeName()));

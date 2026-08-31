@@ -108,6 +108,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/storage_account.h"
 
 // AyuGram includes
+#include "ayu/ayu_account_settings.h"
 #include "ayu/ayu_settings.h"
 #include "ayu/ayu_worker.h"
 #include "ayu/utils/telegram_helpers.h"
@@ -146,6 +147,13 @@ using UpdatedFileReferences = Data::UpdatedFileReferences;
 			topicRootId,
 			monoforumPeerId)
 		|| (cloudDraft && cloudDraft->hasRichMessage()));
+}
+
+[[nodiscard]] bool ShouldBlockDraftCloudSave(
+		not_null<Main::Session*> session,
+		CloudDraftSavePurpose purpose) {
+	return (purpose == CloudDraftSavePurpose::PlainText)
+		&& AyuAccountSettings::BlockLocalTextUpload(session);
 }
 
 [[nodiscard]] std::shared_ptr<ChatHelpers::Show> ShowForPeer(
@@ -665,6 +673,70 @@ void ApiWrap::requestMessageData(
 	}
 	if (!requests.requestId) {
 		_messageDataResolveDelayed.call();
+	}
+}
+
+void ApiWrap::requestRawMessage(
+		not_null<HistoryItem*> item,
+		Fn<void(QByteArray)> done,
+		Fn<void()> fail) {
+	const auto id = item->id;
+	const auto channel = item->history()->peer->asChannel();
+	const auto ids = QVector<MTPInputMessage>{
+		MTP_inputMessageID(MTP_int(id)),
+	};
+	const auto requestDone = [=](const MTPmessages_Messages &result) {
+		const auto list = result.match(
+			[](const MTPDmessages_messages &data) {
+				return &data.vmessages().v;
+			},
+			[](const MTPDmessages_messagesSlice &data) {
+				return &data.vmessages().v;
+			},
+			[](const MTPDmessages_channelMessages &data) {
+				return &data.vmessages().v;
+			},
+			[](const MTPDmessages_messagesNotModified &) {
+				return (const QVector<MTPMessage>*)nullptr;
+			});
+		if (!list) {
+			fail();
+			return;
+		}
+		const MTPMessage *found = nullptr;
+		for (const auto &message : *list) {
+			const auto messageId = message.match([](const auto &data) {
+				return MsgId(data.vid().v);
+			});
+			if (messageId == id) {
+				found = &message;
+				break;
+			}
+		}
+		if (!found) {
+			fail();
+			return;
+		}
+		auto buffer = mtpBuffer();
+		found->write(buffer);
+		auto payload = QByteArray(
+			reinterpret_cast<const char*>(buffer.constData()),
+			buffer.size() * int(sizeof(mtpPrime))
+		).toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
+		done(std::move(payload));
+	};
+	const auto requestFail = [=](const MTP::Error &) {
+		fail();
+	};
+	if (channel) {
+		request(MTPchannels_GetMessages(
+			channel->inputChannel(),
+			MTP_vector<MTPInputMessage>(ids)
+		)).done(requestDone).fail(requestFail).send();
+	} else {
+		request(MTPmessages_GetMessages(
+			MTP_vector<MTPInputMessage>(ids)
+		)).done(requestDone).fail(requestFail).send();
 	}
 }
 
@@ -2160,13 +2232,43 @@ void ApiWrap::sendNotifySettingsUpdates() {
 	session().mtp().sendAnything();
 }
 
-void ApiWrap::saveDraftToCloudDelayed(not_null<Data::Thread*> thread) {
-	if (ShouldSkipPlainDraftCloudSave(_session, thread)) {
+void ApiWrap::saveDraftToCloudDelayed(
+		not_null<Data::Thread*> thread,
+		CloudDraftSavePurpose purpose) {
+	if (ShouldBlockDraftCloudSave(_session, purpose)
+		|| ((purpose == CloudDraftSavePurpose::PlainText)
+			&& ShouldSkipPlainDraftCloudSave(_session, thread))) {
+		const auto history = thread->owningHistory();
+		_session->local().writeDrafts(history);
+		_session->local().writeDraftCursors(history);
 		return;
 	}
-	_draftsSaveRequestIds.emplace(base::make_weak(thread), 0);
+	_draftsSaveRequestIds.emplace(
+		base::make_weak(thread),
+		DraftSaveRequest{ .purpose = purpose });
 	if (!_draftsSaveTimer.isActive()) {
 		_draftsSaveTimer.callOnce(kSaveCloudDraftTimeout);
+	}
+}
+
+void ApiWrap::cloudDraftIsolationChanged() {
+	for (auto i = begin(_draftsSaveRequestIds);
+			i != end(_draftsSaveRequestIds);) {
+		const auto &pending = i->second;
+		if (!pending.id
+			&& ShouldBlockDraftCloudSave(_session, pending.purpose)) {
+			if (const auto thread = i->first.get()) {
+				const auto history = thread->owningHistory();
+				_session->local().writeDrafts(history);
+				_session->local().writeDraftCursors(history);
+			}
+			i = _draftsSaveRequestIds.erase(i);
+		} else {
+			++i;
+		}
+	}
+	if (_draftsSaveRequestIds.empty()) {
+		_draftsSaveTimer.cancel();
 	}
 }
 
@@ -2372,12 +2474,17 @@ void ApiWrap::saveCurrentDraftToCloud() {
 			const auto cloudDraft = history->cloudDraft(
 				topicRootId,
 				monoforumPeerId);
-			if (ShouldSkipPlainDraftCloudSave(_session, thread)) {
+			if (ShouldBlockDraftCloudSave(
+					_session,
+					CloudDraftSavePurpose::PlainText)
+				|| ShouldSkipPlainDraftCloudSave(_session, thread)) {
 				continue;
 			}
 			if (!Data::DraftsAreEqual(localDraft, cloudDraft)
 				&& !_session->supportMode()) {
-				saveDraftToCloudDelayed(thread);
+				saveDraftToCloudDelayed(
+					thread,
+					CloudDraftSavePurpose::PlainText);
 			}
 		}
 	}
@@ -2386,25 +2493,30 @@ void ApiWrap::saveCurrentDraftToCloud() {
 mtpRequestId ApiWrap::saveDraftToCloud(
 		not_null<Data::Thread*> thread,
 		const Data::Draft &draft,
+		CloudDraftSavePurpose purpose,
 		Fn<void()> done,
 		Fn<void(const MTP::Error &)> fail) {
 	const auto weak = base::make_weak(thread);
 	const auto requestId = savePreparedDraftToCloud(
 		thread,
 		draft,
+		purpose,
 		false,
 		std::move(done),
 		std::move(fail));
 	if (!requestId) {
 		return 0;
 	}
-	_draftsSaveRequestIds.emplace_or_assign(weak, requestId);
+	_draftsSaveRequestIds.emplace_or_assign(
+		weak,
+		DraftSaveRequest{ .id = requestId, .purpose = purpose });
 	return requestId;
 }
 
 mtpRequestId ApiWrap::savePreparedDraftToCloud(
 		not_null<Data::Thread*> thread,
 		const Data::Draft &draft,
+		CloudDraftSavePurpose purpose,
 		bool clearOnFail,
 		Fn<void()> done,
 		Fn<void(const MTP::Error &)> fail) {
@@ -2412,6 +2524,11 @@ mtpRequestId ApiWrap::savePreparedDraftToCloud(
 	const auto history = thread->owningHistory();
 	const auto topicRootId = thread->topicRootId();
 	const auto monoforumPeerId = thread->monoforumPeerId();
+	if (ShouldBlockDraftCloudSave(_session, purpose)) {
+		_session->local().writeDrafts(history);
+		_session->local().writeDraftCursors(history);
+		return 0;
+	}
 	struct Callbacks {
 		Fn<void()> done;
 		Fn<void(const MTP::Error &)> fail;
@@ -2503,7 +2620,7 @@ mtpRequestId ApiWrap::savePreparedDraftToCloud(
 		}
 		const auto i = _draftsSaveRequestIds.find(weak);
 		if (i != _draftsSaveRequestIds.cend()) {
-			i->second = id;
+			i->second.id = id;
 		}
 	};
 	const auto failCleanup = [=](
@@ -2527,7 +2644,7 @@ mtpRequestId ApiWrap::savePreparedDraftToCloud(
 		}
 		const auto i = _draftsSaveRequestIds.find(weak);
 		if (i != _draftsSaveRequestIds.cend()
-			&& i->second == requestId) {
+			&& i->second.id == requestId) {
 			_draftsSaveRequestIds.erase(i);
 			checkQuitPreventFinished();
 		}
@@ -2539,6 +2656,15 @@ mtpRequestId ApiWrap::savePreparedDraftToCloud(
 			const auto &repeatRequest,
 			MTPInputRichMessage currentRichMessage,
 			bool refreshed) -> mtpRequestId {
+		if (ShouldBlockDraftCloudSave(_session, purpose)) {
+			_session->local().writeDrafts(history);
+			_session->local().writeDraftCursors(history);
+			history->finishSavingCloudDraft(
+				topicRootId,
+				monoforumPeerId,
+				0);
+			return 0;
+		}
 		const auto requestId = request(MTPmessages_SaveDraft(
 			MTP_flags(flags),
 			ReplyToForMTP(history, reply),
@@ -2568,7 +2694,7 @@ mtpRequestId ApiWrap::savePreparedDraftToCloud(
 			}
 			const auto i = _draftsSaveRequestIds.find(weak);
 			if (i != _draftsSaveRequestIds.cend()
-				&& i->second == requestId) {
+				&& i->second.id == requestId) {
 				_draftsSaveRequestIds.erase(i);
 				checkQuitPreventFinished();
 			}
@@ -2617,11 +2743,17 @@ void ApiWrap::saveDraftsToCloud() {
 		if (!thread) {
 			i = _draftsSaveRequestIds.erase(i);
 			continue;
-		} else if (i->second) {
+		} else if (i->second.id) {
 			++i;
 			continue; // sent already - keep in-flight saves tracked so
 			          // quit prevention waits for their done/fail handler.
-		} else if (ShouldSkipPlainDraftCloudSave(_session, thread)) {
+		} else if (ShouldBlockDraftCloudSave(
+				_session,
+				i->second.purpose)
+			|| ((i->second.purpose == CloudDraftSavePurpose::PlainText)
+				&& ShouldSkipPlainDraftCloudSave(_session, thread))) {
+			_session->local().writeDrafts(thread->owningHistory());
+			_session->local().writeDraftCursors(thread->owningHistory());
 			i = _draftsSaveRequestIds.erase(i);
 			continue;
 		}
@@ -2631,7 +2763,14 @@ void ApiWrap::saveDraftsToCloud() {
 		const auto monoforumPeerId = thread->monoforumPeerId();
 		auto cloudDraft = history->cloudDraft(topicRootId, monoforumPeerId);
 		auto localDraft = history->localDraft(topicRootId, monoforumPeerId);
-		if (!_session->supportMode()) {
+		if (i->second.purpose == CloudDraftSavePurpose::RichLifecycle) {
+			if (!cloudDraft) {
+				cloudDraft = history->createCloudDraft(
+					topicRootId,
+					monoforumPeerId,
+					_session->supportMode() ? nullptr : localDraft);
+			}
+		} else if (!_session->supportMode()) {
 			cloudDraft = history->createCloudDraft(
 				topicRootId,
 				monoforumPeerId,
@@ -2642,8 +2781,16 @@ void ApiWrap::saveDraftsToCloud() {
 				monoforumPeerId,
 				nullptr);
 		}
-		i->second = savePreparedDraftToCloud(thread, *cloudDraft, true);
-		if (!i->second) {
+		if (!cloudDraft) {
+			i = _draftsSaveRequestIds.erase(i);
+			continue;
+		}
+		i->second.id = savePreparedDraftToCloud(
+			thread,
+			*cloudDraft,
+			i->second.purpose,
+			true);
+		if (!i->second.id) {
 			i = _draftsSaveRequestIds.erase(i);
 			continue;
 		}

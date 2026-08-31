@@ -224,6 +224,8 @@ public:
 	virtual std::unique_ptr<Media> clone(not_null<HistoryItem*> parent) = 0;
 
 	virtual DocumentData *document() const;
+	virtual DocumentData *livePhotoVideo() const;
+	[[nodiscard]] bool isLivePhoto() const;
 	virtual PhotoData *videoCover() const;
 	virtual TimeId videoTimestamp() const;
 	virtual bool hasQualitiesList() const;
@@ -307,6 +309,7 @@ class MediaPhoto final : public Media {
 public:
 	struct Args {
 		crl::time ttlSeconds = 0;
+		DocumentData *livePhotoVideo = nullptr;
 		bool spoiler = false;
 	};
 
@@ -323,6 +326,7 @@ public:
 	std::unique_ptr<Media> clone(not_null<HistoryItem*> parent) override;
 
 	PhotoData *photo() const override;
+	DocumentData *livePhotoVideo() const override;
 
 	bool uploading() const override;
 	Storage::SharedMediaTypesMask sharedMediaTypes() const override;
@@ -348,7 +352,10 @@ public:
 		HistoryView::Element *replacing = nullptr) override;
 
 private:
+	void setLivePhotoVideo(DocumentData *document);
+
 	not_null<PhotoData*> _photo;
+	DocumentData *_livePhotoVideo = nullptr;
 	PeerData *_chat = nullptr;
 	crl::time _ttlSeconds = 0;
 	bool _spoiler = false;

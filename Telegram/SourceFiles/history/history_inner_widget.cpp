@@ -143,6 +143,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ayu/features/forward/ayu_forward.h"
 #include "ayu/features/filters/filters_cache_controller.h"
 #include "ayu/ui/context_menu/context_menu.h"
+#include "ayu/ui/context_menu/message_menu_registry.h"
 #include "ayu/ui/settings/filters/edit_filter.h"
 #include "ayu/utils/telegram_helpers.h"
 #include "data/data_document_media.h"
@@ -3569,25 +3570,24 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 			const auto owner = &item->history()->owner();
 			const auto blockSender = item->history()->peer->isRepliesChat();
 			if (isUponSelected != -2) {
-				auto fwdSubmenu = std::make_unique<Ui::PopupMenu>(this, st::popupMenuWithIcons);
 				if (item->allowsForward() && !IsAnchoredEphemeral(item)) {
 					const auto items = collectForwardItemsForItem(item, false);
 					if (!isAyuForwardForItems(items)) {
-						fwdSubmenu->addAction(
+						_menu->addAction(
 							tr::lng_context_forward_msg(tr::now),
 							[=] { forwardItem(itemId); },
 							&st::menuIconForward);
 					}
-					fwdSubmenu->addAction(tr::ayu_ContextForwardMsgNoQuote(tr::now), [=] {
+					_menu->addAction(tr::ayu_ContextForwardMsgNoQuote(tr::now), [=] {
 						forwardItemNoQuote(itemId);
 					}, &st::menuIconUserHide);
 					if (ItemsForwardCaptionsCount(items) > 0) {
-						fwdSubmenu->addAction(
+						_menu->addAction(
 							tr::ayu_ContextForwardMsgNoCaption(tr::now),
 							[=] { forwardItemNoCaption(itemId); },
 							&st::menuIconCaptionHide);
 					}
-					fwdSubmenu->addAction(
+					_menu->addAction(
 						tr::ayu_ForwardToSavedMessage(tr::now),
 						[owner, itemId] {
 							const auto item = owner->message(itemId);
@@ -3614,12 +3614,6 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 								});
 						},
 						&st::menuIconFave);
-					if (!fwdSubmenu->empty()) {
-						_menu->addAction(
-							tr::ayu_ContextForward(tr::now),
-							std::move(fwdSubmenu),
-							&st::menuIconForward);
-					}
 				}
 				if (HistoryView::CanAddOfferToMessage(item)) {
 					_menu->addAction(tr::lng_context_add_offer(tr::now), [=] {
@@ -3945,25 +3939,24 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 				|| item->isRegular()
 				|| item->isEphemeral())) {
 			if (isUponSelected != -2) {
-				auto fwdSubmenu = std::make_unique<Ui::PopupMenu>(this, st::popupMenuWithIcons);
 				if (canForward) {
 					const auto items = collectForwardItemsForItem(item);
 					if (!isAyuForwardForItems(items)) {
-						fwdSubmenu->addAction(
+						_menu->addAction(
 							tr::lng_context_forward_msg(tr::now),
 							[=] { forwardAsGroup(itemId); },
 							&st::menuIconForward);
 					}
-					fwdSubmenu->addAction(tr::ayu_ContextForwardMsgNoQuote(tr::now), [=] {
+					_menu->addAction(tr::ayu_ContextForwardMsgNoQuote(tr::now), [=] {
 						forwardAsGroupNoQuote(itemId);
 					}, &st::menuIconUserHide);
 					if (ItemsForwardCaptionsCount(items) > 0) {
-						fwdSubmenu->addAction(
+						_menu->addAction(
 							tr::ayu_ContextForwardMsgNoCaption(tr::now),
 							[=] { forwardAsGroupNoCaption(itemId); },
 							&st::menuIconCaptionHide);
 					}
-					fwdSubmenu->addAction(
+					_menu->addAction(
 						tr::ayu_ForwardToSavedMessage(tr::now),
 						[owner = &item->history()->owner(), itemId] {
 							const auto item = owner->message(itemId);
@@ -3990,12 +3983,6 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 								});
 						},
 						&st::menuIconFave);
-					if (!fwdSubmenu->empty()) {
-						_menu->addAction(
-							tr::ayu_ContextForward(tr::now),
-							std::move(fwdSubmenu),
-							&st::menuIconForward);
-					}
 				}
 				if (HistoryView::CanAddOfferToMessage(item)) {
 					_menu->addAction(tr::lng_context_add_offer(tr::now), [=] {
@@ -4113,6 +4100,7 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 				poll);
 		}
 	}
+	AyuUi::MessageMenu::ApplyLayout(_menu.get());
 
 	if (_menu->empty()) {
 		_menu = nullptr;

@@ -614,6 +614,14 @@ DocumentData *Media::document() const {
 	return nullptr;
 }
 
+DocumentData *Media::livePhotoVideo() const {
+	return nullptr;
+}
+
+bool Media::isLivePhoto() const {
+	return livePhotoVideo() != nullptr;
+}
+
 PhotoData *Media::videoCover() const {
 	return nullptr;
 }
@@ -846,15 +854,41 @@ ItemPreview Media::toGroupPreview(
 	return result;
 }
 
+namespace {
+
+[[nodiscard]] DocumentData *ProcessLivePhotoVideo(
+		Session &owner,
+		const MTPDmessageMediaPhoto &media) {
+	if (!media.is_live_photo() || !media.vvideo()) {
+		return nullptr;
+	}
+	return media.vvideo()->match([&](const MTPDdocument &document) {
+		const auto result = owner.processDocument(document).get();
+		return (result->isVideoFile() || result->isAnimation())
+			? result
+			: static_cast<DocumentData*>(nullptr);
+	}, [](const MTPDdocumentEmpty &) {
+		return static_cast<DocumentData*>(nullptr);
+	});
+}
+
+} // namespace
+
 MediaPhoto::MediaPhoto(
 	not_null<HistoryItem*> parent,
 	not_null<PhotoData*> photo,
 	Args &&args)
 : Media(parent)
 , _photo(photo)
+, _livePhotoVideo(args.livePhotoVideo)
 , _ttlSeconds(args.ttlSeconds)
 , _spoiler(args.spoiler) {
 	parent->history()->owner().registerPhotoItem(_photo, parent);
+	if (_livePhotoVideo) {
+		parent->history()->owner().registerDocumentItem(
+			_livePhotoVideo,
+			parent);
+	}
 
 	if (_spoiler) {
 		Ui::PreloadImageSpoiler();
@@ -876,6 +910,11 @@ MediaPhoto::~MediaPhoto() {
 		parent()->history()->session().uploader().cancel(parent()->fullId());
 	}
 	parent()->history()->owner().unregisterPhotoItem(_photo, parent());
+	if (_livePhotoVideo) {
+		parent()->history()->owner().unregisterDocumentItem(
+			_livePhotoVideo,
+			parent());
+	}
 }
 
 std::unique_ptr<Media> MediaPhoto::clone(not_null<HistoryItem*> parent) {
@@ -883,12 +922,31 @@ std::unique_ptr<Media> MediaPhoto::clone(not_null<HistoryItem*> parent) {
 		? std::make_unique<MediaPhoto>(parent, _chat, _photo)
 		: std::make_unique<MediaPhoto>(parent, _photo, Args{
 			.ttlSeconds = _ttlSeconds,
+			.livePhotoVideo = _livePhotoVideo,
 			.spoiler = _spoiler,
 		});
 }
 
 PhotoData *MediaPhoto::photo() const {
 	return _photo;
+}
+
+DocumentData *MediaPhoto::livePhotoVideo() const {
+	return _livePhotoVideo;
+}
+
+void MediaPhoto::setLivePhotoVideo(DocumentData *document) {
+	if (_livePhotoVideo == document) {
+		return;
+	}
+	const auto owner = &parent()->history()->owner();
+	if (_livePhotoVideo) {
+		owner->unregisterDocumentItem(_livePhotoVideo, parent());
+	}
+	_livePhotoVideo = document;
+	if (_livePhotoVideo) {
+		owner->registerDocumentItem(_livePhotoVideo, parent());
+	}
 }
 
 bool MediaPhoto::uploading() const {
@@ -1018,9 +1076,10 @@ bool MediaPhoto::updateInlineResultMedia(const MTPMessageMedia &media) {
 	const auto &data = media.c_messageMediaPhoto();
 	const auto content = data.vphoto();
 	if (content) {
-		const auto photo = parent()->history()->owner().processPhoto(
-			*content);
+		auto &owner = parent()->history()->owner();
+		const auto photo = owner.processPhoto(*content);
 		if (photo == _photo) {
+			setLivePhotoVideo(ProcessLivePhotoVideo(owner, data));
 			return true;
 		} else {
 			photo->collectLocalData(_photo);
@@ -1045,7 +1104,9 @@ bool MediaPhoto::updateSentMedia(const MTPMessageMedia &media) {
 			"in updateSentMedia()"));
 		return false;
 	}
-	parent()->history()->owner().photoConvert(_photo, *content);
+	auto &owner = parent()->history()->owner();
+	owner.photoConvert(_photo, *content);
+	setLivePhotoVideo(ProcessLivePhotoVideo(owner, mediaPhoto));
 	return true;
 }
 

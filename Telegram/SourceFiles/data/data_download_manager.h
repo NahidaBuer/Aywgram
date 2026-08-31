@@ -52,6 +52,7 @@ struct DownloadObject {
 	not_null<HistoryItem*> item;
 	DocumentData *document = nullptr;
 	PhotoData *photo = nullptr;
+	bool forceShowInManager = false;
 };
 
 struct DownloadedId {

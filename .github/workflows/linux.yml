@@ -11,6 +11,14 @@ on:
         required: false
         default: ''
         type: string
+      notify:
+        required: false
+        default: true
+        type: boolean
+      update_metadata:
+        required: false
+        default: false
+        type: boolean
   workflow_dispatch:
     inputs:
       distribute:
@@ -22,6 +30,11 @@ on:
         description: Existing prerelease tag; required when distribute is enabled.
         required: false
         type: string
+      notify:
+        description: Notify the Telegram channel after uploading.
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -33,7 +46,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Validate prerelease and secrets.
+      - name: Validate release and secrets.
         if: ${{ inputs.distribute == true }}
         shell: bash
         env:
@@ -42,24 +55,26 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          NOTIFY_TELEGRAM: ${{ inputs.notify }}
         run: |
           set -euo pipefail
           if [ -z "$RELEASE_TAG" ]; then
             echo '::error::release_tag is required when distribute is enabled.'
             exit 1
           fi
-          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHANNEL_ID" ]; then
+          if [ "$NOTIFY_TELEGRAM" = true ] \
+            && { [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHANNEL_ID" ]; }; then
             echo '::error::Configure TELEGRAM_BOT_TOKEN and TELEGRAM_CHANNEL_ID repository secrets.'
             exit 1
           fi
-          is_prerelease="$(
+          release_state="$(
             gh release view "$RELEASE_TAG" \
               --repo "$GH_REPO" \
-              --json isPrerelease \
-              --jq .isPrerelease
+              --json isDraft,isPrerelease \
+              --jq '.isDraft or .isPrerelease'
           )"
-          if [ "$is_prerelease" != true ]; then
-            echo "::error::Release $RELEASE_TAG is not a prerelease."
+          if [ "$release_state" != true ]; then
+            echo "::error::Release $RELEASE_TAG is neither draft nor prerelease."
             exit 1
           fi
 
@@ -84,7 +99,15 @@ jobs:
       - name: Clone.
         uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.release_tag || github.ref }}
           submodules: recursive
+
+      - name: Resolve release version.
+        id: release_version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: python3 .github/scripts/release_version.py --tag "$RELEASE_TAG" --apply --github-output "$GITHUB_OUTPUT"
 
       - name: First set up.
         run: |
@@ -187,7 +210,7 @@ jobs:
           env -u CCACHE_DISABLE /usr/src/tdesktop/Telegram/build/docker/centos_env/build.sh \
           -D CMAKE_CONFIGURATION_TYPES=Release \
           "${API_ARGS[@]}" \
-          -D DESKTOP_APP_DISABLE_AUTOUPDATE=ON \
+          -D DESKTOP_APP_DISABLE_AUTOUPDATE=OFF \
           -D DESKTOP_APP_DISABLE_CRASH_REPORTS=OFF \
           $DEFINE
 
@@ -233,6 +256,7 @@ jobs:
             echo "Build error, output file does not exist."
             exit 1
           fi
+          test -x out/Release/Updater
 
       - name: Package distribution.
         id: package
@@ -240,11 +264,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="$(grep 'AppVersionStr' Telegram/SourceFiles/core/version.h | cut -d '"' -f 2)"
+          version="${{ steps.release_version.outputs.version_name }}"
           asset_name="AywGram-v${version}-linux-x86_64.tar.gz"
           asset_path="dist/${asset_name}"
           mkdir -p dist
-          tar -czf "$asset_path" -C out/Release AywGram
+          test -x out/Release/AywGram
+          test -x out/Release/Updater
+          tar -czf "$asset_path" -C out/Release AywGram Updater
+          if [ "${{ inputs.update_metadata }}" = true ]; then
+            python3 .github/scripts/update_release_metadata.py fragment \
+              --target linux-x86_64 \
+              --app-version "${{ steps.release_version.outputs.app_version }}" \
+              --revision "${{ steps.release_version.outputs.revision }}" \
+              --version-name "$version" \
+              --release "${{ inputs.release_tag }}" \
+              --asset "$asset_path" \
+              --output dist/update-fragment-linux-x86_64.json
+          fi
           echo "asset_name=$asset_name" >> "$GITHUB_OUTPUT"
           echo "asset_path=$asset_path" >> "$GITHUB_OUTPUT"
 
@@ -268,4 +304,13 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
           TELEGRAM_TAGS: '#aywgram #linux #ci'
+          NOTIFY_TELEGRAM: ${{ inputs.notify }}
         run: bash .github/scripts/publish-prerelease.sh
+
+      - uses: actions/upload-artifact@v7
+        if: inputs.update_metadata == true
+        name: Upload update metadata fragment.
+        with:
+          name: update-fragment-linux-x86_64
+          path: dist/update-fragment-linux-x86_64.json
+          retention-days: 1

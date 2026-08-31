@@ -53,143 +53,38 @@ For recurring upstream maintenance:
   resolutions, feature-preservation checks, unresolved risks, and the proposed
   next integration baseline.
 
-Avoid building the project.
-
 If you're asked to create a Pull Request, then clearly state in PR description that it was AI generated.
 
-## Working from Codex on Windows + WSL
+## Build and Platform Instructions
 
-This checkout may be opened in Codex Desktop through the Windows UNC path `\\wsl.localhost\{distro}\home\{user}\Telegram\tdesktop`, while the real Linux path is `/home/{user}/Telegram/tdesktop`. Treat it as a WSL/Linux checkout first, not as a native Windows checkout.
-
-- Prefer running repository-aware commands through WSL:
-
-```powershell
-wsl.exe -d {distro} --cd /home/{user}/Telegram/tdesktop -- <command>
-```
-
-- PowerShell can read and write files through the UNC path, but native Windows tools may see different ownership, path, executable, or line-ending behavior than Linux tools.
-- Git from PowerShell over `\\wsl.localhost\...` can fail with `detected dubious ownership`. Use WSL Git instead. Do not change global Git `safe.directory` settings unless the user explicitly asks for that.
-- Keep path styles matched to the shell. Use `/home/{user}/Telegram/tdesktop/...` with WSL commands, and quoted `\\wsl.localhost\{distro}\home\{user}\Telegram\tdesktop\...` paths with native Windows commands. Avoid passing UNC paths to Linux tools or Linux paths to native Windows tools unless the tool explicitly supports them.
-- If a command behaves strangely from the PowerShell UNC working directory, retry the same command through `wsl.exe -d {distro} --cd /home/{user}/Telegram/tdesktop -- ...` before concluding the repository or command is broken.
-- Recursive searches and repo inspection are usually faster and more faithful through WSL, for example `wsl.exe -d {distro} --cd /home/{user}/Telegram/tdesktop -- rg ...`.
-- Do not assume the WSL host has the build toolchain installed directly. In this setup, WSL may not have `cmake`, while Windows may have `cmake`, and the configured `out/` tree may still target the Linux Docker toolchain. Do not run native Windows `cmake --build out` against a Linux/Docker build tree.
-- For WSL/Linux builds, use the Docker build environment from the repository root. The Docker daemon must be reachable from WSL; checking `docker info` is fine, but do not start a build unless the user asked for one.
-- Existing build outputs may be Linux binaries, for example `out/Release/Telegram` as an ELF executable, not `Telegram.exe`. Verify the build tree before assuming which platform produced it.
-- Be careful with text file line endings. In a WSL/Linux checkout, files should remain LF-only unless the file already uses another convention. CRLF finishing applies only to native, non-WSL Windows runs/checkouts. Do not let PowerShell or Windows tools silently rewrite WSL files to CRLF. If a file becomes mixed, normalize it back to the convention appropriate for the current checkout, without adding a UTF-8 BOM.
-- When using the local `task-think` skill from this WSL checkout, keep `.ai/...` artifacts and edited project text files LF-only. Treat the skill's Windows text-normalization phase as not applicable to WSL, except to record that line endings were checked and kept LF/no-BOM. Run CRLF normalization for `task-think` only in a native, non-WSL Windows checkout.
-
-## Build System Structure
-
-The build system expects this directory layout:
-
-```text
-L:\Telegram\                    # BuildPath
-L:\Telegram\tdesktop\           # Repository (you work here)
-L:\Telegram\Libraries\          # 32-bit dependencies (Linux/macOS)
-L:\Telegram\win64\Libraries\    # 64-bit dependencies (Windows)
-L:\Telegram\ThirdParty\         # Build tools (NuGet, Python, etc.)
-```
-
-Dependencies are located relative to the repository: `../Libraries`, `../win64/Libraries`, or `../ThirdParty`.
-
-## Build Configuration
-
-Keep every generated configure, build, and compiler intermediate under the
-repository-root `out/` directory. Do not create sibling output trees such as
-`build/` or `cmake-build-*`; configure tools explicitly with `-B out` when
-needed.
-
-### Build Commands
-
-**From repository root, after the user authorizes a build, run:**
-
-```bash
-cmake --build out --config Release --target Telegram
-```
-
-That's it. The `out/` directory is already configured. The executable will be at `out/Release/Telegram.exe`.
-
-**From WSL, run through the Linux Docker build environment:**
-
-```bash
-Telegram/build/docker/centos_env/run.sh bash -lc "cd /usr/src/tdesktop && cmake --build out --config Release --target Telegram"
-```
-
-**Important:** When running cmake from a shell that doesn't support `cd`, use quoted absolute paths:
-```bash
-cmake --build "l:\Telegram\tx64\out" --config Release --target Telegram
-```
-
-Build Debug only when the user explicitly requests it. If Debug becomes necessary for diagnosis, explain why and obtain the user's approval before building it. Never build Debug merely as a prerequisite for Release.
-
-## Platform-Specific Requirements
-
-### Windows
-- Requires Visual Studio 2022
-- Must run from appropriate Native Tools Command Prompt:
-  - "x64 Native Tools Command Prompt" for `win64`
-  - "x86 Native Tools Command Prompt" for `win`
-  - "ARM64 Native Tools Command Prompt" for `winarm`
-- Dependencies: `../win64/Libraries` (64-bit) or `../Libraries` (32-bit)
-
-### macOS
-- Requires Xcode
-- Dependencies: `../Libraries/local/Qt-*`
-- Set `QT` environment variable: `export QT=6.8`
-
-### Linux
-- Build dependencies in `../Libraries`
-- Set `QT` environment variable if needed
-
-## Key Files
-
-- **`Telegram/build/version`** - Version information
-- **`out/`** - Build output directory
-
-## Troubleshooting
-
-### "Libraries not found"
-Ensure the repository is in `L:\Telegram\tdesktop`. The build system requires `../win64/Libraries` to exist.
-
-### Build fails with "wrong command prompt"
-On Windows, use the correct Visual Studio Native Tools Command Prompt matching your target (x64/x86/ARM64).
-
-### Build fails with PDB or EXE access errors
-
-**âš ï¸ CRITICAL: DO NOT RETRY THE BUILD. STOP AND WAIT FOR USER.**
-
-If the build fails with ANY of these errors:
-- `fatal error C1041: cannot open program database`
-- `cannot open output file 'Telegram.exe'`
-- `LNK1104: cannot open file`
-- Any "access denied" or "file in use" error
-
-**STOP IMMEDIATELY.** These errors mean files are locked by a running process (Telegram.exe or debugger).
-
-**What to do:**
-1. Do NOT attempt another build - it will fail the same way
-2. Do NOT try to delete files - they are locked
-3. Do NOT try any workarounds or fixes
-4. IMMEDIATELY inform the user:
-
-> "Build failed - files are locked. Please close Telegram.exe (and any debugger) so I can rebuild."
-
-**Then WAIT for user confirmation before attempting any build.**
-
-Retrying builds wastes time and context. The ONLY fix is for the user to close the running process.
-
-## Best Practices
-
-1. Use Release for an authorized build unless the user explicitly requests another configuration.
-2. Build Debug only on explicit request or after receiving approval for a stated diagnostic need.
+Avoid building the project unless the user explicitly authorizes a build.
+Build Release when no configuration is named; build Debug only when explicitly
+requested or after approval for a stated diagnostic need. Before configuring,
+building, packaging, or troubleshooting, read only the guide for the target
+platform: [Windows](docs/agent-building-windows.md),
+[macOS](docs/agent-building-macos.md), or
+[Linux](docs/agent-building-linux.md).
+Keep all generated output under the repository-root `out/` directory.
+Treat a successful build as compilation evidence, not UI or release approval.
 
 ## Text File Format
 
 - On Windows, keep project text files with CRLF line endings.
 - Do not save source, header, build/config, style, or localization files as UTF-8 with BOM. Use UTF-8 without BOM.
 - When rewriting project text files for normalization, preserve file content otherwise and do not introduce a BOM.
+- Never hard-wrap Markdown prose or list items to an 80-column limit. Keep each paragraph or list item on one line unless Markdown syntax requires a deliberate line break.
 
 ## Commits
+
+- Follow the Conventional Commits format:
+
+```text
+<type>[optional scope]: <description>
+
+[optional body]
+
+[optional footer(s)]
+```
 
 - Subject: one concise, plain-language line summarizing the change, ~50-60 characters, matching the style of recent `git log` subjects. This is usually the entire message.
 - Add a short plain-language body only when the subject can't carry it (what was done, not the technical how) — a line or two at most.
@@ -479,6 +374,13 @@ void MyWidget::paintEvent(QPaintEvent *e) {
 
 Keep `Telegram/Resources/langs/zh-hans.lproj/zh-hans.json` in sync when an
 `ayu_` key in `Telegram/Resources/langs/lang.strings` is mirrored there.
+
+Use the repository-owned `.agents/skills/aywgram-i18n` workflow for periodic
+localization audits, English source synchronization, release preparation, and
+localization-heavy upstream integrations. Keep `lang.strings`, bundled
+Simplified Chinese, and the translatable English source current with each
+relevant change; batch other language translations during dedicated i18n
+maintenance instead of requiring every feature change to update every locale.
 
 ### String Definitions
 

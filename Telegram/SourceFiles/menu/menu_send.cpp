@@ -732,7 +732,8 @@ FillMenuResult FillSendMenu(
 		&& (details.caption == CaptionState::None)
 		&& (details.photoQuality == PhotoQualityState::None)
 		&& (details.cover == CoverState::None)
-		&& !details.price.has_value();
+		&& !details.price.has_value()
+		&& !details.markdownEditorAllowed;
 	if (empty || !action) {
 		return FillMenuResult::Skipped;
 	} else if (type == Type::EditCommentPrice) {
@@ -773,6 +774,12 @@ FillMenuResult FillSendMenu(
 				{ Api::DefaultSendWhenOnlineOptions() },
 				details); },
 			&icons.menuWhenOnline);
+	}
+	if (details.markdownEditorAllowed) {
+		menu->addAction(
+			tr::ayu_OpenMarkdownInRichEditor(tr::now),
+			[=] { action({ .type = ActionType::OpenMarkdownEditor }, details); },
+			&st::menuIconEdit);
 	}
 
 	if ((type != Type::Disabled)

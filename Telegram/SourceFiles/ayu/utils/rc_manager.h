@@ -8,20 +8,14 @@
 
 #include "ayu/data/entities.h"
 
-#include <QtNetwork/QNetworkReply>
-
-extern std::unordered_set<ID> default_developers;
-extern std::unordered_set<ID> default_channels;
-
 struct CustomBadge
 {
 	EmojiStatusId emojiStatusId;
 	QString text;
 };
 
-class RCManager final : public QObject
+class RCManager final
 {
-	Q_OBJECT
 public:
 	static RCManager &getInstance() {
 		static RCManager instance;
@@ -33,32 +27,45 @@ public:
 	RCManager(RCManager &&) = delete;
 	RCManager &operator=(RCManager &&) = delete;
 
-	void start();
-
-	[[nodiscard]] const std::unordered_set<ID> &developers() const {
-		if (!initialized) {
-			return default_developers;
-		}
-		return _developers;
+	[[nodiscard]] const std::unordered_set<ID> &upstreamDevelopers() const {
+		return _upstreamDevelopers;
 	}
 
-	[[nodiscard]] const std::unordered_set<ID> &channels() const {
-		if (!initialized) {
-			return default_channels;
-		}
-		return _officialChannels;
+	[[nodiscard]] auto upstreamOfficialChannels() const
+	-> const std::unordered_set<ID> & {
+		return _upstreamOfficialChannels;
 	}
 
-	[[nodiscard]] const std::unordered_set<ID> &supporters() const {
-		return _supporters;
+	[[nodiscard]] const std::unordered_set<ID> &upstreamSupporters() const {
+		return _upstreamSupporters;
 	}
 
-	[[nodiscard]] const std::unordered_set<ID> &supporterChannels() const {
-		return _supporterChannels;
+	[[nodiscard]] auto upstreamSupporterChannels() const
+	-> const std::unordered_set<ID> & {
+		return _upstreamSupporterChannels;
 	}
 
-	[[nodiscard]] const std::unordered_map<ID, CustomBadge> &supporterCustomBadges() const {
-		return _customBadges;
+	[[nodiscard]] auto upstreamCustomBadges() const
+	-> const std::unordered_map<ID, CustomBadge> & {
+		return _upstreamCustomBadges;
+	}
+
+	[[nodiscard]] const std::unordered_set<ID> &aywGramDevelopers() const {
+		return _aywGramDevelopers;
+	}
+
+	[[nodiscard]] auto aywGramOfficialChannels() const
+	-> const std::unordered_set<ID> & {
+		return _aywGramOfficialChannels;
+	}
+
+	[[nodiscard]] const std::unordered_set<ID> &aywGramSupporters() const {
+		return _aywGramSupporters;
+	}
+
+	[[nodiscard]] auto aywGramSupporterChannels() const
+	-> const std::unordered_set<ID> & {
+		return _aywGramSupporterChannels;
 	}
 
 	[[nodiscard]] QString donateUsername() const {
@@ -78,37 +85,22 @@ public:
 	}
 
 private:
-	RCManager() = default;
-	~RCManager();
+	RCManager();
 
-	void makeRequest();
-	void sendRequest();
-	bool tryRetryWithExteraFallback();
+	const std::unordered_set<ID> _upstreamDevelopers;
+	const std::unordered_set<ID> _upstreamOfficialChannels;
+	const std::unordered_set<ID> _upstreamSupporters;
+	const std::unordered_set<ID> _upstreamSupporterChannels;
+	const std::unordered_map<ID, CustomBadge> _upstreamCustomBadges;
 
-	void gotResponse();
-	void gotFailure(QNetworkReply::NetworkError e);
-	void clearSentRequest();
-	bool handleResponse(const QByteArray &response);
-	bool applyResponse(const QByteArray &response);
+	const std::unordered_set<ID> _aywGramDevelopers;
+	const std::unordered_set<ID> _aywGramOfficialChannels;
+	const std::unordered_set<ID> _aywGramSupporters;
+	const std::unordered_set<ID> _aywGramSupporterChannels = {};
 
-	bool initialized = false;
-
-	std::unordered_set<ID> _developers = {};
-	std::unordered_set<ID> _officialChannels = {};
-	std::unordered_set<ID> _supporters = {};
-	std::unordered_set<ID> _supporterChannels = {};
-	std::unordered_map<ID, CustomBadge> _customBadges = {};
-
-	QString _donateUsername = QString("@ayugramOwner");
-	QString _donateAmountUsd = QString("5.00");
-	QString _donateAmountTon = QString("3.50");
-	QString _donateAmountRub = QString("386");
-
-	QTimer* _timer = nullptr;
-
-	std::unique_ptr<QNetworkAccessManager> _manager = nullptr;
-	QNetworkReply *_reply = nullptr;
-	bool _useExteraFallback = false;
-	bool _retryAttempted = false;
+	const QString _donateUsername = u"@ayugramOwner"_q;
+	const QString _donateAmountUsd = u"5.00"_q;
+	const QString _donateAmountTon = u"3.50"_q;
+	const QString _donateAmountRub = u"386"_q;
 
 };

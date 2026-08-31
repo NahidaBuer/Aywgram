@@ -133,7 +133,9 @@ MTPInputMedia WebPageForMTP(
 		const Data::WebPageDraft &draft,
 		bool required) {
 	using Flag = MTPDinputMediaWebPage::Flag;
-	const auto url = getBetterLinkPreview(draft.url);
+	const auto url = draft.previewChanged
+		? getBetterLinkPreview(draft.url)
+		: draft.url;
 	return MTP_inputMediaWebPage(
 		MTP_flags((draft.previewChanged ? Flag() : Flag::f_optional)
 			| (draft.forceLargeMedia ? Flag::f_force_large_media : Flag())
@@ -157,6 +159,13 @@ Main::Session &Histories::session() const {
 History *Histories::find(PeerId peerId) {
 	const auto i = peerId ? _map.find(peerId) : end(_map);
 	return (i != end(_map)) ? i->second.get() : nullptr;
+}
+
+void Histories::enumerate(Fn<void(not_null<History*>)> action) const {
+	for (const auto &[peerId, history] : _map) {
+		Q_UNUSED(peerId);
+		action(history.get());
+	}
 }
 
 not_null<History*> Histories::findOrCreate(PeerId peerId) {

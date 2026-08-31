@@ -9,6 +9,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "base/const_string.h"
 
+#include <QtCore/QString>
+
 #define TDESKTOP_REQUESTED_ALPHA_VERSION (0ULL)
 
 #ifdef TDESKTOP_ALLOW_CLOSED_ALPHA
@@ -23,5 +25,14 @@ constexpr auto AppName = "AywGram Desktop"_cs;
 constexpr auto AppFile = "AywGram"_cs;
 constexpr auto AppVersion = 7001003;
 constexpr auto AppVersionStr = "7.1.3";
+constexpr auto AppReleaseRevision = 0;
 constexpr auto AppBetaVersion = false;
 constexpr auto AppAlphaVersion = TDESKTOP_ALPHA_VERSION;
+
+[[nodiscard]] inline QString AppVersionString() {
+	auto result = QString::fromLatin1(AppVersionStr);
+	if (AppReleaseRevision > 0) {
+		result += '-' + QString::number(AppReleaseRevision);
+	}
+	return result;
+}

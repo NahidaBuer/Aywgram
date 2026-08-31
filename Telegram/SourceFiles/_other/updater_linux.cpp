@@ -215,17 +215,18 @@ void delFolder() {
 bool update() {
 	writeLog("Update started..");
 
-	string updDir = workDir + "tupdates/temp", readyFilePath = workDir + "tupdates/temp/ready", tdataDir = workDir + "tupdates/temp/tdata";
+	string updDir = workDir + "tupdates/temp", readyFilePath = workDir + "tupdates/temp/ready", manifestFilePath = workDir + "tupdates/temp/update-metadata.json", tdataDir = workDir + "tupdates/temp/tdata";
 	{
 		FILE *readyFile = fopen(readyFilePath.c_str(), "rb");
-		if (readyFile) {
-			fclose(readyFile);
-			writeLog("Ready file found! Using new path '%s'..", updDir.c_str());
-		} else {
-			updDir = workDir + "tupdates/ready"; // old
-			tdataDir = workDir + "tupdates/ready/tdata";
-			writeLog("Ready file not found! Using old path '%s'..", updDir.c_str());
+		FILE *manifestFile = fopen(manifestFilePath.c_str(), "rb");
+		if (!readyFile || !manifestFile) {
+			if (readyFile) fclose(readyFile);
+			if (manifestFile) fclose(manifestFile);
+			delFolder();
+			return false;
 		}
+		fclose(readyFile);
+		fclose(manifestFile);
 	}
 
 	deque<string> dirs;
@@ -268,13 +269,13 @@ bool update() {
 						writeLog("Error: bad update, has Updater! '%s' equal '%s'", tofname.c_str(), updaterName.c_str());
 						delFolder();
 						return false;
-					} else if (equal(tofname, exePath + "Telegram") && exeName != "Telegram") {
+					} else if (equal(tofname, exePath + "AywGram") && exeName != "AywGram") {
 						string fullBinaryPath = exePath + exeName;
 						writeLog("Target binary found: '%s', changing to '%s'", tofname.c_str(), fullBinaryPath.c_str());
 						tofname = fullBinaryPath;
 					}
-					if (fname == readyFilePath) {
-						writeLog("Skipped ready file '%s'", fname.c_str());
+					if (fname == readyFilePath || fname == manifestFilePath) {
+						writeLog("Skipped staging file '%s'", fname.c_str());
 					} else {
 						from.push_back(fname);
 						to.push_back(tofname);
@@ -432,8 +433,8 @@ int main(int argc, char *argv[]) {
 						workDir = exePath;
 
 						struct stat statbuf;
-						writeLog("Trying to use current as workDir, getting stat() for tupdates/ready");
-						if (!stat("tupdates/ready", &statbuf)) {
+						writeLog("Trying to use current as workDir, getting stat() for tupdates/temp/ready");
+						if (!stat("tupdates/temp/ready", &statbuf)) {
 							writeLog("Stat got");
 							if (S_ISDIR(statbuf.st_mode)) {
 								writeLog("It is directory, using current dir");

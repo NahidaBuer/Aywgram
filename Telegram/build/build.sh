@@ -36,29 +36,23 @@ while IFS='' read -r line || [[ -n "$line" ]]; do
   eval $1="$2"
 done < "$FullScriptPath/version"
 
-VersionForPacker="$AppVersion"
 if [ "$AlphaVersion" != "0" ]; then
-  AppVersion="$AlphaVersion"
-  AppVersionStrFull="${AppVersionStr}_${AlphaVersion}"
-  AlphaBetaParam="-alpha $AlphaVersion"
-  AlphaKeyFile="talpha_${AppVersion}_key"
+  Error "Closed alpha update packages are no longer supported"
 elif [ "$BetaChannel" == "0" ]; then
   AppVersionStrFull="$AppVersionStr"
-  AlphaBetaParam=''
 else
   AppVersionStrFull="$AppVersionStr.beta"
-  AlphaBetaParam='-beta'
 fi
 
 echo ""
 HomePath="$FullScriptPath/.."
 if [ "$BuildTarget" == "linux" ]; then
   echo "Building version $AppVersionStrFull for Linux 64bit.."
-  UpdateFile="tlinuxupd$AppVersion"
+  UpdateFile="AywGram-v${AppVersionStr}-linux-x86_64.tar.gz"
   SetupFile="tsetup.$AppVersionStrFull.tar.xz"
   ProjectPath="$HomePath/../out"
   ReleasePath="$ProjectPath/Release"
-  BinaryName="Telegram"
+  BinaryName="AywGram"
 elif [ "$BuildTarget" == "mac" ] ; then
   if [ "$arg1" == "x86_64" ] || [ "$arg1" == "arm64" ]; then
     echo "Building version $AppVersionStrFull for macOS 10.13+ ($arg1).."
@@ -82,8 +76,8 @@ elif [ "$BuildTarget" == "mac" ] ; then
   if [ "$AC_USERNAME" == "" ]; then
     Error "AC_USERNAME not found!"
   fi
-  UpdateFileAMD64="tmacupd$AppVersion"
-  UpdateFileARM64="tarmacupd$AppVersion"
+  UpdateFileAMD64="AywGram-v${AppVersionStr}-mac-x86_64.zip"
+  UpdateFileARM64="AywGram-v${AppVersionStr}-mac-arm64.zip"
   if [ "$MacArch" == "arm64" ]; then
     UpdateFile="$UpdateFileARM64"
   elif [ "$MacArch" == "x86_64" ]; then
@@ -91,7 +85,7 @@ elif [ "$BuildTarget" == "mac" ] ; then
   fi
   ProjectPath="$HomePath/../out"
   ReleasePath="$ProjectPath/Release"
-  BinaryName="Telegram"
+  BinaryName="AywGram"
   if [ "$MacArch" != "" ]; then
     BundleName="$BinaryName.$MacArch.app"
     SetupFile="tsetup.$MacArch.$AppVersionStrFull.dmg"
@@ -160,7 +154,6 @@ if [ "$BuildTarget" == "linux" ]; then
   echo "Copying from docker result folder."
   cp "$ReleasePath/root/$BinaryName" "$ReleasePath/$BinaryName"
   cp "$ReleasePath/root/Updater" "$ReleasePath/Updater"
-  cp "$ReleasePath/root/Packer" "$ReleasePath/Packer"
 
   echo "Dumping debug symbols.."
   "$ReleasePath/dump_syms" "$ReleasePath/$BinaryName" > "$ReleasePath/$BinaryName.sym"
@@ -170,23 +163,10 @@ if [ "$BuildTarget" == "linux" ]; then
   "$FullScriptPath/minidebug.sh" "$ReleasePath/$BinaryName"
   echo "Done!"
 
-  echo "Preparing version $AppVersionStrFull, executing Packer.."
+  echo "Preparing version $AppVersionStrFull release archive.."
   cd "$ReleasePath"
-  "./Packer" -path "$BinaryName" -path Updater -version $VersionForPacker $AlphaBetaParam
-  echo "Packer done!"
-
-  if [ "$AlphaVersion" != "0" ]; then
-    if [ ! -f "$ReleasePath/$AlphaKeyFile" ]; then
-      Error "Alpha version key file not found!"
-    fi
-
-    while IFS='' read -r line || [[ -n "$line" ]]; do
-      AlphaSignature="$line"
-    done < "$ReleasePath/$AlphaKeyFile"
-
-    UpdateFile="${UpdateFile}_${AlphaSignature}"
-    SetupFile="talpha${AlphaVersion}_${AlphaSignature}.tar.xz"
-  fi
+  tar -czf "$UpdateFile" "$BinaryName" Updater
+  echo "Release archive done!"
 
   SymbolsHash=`head -n 1 "$ReleasePath/$BinaryName.sym" | awk -F " " 'END {print $4}'`
   echo "Copying $BinaryName.sym to $DropboxSymbolsPath/$BinaryName/$SymbolsHash"
@@ -208,18 +188,12 @@ if [ "$BuildTarget" == "linux" ]; then
   mv "$ReleasePath/$BinaryName" "$DeployPath/$BinaryName/"
   mv "$ReleasePath/Updater" "$DeployPath/$BinaryName/"
   mv "$ReleasePath/$UpdateFile" "$DeployPath/"
-  if [ "$AlphaVersion" != "0" ]; then
-    mv "$ReleasePath/$AlphaKeyFile" "$DeployPath/"
-  fi
   cd "$DeployPath"
   tar -cJvf "$SetupFile" "$BinaryName/"
 
   mkdir -p $BackupPath
   cp "$SetupFile" "$BackupPath/"
   cp "$UpdateFile" "$BackupPath/"
-  if [ "$AlphaVersion" != "0" ]; then
-    cp -v "$AlphaKeyFile" "$BackupPath/"
-  fi
 fi
 
 if [ "$BuildTarget" == "mac" ] || [ "$BuildTarget" == "macstore" ]; then
@@ -370,38 +344,6 @@ if [ "$BuildTarget" == "mac" ] || [ "$BuildTarget" == "macstore" ]; then
       fi
     fi
 
-    if [ "$AlphaVersion" != "0" ]; then
-      cd $ReleasePath
-      "./Packer" -path "$BundleName" -target "$BuildTarget" -version $VersionForPacker $AlphaBetaParam -alphakey
-
-      if [ ! -f "$AlphaKeyFile" ]; then
-        Error "Alpha version key file not found!"
-      fi
-
-      while IFS='' read -r line || [[ -n "$line" ]]; do
-        AlphaSignature="$line"
-      done < "$ReleasePath/$AlphaKeyFile"
-
-      UpdateFile="${UpdateFile}_${AlphaSignature}"
-      UpdateFileAMD64="${UpdateFileAMD64}_${AlphaSignature}"
-      UpdateFileARM64="${UpdateFileARM64}_${AlphaSignature}"
-      if [ "$MacArch" != "" ]; then
-        SetupFile="talpha${AlphaVersion}_${MacArch}_${AlphaSignature}.zip"
-      else
-        SetupFile="talpha${AlphaVersion}_${AlphaSignature}.zip"
-      fi
-
-      if [ "$NotarizeRequestId" == "" ] || [ "$NotarizeRequestId" == "go" ]; then
-        rm -rf "$ReleasePath/AlphaTemp"
-        mkdir "$ReleasePath/AlphaTemp"
-        mkdir "$ReleasePath/AlphaTemp/$BinaryName"
-        cp -r "$ReleasePath/$BundleName" "$ReleasePath/AlphaTemp/$BinaryName/"
-        cd "$ReleasePath/AlphaTemp"
-        zip -r "$SetupFile" "$BinaryName"
-        mv "$SetupFile" "$ReleasePath/"
-        cd "$ReleasePath"
-      fi
-    fi
     echo "Beginning notarization process."
     xcrun notarytool submit "$SetupFile" --keychain-profile "preston" --wait
     xcrun stapler staple "$ReleasePath/$BundleName"
@@ -423,17 +365,16 @@ if [ "$BuildTarget" == "mac" ] || [ "$BuildTarget" == "macstore" ]; then
       xcrun stapler staple "$ReleasePath/$SetupFile"
     fi
 
-    if [ "$MacArch" != "" ]; then
-      UpdatePackPath="$ReleasePath/update_pack_${MacArch}"
-      rm -rf "$UpdatePackPath"
-      mkdir "$UpdatePackPath"
-      mv "$ReleasePath/$BundleName" "$UpdatePackPath/$BinaryName.app"
-      cp "$ReleasePath/Packer" "$UpdatePackPath/"
-      cd "$UpdatePackPath"
-      "./Packer" -path "$BinaryName.app" -target "$BuildTarget" -version $VersionForPacker -arch $MacArch $AlphaBetaParam
-      echo "Packer done!"
-      mv "$UpdateFile" "$ReleasePath/"
-      cd "$ReleasePath"
+  if [ "$MacArch" != "" ]; then
+    UpdatePackPath="$ReleasePath/update_pack_${MacArch}"
+    rm -rf "$UpdatePackPath"
+    mkdir "$UpdatePackPath"
+    mv "$ReleasePath/$BundleName" "$UpdatePackPath/$BinaryName.app"
+    ditto -c -k --sequesterRsrc --keepParent \
+      "$UpdatePackPath/$BinaryName.app" \
+      "$ReleasePath/$UpdateFile"
+    echo "Release archive done!"
+    cd "$ReleasePath"
       rm -rf "$UpdatePackPath"
       exit
     fi
@@ -452,9 +393,6 @@ if [ "$BuildTarget" == "mac" ] || [ "$BuildTarget" == "macstore" ]; then
     mkdir "$DeployPath"
     mkdir "$DeployPath/$BinaryName"
     cp -r "$ReleasePath/$BinaryName.app" "$DeployPath/$BinaryName/"
-    if [ "$AlphaVersion" != "0" ]; then
-      mv "$ReleasePath/$AlphaKeyFile" "$DeployPath/"
-    fi
     rm "$ReleasePath/$BinaryName.app/Contents/MacOS/$BinaryName"
     rm "$ReleasePath/$BinaryName.app/Contents/Frameworks/Updater"
     mv "$ReleasePath/$UpdateFileAMD64" "$DeployPath/"
@@ -466,9 +404,6 @@ if [ "$BuildTarget" == "mac" ] || [ "$BuildTarget" == "macstore" ]; then
       cp "$DeployPath/$UpdateFileAMD64" "$BackupPath/tmac/"
       cp "$DeployPath/$UpdateFileARM64" "$BackupPath/tmac/"
       cp "$DeployPath/$SetupFile" "$BackupPath/tmac/"
-      if [ "$AlphaVersion" != "0" ]; then
-        cp -v "$DeployPath/$AlphaKeyFile" "$BackupPath/tmac/"
-      fi
     fi
   elif [ "$BuildTarget" == "macstore" ]; then
     echo "Copying $BinaryName.app to deploy/$AppVersionStrMajor/$AppVersionStr..";

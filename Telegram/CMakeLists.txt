@@ -117,6 +117,19 @@ set(ayugram_files
         ayu/ayu_state.h
         ayu/ayu_settings.cpp
         ayu/ayu_settings.h
+        ayu/ayu_chat_settings.cpp
+        ayu/ayu_chat_settings.h
+        ayu/ayu_account_settings.cpp
+        ayu/ayu_account_settings.h
+        ayu/cloud/ayu_cloud_codec.cpp
+        ayu/cloud/ayu_cloud_codec.h
+        ayu/cloud/ayu_cloud_config.h
+        ayu/cloud/ayu_cloud_storage.cpp
+        ayu/cloud/ayu_cloud_storage.h
+        ayu/cloud/ayu_settings_snapshot.cpp
+        ayu/cloud/ayu_settings_snapshot.h
+        ayu/cloud/ayu_settings_sync.cpp
+        ayu/cloud/ayu_settings_sync.h
         ayu/ayu_lang.cpp
         ayu/ayu_lang.h
         ayu/ayu_infra.cpp
@@ -154,6 +167,12 @@ set(ayugram_files
         ayu/ui/settings/settings_ayu_utils.h
         ayu/ui/settings/settings_chats.cpp
         ayu/ui/settings/settings_chats.h
+        ayu/ui/settings/settings_message_menu.cpp
+        ayu/ui/settings/settings_message_menu.h
+        ayu/ui/settings/settings_cloud_sync.cpp
+        ayu/ui/settings/settings_cloud_sync.h
+        ayu/ui/settings/settings_chat_overrides.cpp
+        ayu/ui/settings/settings_chat_overrides.h
         ayu/ui/settings/settings_general.cpp
         ayu/ui/settings/settings_general.h
         ayu/ui/settings/settings_ayu.cpp
@@ -174,6 +193,8 @@ set(ayugram_files
         ayu/ui/settings/filters/edit_filter.h
         ayu/ui/context_menu/context_menu.cpp
         ayu/ui/context_menu/context_menu.h
+        ayu/ui/context_menu/message_menu_registry.cpp
+        ayu/ui/context_menu/message_menu_registry.h
         ayu/ui/context_menu/menu_item_subtext.cpp
         ayu/ui/context_menu/menu_item_subtext.h
         ayu/ui/message_history/history_inner.cpp
@@ -234,6 +255,10 @@ set(ayugram_files
         ayu/features/forward/ayu_forward_rich.h
         ayu/features/forward/ayu_sync.cpp
         ayu/features/forward/ayu_sync.h
+        ayu/features/link_rules/ayu_link_rules.cpp
+        ayu/features/link_rules/ayu_link_rules.h
+        ayu/features/link_rules/ayu_remote_metadata.cpp
+        ayu/features/link_rules/ayu_remote_metadata.h
         ayu/features/translator/ayu_translator.cpp
         ayu/features/translator/ayu_translator.h
         ayu/features/translator/ayu_translate_provider.cpp
@@ -771,6 +796,10 @@ PRIVATE
     core/ui_integration.h
     core/update_checker.cpp
     core/update_checker.h
+    core/update_metadata.cpp
+    core/update_metadata.h
+    core/update_unpack.cpp
+    core/update_unpack.h
     core/utils.cpp
     core/utils.h
     core/version.h
@@ -2385,6 +2414,7 @@ PRIVATE
     qrc/telegram/export_rich.qrc
     qrc/telegram/picker.qrc
     qrc/telegram/telegram.qrc
+    qrc/telegram/tlv.qrc
     qrc/telegram/sounds.qrc
     winrc/Telegram.rc
     winrc/Telegram.manifest
@@ -2771,32 +2801,6 @@ if (NOT DESKTOP_APP_DISABLE_AUTOUPDATE AND NOT build_macstore AND NOT build_wins
         )
     endif()
 
-    if (DESKTOP_APP_SPECIAL_TARGET)
-        add_executable(Packer)
-        init_target(Packer)
-
-        add_dependencies(Telegram Packer)
-
-        nice_target_sources(Packer ${src_loc}
-        PRIVATE
-            _other/packer.cpp
-            _other/packer.h
-        )
-
-        target_link_libraries(Packer
-        PRIVATE
-            desktop-app::external_qt
-            desktop-app::external_zlib
-            desktop-app::external_auto_updates
-            desktop-app::external_openssl
-        )
-
-        if (DESKTOP_APP_USE_PACKAGED)
-            target_compile_definitions(Packer PRIVATE PACKER_USE_PACKAGED)
-        endif()
-
-        set_target_properties(Packer PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${output_folder})
-    endif()
 elseif (build_winstore)
     add_executable(StartupTask WIN32)
     init_non_host_target(StartupTask)

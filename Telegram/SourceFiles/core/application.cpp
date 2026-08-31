@@ -211,13 +211,6 @@ Application::Application()
 		updateWindowTitles();
 	}, _lifetime);
 
-	_domain->activeSessionChanges(
-	) | rpl::on_next([=](Main::Session *session) {
-		if (session && !UpdaterDisabled()) { // #TODO multi someSessionValue
-			UpdateChecker().setMtproto(session);
-		}
-	}, _lifetime);
-
 	MTP::WebProxy::Transport::StateChanges(
 	) | rpl::on_next([=](
 			const MTP::WebProxy::Transport::StateChange &change) {

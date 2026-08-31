@@ -7,11 +7,14 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "iv/iv_controller.h"
 
+#include "base/call_delayed.h"
 #include "base/event_filter.h"
 #include "base/platform/base_platform_info.h"
 #include "base/qt/qt_key_modifiers.h"
 #include "base/qt_signal_producer.h"
 #include "core/file_utilities.h"
+#include "data/data_types.h"
+#include "lang_auto.h"
 #include "lang/lang_keys.h"
 #include "ui/chat/attach/attach_bot_webview.h"
 #include "ui/widgets/buttons.h"
@@ -21,13 +24,19 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/painter.h"
 #include "ui/rect.h"
 #include "webview/webview_embed.h"
+#include "webview/webview_data_stream_memory.h"
 #include "webview/webview_interface.h"
 #include "styles/palette.h"
 #include "styles/style_iv.h"
 #include "styles/style_payments.h"
 #include "styles/style_window.h"
+#include "window/themes/window_theme.h"
 
+#include <QtCore/QFile>
+#include <QtCore/QJsonDocument>
+#include <QtCore/QJsonObject>
 #include <QtCore/QUrl>
+#include <QtGui/QClipboard>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QKeyEvent>
 #include <QtGui/QPainter>
@@ -46,6 +55,22 @@ namespace Iv {
 namespace {
 
 constexpr auto kZoomStep = int(10);
+constexpr auto kWaylandWebviewTeardownDelay = crl::time(1000);
+constexpr auto kTLViewerDocument = "tlv/tlv.html";
+
+[[nodiscard]] QByteArray ReadTLViewerResource(const QString &name) {
+	auto file = QFile(u":/tlv/"_q + name);
+	return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+}
+
+[[nodiscard]] int SchemaLayer(const QByteArray &schema) {
+	const auto marker = QByteArray("// LAYER ");
+	const auto position = schema.lastIndexOf(marker);
+	if (position < 0) {
+		return 0;
+	}
+	return schema.mid(position + marker.size()).split('\n').front().trimmed().toInt();
+}
 
 [[nodiscard]] QString TonsiteToHttps(QString value) {
 	const auto ChangeHost = [](QString tonsite) {
@@ -176,6 +201,30 @@ void Controller::showTonSite(
 	}) | rpl::map([=](QString value) {
 		return HttpsToTonsite(value);
 	});
+	_windowTitleText = _subtitleText.value();
+}
+
+void Controller::showTLViewer(int32 layer, QByteArray payload) {
+	_tlViewer = true;
+	_tlViewerLayer = layer;
+	_tlViewerPayload = std::move(payload);
+#ifdef Q_OS_WIN
+	_window->setNativeFrame(false);
+#endif // Q_OS_WIN
+	if (!_webview) {
+		// Empty storage creates an isolated, non-persistent webview profile.
+		createWebview({});
+	}
+	if (_webview && _webview->widget()) {
+		if (_tlViewerLoaded) {
+			loadTLViewerPayload();
+		} else {
+			_webview->navigateToData(QString::fromLatin1(kTLViewerDocument));
+		}
+		activate();
+	}
+	_url = u"tlv/tlv.html"_q;
+	_subtitleText = tr::ayu_ViewAsJson(tr::now);
 	_windowTitleText = _subtitleText.value();
 }
 
@@ -356,6 +405,13 @@ void Controller::createWebview(const Webview::StorageId &storageId) {
 	raw->setNavigationStartHandler([=](const QString &uri, bool newWindow) {
 		Q_UNUSED(newWindow);
 
+		if (_tlViewer) {
+			const auto url = QUrl(uri);
+			const auto localHost = (url.host() == u"desktop-app-resource"_q)
+				|| (url.host() == u"127.0.0.1"_q);
+			return (uri == u"about:blank"_q)
+				|| (localHost && url.path() == u"/tlv/tlv.html"_q);
+		}
 		if (uri == u"about:blank"_q
 			|| QUrl(uri).host().toLower().endsWith(u".magic.org"_q)) {
 			return true;
@@ -364,7 +420,63 @@ void Controller::createWebview(const Webview::StorageId &storageId) {
 		return false;
 	});
 	raw->setNavigationDoneHandler([=](bool success) {
-		Q_UNUSED(success);
+		if (_tlViewer && success) {
+			_tlViewerLoaded = true;
+			loadTLViewerPayload();
+		}
+	});
+	raw->setDataRequestHandler([=](Webview::DataRequest request) {
+		if (!_tlViewer) {
+			return Webview::DataResult::Failed;
+		}
+		auto name = QString();
+		auto mime = std::string();
+		if (request.id == "tlv/tlv.html") {
+			name = u"tlv.html"_q;
+			mime = "text/html; charset=utf-8";
+		} else if (request.id == "tlv/style.css") {
+			name = u"style.css"_q;
+			mime = "text/css; charset=utf-8";
+		} else if (request.id == "tlv/app.js") {
+			name = u"app.js"_q;
+			mime = "text/javascript; charset=utf-8";
+		} else {
+			return Webview::DataResult::Failed;
+		}
+		auto bytes = ReadTLViewerResource(name);
+		if (bytes.isEmpty()) {
+			return Webview::DataResult::Failed;
+		}
+		request.done({
+			.stream = std::make_unique<Webview::DataStreamFromMemory>(
+				std::move(bytes),
+				std::move(mime)),
+		});
+		return Webview::DataResult::Done;
+	});
+	raw->setMessageHandler([=](Webview::Message message) {
+		if (!_tlViewer) {
+			return;
+		}
+		const auto source = QUrl(QString::fromStdString(message.sourceUrl));
+		const auto localHost = (source.host() == u"desktop-app-resource"_q)
+			|| (source.host() == u"127.0.0.1"_q);
+		if (!localHost || source.path() != u"/tlv/tlv.html"_q) {
+			return;
+		}
+		const auto document = QJsonDocument::fromJson(
+			QByteArray::fromRawData(message.text.data(), message.text.size()));
+		if (!document.isObject()) {
+			return;
+		}
+		const auto object = document.object();
+		const auto value = object.value(u"text"_q);
+		if (object.value(u"type"_q).toString() != u"clipboard_write"_q
+			|| !value.isString()
+			|| value.toString().size() > 16 * 1024 * 1024) {
+			return;
+		}
+		QGuiApplication::clipboard()->setText(value.toString());
 	});
 	raw->navigationHistoryState(
 	) | rpl::on_next([=](Webview::NavigationHistoryState state) {
@@ -373,7 +485,55 @@ void Controller::createWebview(const Webview::StorageId &storageId) {
 		_url = QString::fromStdString(state.url);
 	}, _webview->lifetime());
 
-	raw->init(R"()");
+	style::PaletteChanged() | rpl::on_next([=] {
+		updateWebviewTheme();
+	}, _webview->lifetime());
+	updateWebviewTheme();
+
+	raw->init(R"(
+		window.open = function() { return null; };
+	)");
+}
+
+void Controller::loadTLViewerPayload() {
+	if (!_tlViewer || !_webview) {
+		return;
+	}
+	const auto schema = ReadTLViewerResource(u"api.tl"_q);
+	const auto schemaLayer = SchemaLayer(schema);
+	if (schema.isEmpty() || !schemaLayer) {
+		showWebviewError({ "Error: Could not load the bundled TL schema." });
+		return;
+	}
+	const auto object = QJsonObject{
+		{ u"layer"_q, _tlViewerLayer },
+		{ u"schemaLayer"_q, schemaLayer },
+		{ u"payload"_q, QString::fromLatin1(_tlViewerPayload) },
+		{ u"schema"_q, QString::fromUtf8(schema) },
+		{ u"dark"_q, st::windowBg->c.lightness() < 128 },
+	};
+	const auto json = QJsonDocument(object).toJson(QJsonDocument::Compact);
+	_webview->eval(QByteArray("window.TelegramDesktopTLV.load(")
+		+ json
+		+ ");");
+}
+
+void Controller::updateWebviewTheme() {
+	if (!_webview) {
+		return;
+	}
+	const auto params = Window::Theme::WebViewParams();
+	_webview->updateTheme(
+		params.bodyBg,
+		params.scrollBg,
+		params.scrollBgOver,
+		params.scrollBarBg,
+		params.scrollBarBgOver);
+	if (_tlViewer) {
+		_webview->eval(QByteArray(
+			"window.TelegramDesktopTLV&&window.TelegramDesktopTLV.setTheme("
+		) + (st::windowBg->c.lightness() < 128 ? "true);" : "false);"));
+	}
 }
 
 void Controller::processKey(QKeyEvent *event) {
@@ -421,6 +581,29 @@ void Controller::minimize() {
 	if (_window) {
 		_window->setWindowState(_window->windowState()
 			| Qt::WindowMinimized);
+	}
+}
+
+void Controller::destroyWindow() {
+	if (!_window) {
+		return;
+	}
+	auto webview = base::take(_webview);
+	_window->hide();
+	_back = nullptr;
+	_forward = nullptr;
+	_subtitle = nullptr;
+	_subtitleWrap = nullptr;
+	_window = nullptr;
+	_container = nullptr;
+	_tlViewerPayload.clear();
+	_tlViewerLoaded = false;
+	if (Platform::IsWayland() && webview) {
+		base::call_delayed(
+			kWaylandWebviewTeardownDelay,
+			[webview = std::move(webview)]() mutable {
+				webview = nullptr;
+			});
 	}
 }
 

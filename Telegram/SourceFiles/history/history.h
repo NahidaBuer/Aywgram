@@ -15,6 +15,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/variant.h"
 #include "base/flat_set.h"
 #include "base/flags.h"
+#include "rpl/lifetime.h"
 
 class History;
 class HistoryBlock;
@@ -388,6 +389,15 @@ public:
 	void takeLocalDraft(not_null<History*> from);
 	void applyCloudDraft(MsgId topicRootId, PeerId monoforumPeerId);
 	void draftSavedToCloud(MsgId topicRootId, PeerId monoforumPeerId);
+	void markIgnoredRemotePlainDraft(
+		MsgId topicRootId,
+		PeerId monoforumPeerId);
+	void clearIgnoredRemotePlainDraft(
+		MsgId topicRootId,
+		PeerId monoforumPeerId);
+	[[nodiscard]] bool takeIgnoredRemotePlainDraft(
+		MsgId topicRootId,
+		PeerId monoforumPeerId);
 	void requestChatListMessage();
 
 	[[nodiscard]] const Data::ForwardDraft &forwardDraft(
@@ -515,6 +525,7 @@ public:
 	mtpRequestId sendRequestId = 0;
 
 private:
+	void refreshAyuAutoTranslate();
 	friend class HistoryBlock;
 
 	enum class Flag : ushort {
@@ -707,10 +718,13 @@ private:
 	};
 	std::unique_ptr<BuildingBlock> _buildingFrontBlock;
 	std::unique_ptr<HistoryTranslation> _translation;
+	bool _ayuAutoTranslateActive = false;
+	rpl::lifetime _ayuAutoTranslateLifetime;
 
 	Data::HistoryDrafts _drafts;
 	base::flat_map<Data::DraftKey, TimeId> _acceptCloudDraftsAfter;
 	base::flat_map<Data::DraftKey, int> _savingCloudDraftRequests;
+	base::flat_set<Data::DraftKey> _ignoredRemotePlainDrafts;
 	base::flat_map<Data::DraftKey, Data::ForwardDraft> _forwardDrafts;
 
 	base::flat_map<MsgId, TimeId> _unknownDeletedMessages;

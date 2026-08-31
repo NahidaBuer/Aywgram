@@ -152,13 +152,12 @@ int main(int argc, const char * argv[]) {
 	if (update) {
 		NSFileManager *fileManager = [NSFileManager defaultManager];
 		NSString *readyFilePath = [workDir stringByAppendingString:@"tupdates/temp/ready"];
+		NSString *manifestFilePath = [workDir stringByAppendingString:@"tupdates/temp/update-metadata.json"];
 		NSString *srcDir = [workDir stringByAppendingString:@"tupdates/temp/"], *srcEnum = [workDir stringByAppendingString:@"tupdates/temp"];
-		if ([fileManager fileExistsAtPath:readyFilePath]) {
-			writeLog([@"Ready file found! Using new path: " stringByAppendingString: srcEnum]);
-		} else {
-			srcDir = [workDir stringByAppendingString:@"tupdates/ready/"]; // old
-			srcEnum = [workDir stringByAppendingString:@"tupdates/ready"];
-			writeLog([@"Ready file not found! Using old path: " stringByAppendingString: srcEnum]);
+		if (![fileManager fileExistsAtPath:readyFilePath]
+			|| ![fileManager fileExistsAtPath:manifestFilePath]) {
+			delFolder();
+			return -1;
 		}
 
 		writeLog([@"Starting update files iteration, path: " stringByAppendingString: srcEnum]);
@@ -282,4 +281,3 @@ int main(int argc, const char * argv[]) {
 	closeLog();
 	return -1;
 }
-

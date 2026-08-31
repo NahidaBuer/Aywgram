@@ -20,7 +20,7 @@ namespace Ui {
 namespace {
 
 void SendToBannedHelp(const QString &phone) {
-	const auto version = QString::fromLatin1(AppVersionStr)
+	const auto version = AppVersionString()
 		+ (cAlphaVersion()
 			? qsl(" alpha %1").arg(cAlphaVersion())
 			: (AppBetaVersion ? " beta" : ""));

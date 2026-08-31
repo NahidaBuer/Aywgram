@@ -103,6 +103,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <unordered_map>
 
 // AyuGram includes
+#include "ayu/ayu_settings.h"
 #include "ayu/ui/ayu_userpic.h"
 #include "ayu/utils/telegram_helpers.h"
 #include "styles/style_ayu_icons.h"
@@ -1964,12 +1965,12 @@ void InnerWidget::paintPeerSearchResult(
 			: context.selected
 			? &st::dialogsVerifiedIconOver
 			: &st::dialogsVerifiedIcon),
-		.exteraOfficial = &ThreeStateIcon(
-			st::dialogsExteraOfficialIcon,
+		.projectOfficial = &ThreeStateIcon(
+			st::dialogsProjectOfficialIcon,
 			context.active,
 			context.selected),
-		.exteraSupporter = &ThreeStateIcon(
-			st::dialogsExteraSupporterIcon,
+		.projectSupporter = &ThreeStateIcon(
+			st::dialogsProjectSupporterIcon,
 			context.active,
 			context.selected),
 		.premium = &ThreeStateIcon(
@@ -2200,7 +2201,7 @@ void InnerWidget::clearIrrelevantState() {
 		setHashtagPressed(-1);
 		_hashtagDeleteSelected = _hashtagDeletePressed = false;
 		_filteredSelected = -1;
-		setFilteredPressed(-1, false, false);
+		setFilteredPressed(-1, false, false, false);
 		_idSearchSelected = -1;
 		setIdSearchPressed(-1);
 		_peerSearchSelected = -1;
@@ -2214,6 +2215,7 @@ void InnerWidget::clearIrrelevantState() {
 		setCollapsedPressed(-1);
 		_selected = nullptr;
 		_communitySelected = -1;
+		_selectedCommunityBadge = false;
 		setCommunityPressed(-1);
 		clearPressed();
 	}
@@ -2299,6 +2301,14 @@ void InnerWidget::selectByMouse(QPoint globalPosition) {
 		const auto mappedY = selected ? mouseY - offset - selected->top() : 0;
 		const auto selectedTopicJump = selected
 			&& selected->lookupIsInTopicJump(local.x(), mappedY);
+		const auto selectedCommunityBadge = selected
+			&& AyuSettings::getInstance().openCommunityOnlyFromBadge()
+			&& (width() > _narrowWidth)
+			&& selected->lookupIsInCommunityBadge(
+				local.x(),
+				mappedY,
+				_filterId,
+				communityModeShown());
 		const auto selectedRightButton = selected
 			&& lookupIsInBotAppButton(selected, QPoint(local.x(), mappedY));
 		auto communitySelected = -1;
@@ -2322,11 +2332,13 @@ void InnerWidget::selectByMouse(QPoint globalPosition) {
 		if (_collapsedSelected != collapsedSelected
 			|| _selected != selected
 			|| _communitySelected != communitySelected
+			|| _selectedCommunityBadge != selectedCommunityBadge
 			|| _selectedTopicJump != selectedTopicJump
 			|| _selectedRightButton != selectedRightButton) {
 			updateSelectedRow();
 			_selected = selected;
 			_communitySelected = communitySelected;
+			_selectedCommunityBadge = selectedCommunityBadge;
 			_selectedTopicJump = selectedTopicJump;
 			_selectedRightButton = selectedRightButton;
 			_collapsedSelected = collapsedSelected;
@@ -2370,16 +2382,27 @@ void InnerWidget::selectByMouse(QPoint globalPosition) {
 				&& _filterResults[filteredSelected].row->lookupIsInTopicJump(
 					local.x(),
 					mappedY);
+			const auto selectedCommunityBadge = (filteredSelected >= 0)
+				&& AyuSettings::getInstance().openCommunityOnlyFromBadge()
+				&& (width() > _narrowWidth)
+				&& _filterResults[filteredSelected].row
+					->lookupIsInCommunityBadge(
+						local.x(),
+						mappedY,
+						_filterId,
+						communityModeShown());
 			const auto selectedRightButton = (filteredSelected >= 0)
 				? lookupIsInBotAppButton(
 					_filterResults[filteredSelected].row,
 					QPoint(local.x(), mappedY))
 				: _selectedRightButton;
 			if (_filteredSelected != filteredSelected
+				|| _selectedCommunityBadge != selectedCommunityBadge
 				|| _selectedTopicJump != selectedTopicJump
 				|| _selectedRightButton != selectedRightButton) {
 				updateSelectedRow();
 				_filteredSelected = filteredSelected;
+				_selectedCommunityBadge = selectedCommunityBadge;
 				_selectedTopicJump = selectedTopicJump;
 				_selectedRightButton = selectedRightButton;
 				updateSelectedRow();
@@ -2508,12 +2531,17 @@ void InnerWidget::mousePressEvent(QMouseEvent *e) {
 	selectByMouse(e->globalPos());
 
 	_pressButton = e->button();
-	setPressed(_selected, _selectedTopicJump, _selectedRightButton);
+	setPressed(
+		_selected,
+		_selectedCommunityBadge,
+		_selectedTopicJump,
+		_selectedRightButton);
 	setCollapsedPressed(_collapsedSelected);
 	setHashtagPressed(_hashtagSelected);
 	_hashtagDeletePressed = _hashtagDeleteSelected;
 	setFilteredPressed(
 		_filteredSelected,
+		_selectedCommunityBadge,
 		_selectedTopicJump,
 		_selectedRightButton);
 	setIdSearchPressed(_idSearchSelected);
@@ -2525,9 +2553,9 @@ void InnerWidget::mousePressEvent(QMouseEvent *e) {
 	_pressedChatTypeFilter = _selectedChatTypeFilter;
 
 	const auto alt = (e->modifiers() & Qt::AltModifier);
-	if (alt && showChatPreview()) {
+	if (alt && !_selectedCommunityBadge && showChatPreview()) {
 		return;
-	} else if (!alt && isUserpicPress()) {
+	} else if (!alt && isUserpicPress() && !_selectedCommunityBadge) {
 		scheduleChatPreview(e->globalPos());
 	}
 
@@ -3072,6 +3100,7 @@ void InnerWidget::mousePressReleased(
 	setCollapsedPressed(-1);
 	const auto pressedTopicRootId = _pressedTopicJumpRootId;
 	const auto pressedSublistPeerId = _pressedSublistJumpPeerId;
+	const auto pressedCommunityBadge = _pressedCommunityBadge;
 	const auto pressedTopicJump = _pressedTopicJump;
 	const auto pressedRightButton = _pressedRightButton;
 	auto pressed = _pressed;
@@ -3081,7 +3110,7 @@ void InnerWidget::mousePressReleased(
 	auto hashtagDeletePressed = _hashtagDeletePressed;
 	_hashtagDeletePressed = false;
 	auto filteredPressed = _filteredPressed;
-	setFilteredPressed(-1, false, false);
+	setFilteredPressed(-1, false, false, false);
 	auto idSearchPressed = _idSearchPressed;
 	setIdSearchPressed(-1);
 	auto peerSearchPressed = _peerSearchPressed;
@@ -3130,6 +3159,7 @@ void InnerWidget::mousePressReleased(
 		if ((collapsedPressed >= 0 && collapsedPressed == _collapsedSelected)
 			|| (pressed
 				&& pressed == _selected
+				&& pressedCommunityBadge == _selectedCommunityBadge
 				&& pressedTopicJump == _selectedTopicJump
 				&& pressedRightButton == _selectedRightButton)
 			|| (hashtagPressed >= 0
@@ -3137,6 +3167,7 @@ void InnerWidget::mousePressReleased(
 				&& hashtagDeletePressed == _hashtagDeleteSelected)
 			|| (filteredPressed >= 0
 				&& filteredPressed == _filteredSelected
+				&& pressedCommunityBadge == _selectedCommunityBadge
 				&& pressedRightButton == _selectedRightButton)
 			|| (idSearchPressed >= 0
 				&& idSearchPressed == _idSearchSelected)
@@ -3190,9 +3221,11 @@ void InnerWidget::setCollapsedPressed(int pressed) {
 
 void InnerWidget::setPressed(
 		Row *pressed,
+		bool pressedCommunityBadge,
 		bool pressedTopicJump,
 		bool pressedRightButton) {
 	if ((_pressed != pressed)
+		|| (pressed && _pressedCommunityBadge != pressedCommunityBadge)
 		|| (pressed && _pressedTopicJump != pressedTopicJump)
 		|| (pressed && _pressedRightButton != pressedRightButton)) {
 		if (_pressed) {
@@ -3202,7 +3235,11 @@ void InnerWidget::setPressed(
 			_pressedRightButtonData->ripple->lastStop();
 		}
 		_pressed = pressed;
-		if (pressed || !pressedTopicJump || !pressedRightButton) {
+		if (pressed
+			|| !pressedCommunityBadge
+			|| !pressedTopicJump
+			|| !pressedRightButton) {
+			_pressedCommunityBadge = pressedCommunityBadge;
 			_pressedTopicJump = pressedTopicJump;
 			_pressedRightButton = pressedRightButton;
 			if (pressedRightButton) {
@@ -3226,7 +3263,7 @@ void InnerWidget::setPressed(
 }
 
 void InnerWidget::clearPressed() {
-	setPressed(nullptr, false, false);
+	setPressed(nullptr, false, false, false);
 }
 
 void InnerWidget::setHashtagPressed(int pressed) {
@@ -3238,9 +3275,12 @@ void InnerWidget::setHashtagPressed(int pressed) {
 
 void InnerWidget::setFilteredPressed(
 		int pressed,
+		bool pressedCommunityBadge,
 		bool pressedTopicJump,
 		bool pressedRightButton) {
 	if (_filteredPressed != pressed
+		|| (pressed >= 0
+			&& _pressedCommunityBadge != pressedCommunityBadge)
 		|| (pressed >= 0 && _pressedTopicJump != pressedTopicJump)
 		|| (pressed >= 0 && _pressedRightButton != pressedRightButton)) {
 		if (base::in_range(_filteredPressed, 0, _filterResults.size())) {
@@ -3250,7 +3290,11 @@ void InnerWidget::setFilteredPressed(
 			_pressedRightButtonData->ripple->lastStop();
 		}
 		_filteredPressed = pressed;
-		if (pressed >= 0 || !pressedTopicJump || !pressedRightButton) {
+		if (pressed >= 0
+			|| !pressedCommunityBadge
+			|| !pressedTopicJump
+			|| !pressedRightButton) {
+			_pressedCommunityBadge = pressedCommunityBadge;
 			_pressedTopicJump = pressedTopicJump;
 			_pressedRightButton = pressedRightButton;
 			if (pressed >= 0 && pressedRightButton) {
@@ -3383,7 +3427,11 @@ void InnerWidget::dialogRowReplaced(
 	}
 	if (_pressed == oldRow) {
 		if (newRow) {
-			setPressed(newRow, _pressedTopicJump, _pressedRightButton);
+			setPressed(
+				newRow,
+				_pressedCommunityBadge,
+				_pressedTopicJump,
+				_pressedRightButton);
 		} else {
 			clearPressed();
 		}
@@ -3944,6 +3992,7 @@ void InnerWidget::deselectAllRows() {
 	_selectedChatTypeFilter = false;
 	_selected = nullptr;
 	_communitySelected = -1;
+	_selectedCommunityBadge = false;
 	_filteredSelected
 		= _searchedSelected
 		= _previewSelected
@@ -4185,7 +4234,9 @@ bool InnerWidget::processTouchEvent(not_null<QTouchEvent*> e) {
 			return false;
 		}
 		selectByMouse(*point);
-		if (isUserpicPressOnWide() && scheduleChatPreview(*point)) {
+		if (isUserpicPressOnWide()
+			&& !_selectedCommunityBadge
+			&& scheduleChatPreview(*point)) {
 			_chatPreviewTouchGlobal = point;
 		} else if (!_dragging) {
 			_touchDragStartGlobal = point;
@@ -5956,6 +6007,8 @@ bool InnerWidget::chooseRow(
 			Qt::KeyboardModifiers modifiers) {
 		row.newWindow = (modifiers & Qt::ControlModifier);
 		row.userpicClick = isUserpicPressOnWide();
+		row.communityBadgeClick = _selectedCommunityBadge
+			&& (_selected || row.filteredRow);
 		return row;
 	};
 	auto chosen = modifyChosenRow(computeChosenRow(), modifiers);
@@ -6754,6 +6807,7 @@ void InnerWidget::clearSecondaryMouseState() {
 	_selectedMorePosts = false;
 	_selectedChatTypeFilter = false;
 	_selectedTopicJump = false;
+	_selectedCommunityBadge = false;
 	_selectedRightButton = false;
 }
 

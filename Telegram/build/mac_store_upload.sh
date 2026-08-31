@@ -32,18 +32,13 @@ while IFS='' read -r line || [[ -n "$line" ]]; do
   eval $1="$2"
 done < "$FullScriptPath/version"
 
-VersionForPacker="$AppVersion"
 if [ "$AlphaVersion" != "0" ]; then
   AppVersion="$AlphaVersion"
   AppVersionStrFull="${AppVersionStr}_${AlphaVersion}"
-  AlphaBetaParam="-alpha $AlphaVersion"
-  AlphaKeyFile="talpha_${AppVersion}_key"
 elif [ "$BetaChannel" == "0" ]; then
   AppVersionStrFull="$AppVersionStr"
-  AlphaBetaParam=''
 else
   AppVersionStrFull="$AppVersionStr.beta"
-  AlphaBetaParam='-beta'
 fi
 
 echo ""

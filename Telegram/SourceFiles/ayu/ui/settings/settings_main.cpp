@@ -13,6 +13,7 @@
 #include "ayu/ui/settings/settings_appearance.h"
 #include "ayu/ui/settings/settings_ayu.h"
 #include "ayu/ui/settings/settings_chats.h"
+#include "ayu/ui/settings/settings_cloud_sync.h"
 #include "ayu/ui/settings/settings_filters.h"
 #include "ayu/ui/settings/settings_general.h"
 #include "ayu/ui/settings/settings_other.h"
@@ -68,9 +69,7 @@ void BuildVersionInfo(SectionBuilder &builder) {
 		return {
 			.widget = object_ptr<Ui::FlatLabel>(
 				ctx.container,
-				rpl::single(
-					QString("AywGram Desktop v")
-					+ QString::fromLatin1(AppVersionStr)),
+				rpl::single(u"AywGram Desktop v"_q + AppVersionString()),
 				st::boxTitle),
 			.align = style::al_top,
 		};
@@ -125,6 +124,11 @@ void BuildCategories(SectionBuilder &builder) {
 		.icon = { &st::menuIconChatBubble },
 	});
 	builder.addSectionButton({
+		.title = tr::ayu_CloudSyncTitle(),
+		.targetSection = AyuCloudSync::Id(),
+		.icon = { &st::menuIconSavedMessages },
+	});
+	builder.addSectionButton({
 		.title = tr::ayu_CategoryOther(),
 		.targetSection = AyuOther::Id(),
 		.icon = { &st::menuIconFave },
@@ -162,20 +166,20 @@ void BuildLinks(SectionBuilder &builder) {
 		.id = u"ayu/crowdin"_q,
 		.title = tr::ayu_LinksTranslate(),
 		.icon = { &st::menuIconTranslate },
-		.label = rpl::single(QString("Crowdin")),
+		.label = rpl::single(u"GitHub"_q),
 		.onClick = [=] {
 			QDesktopServices::openUrl(
-				QString("https://translate.ayugram.one"));
+				u"https://github.com/Aywgram/Languages"_q);
 		},
 	});
 	builder.addButton({
 		.id = u"ayu/website"_q,
 		.title = tr::ayu_LinksDocumentation(),
 		.icon = { &st::menuIconIpAddress },
-		.label = rpl::single(QString("docs.ayugram.one")),
+		.label = rpl::single(u"GitHub Docs"_q),
 		.onClick = [=] {
 			QDesktopServices::openUrl(
-				QString("https://docs.ayugram.one"));
+				u"https://github.com/NahidaBuer/AywGram/tree/main/docs"_q);
 		},
 	});
 

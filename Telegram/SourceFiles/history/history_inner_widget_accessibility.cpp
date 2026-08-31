@@ -163,7 +163,9 @@ QString MessageAccessibilityName(
 					Ui::FormatSizeText(document->size));
 			}
 		} else if (const auto photo = media->photo()) {
-			mediaParts.push_back(tr::lng_in_dlg_photo(tr::now));
+			mediaParts.push_back(media->isLivePhoto()
+				? tr::ayu_LivePhoto(tr::now)
+				: tr::lng_in_dlg_photo(tr::now));
 			if (media->hasSpoiler()) {
 				mediaParts.push_back(
 					tr::lng_sr_message_spoiler(tr::now));

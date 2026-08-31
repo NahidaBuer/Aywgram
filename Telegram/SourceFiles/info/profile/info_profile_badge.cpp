@@ -33,9 +33,11 @@ namespace {
 [[nodiscard]] bool HasPremiumClick(const Badge::Content &content) {
 	return content.badge == BadgeType::Premium
 		|| (content.badge == BadgeType::Verified && content.emojiStatusId)
-		|| (content.badge == BadgeType::Extera)
-		|| (content.badge == BadgeType::ExteraSupporter)
-		|| (content.badge == BadgeType::ExteraCustom);
+		|| (content.badge == BadgeType::UpstreamOfficial)
+		|| (content.badge == BadgeType::UpstreamSupporter)
+		|| (content.badge == BadgeType::UpstreamCustom)
+		|| (content.badge == BadgeType::AywGramOfficial)
+		|| (content.badge == BadgeType::AywGramSupporter);
 }
 
 } // namespace
@@ -91,11 +93,12 @@ void Badge::setContent(Content content) {
 	_view.create(_parent);
 	_view->setAccessibleName([&] {
 		switch (_content.badge) {
+		case BadgeType::None:
+			Unexpected("empty badge type");
 		case BadgeType::Verified:
 			return tr::lng_sr_verified_badge(tr::now);
 		case BadgeType::BotVerified:
 			return tr::lng_sr_bot_verified_badge(tr::now);
-		default:
 		case BadgeType::Premium:
 			if (_content.emojiStatusId) {
 				return tr::lng_profile_bot_emoji_status_access(tr::now);
@@ -107,12 +110,22 @@ void Badge::setContent(Content content) {
 			return tr::lng_fake_badge(tr::now);
 		case BadgeType::Direct:
 			return tr::lng_direct_badge(tr::now);
+		case BadgeType::UpstreamOfficial:
+			return tr::ayu_UpstreamOfficialBadge(tr::now);
+		case BadgeType::UpstreamSupporter:
+			return tr::ayu_UpstreamSupporterBadge(tr::now);
+		case BadgeType::UpstreamCustom:
+			return tr::ayu_UpstreamCustomBadge(tr::now);
+		case BadgeType::AywGramOfficial:
+			return tr::ayu_AywGramOfficialBadge(tr::now);
+		case BadgeType::AywGramSupporter:
+			return tr::ayu_AywGramSupporterBadge(tr::now);
 		}
 		Unexpected("badge type");
 	}());
 	_view->show();
 	switch (_content.badge) {
-	case BadgeType::ExteraCustom:
+	case BadgeType::UpstreamCustom:
 	case BadgeType::Verified:
 	case BadgeType::BotVerified:
 	case BadgeType::Premium: {
@@ -217,11 +230,15 @@ void Badge::setContent(Content content) {
 						: st::attentionButtonFg));
 			}, _view->lifetime());
 	} break;
-	case BadgeType::Extera:
-	case BadgeType::ExteraSupporter: {
-		const auto icon = (_content.badge == BadgeType::Extera
-							   ? &st::infoExteraOfficialBadge
-							   : &st::infoExteraSupporterBadge);
+	case BadgeType::UpstreamOfficial:
+	case BadgeType::UpstreamSupporter:
+	case BadgeType::AywGramOfficial:
+	case BadgeType::AywGramSupporter: {
+		const auto official = (_content.badge == BadgeType::UpstreamOfficial)
+			|| (_content.badge == BadgeType::AywGramOfficial);
+		const auto icon = official
+			? &st::infoProjectOfficialBadge
+			: &st::infoProjectSupporterBadge;
 		const auto skip = st::infoVerifiedCheckPosition.x();
 		_view->resize(
 			icon->width() + skip,

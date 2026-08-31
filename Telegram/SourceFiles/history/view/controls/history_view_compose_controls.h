@@ -395,8 +395,11 @@ private:
 	void updateExpandButtonVisibility();
 	void updateExpandButtonGeometry();
 	[[nodiscard]] bool canShowRichEditor() const;
-	void showRichEditor();
-	void showRichEditorWithPaste(std::shared_ptr<QMimeData> data);
+	[[nodiscard]] bool canOpenMarkdownEditor() const;
+	void showRichEditor(
+		std::shared_ptr<QMimeData> initialPaste = nullptr,
+		std::optional<TextWithTags> fieldToReplace = std::nullopt);
+	void openMarkdownInRichEditor();
 	void offerRichPaste(not_null<const QMimeData*> data);
 	void initDiscardRichDraftButton();
 	void updateDiscardRichDraftVisibility();
@@ -573,7 +576,6 @@ private:
 	const not_null<Ui::EmojiButton*> _tabbedSelectorToggle;
 	rpl::variable<QString> _fieldCustomPlaceholder;
 	QPointer<QWidget> _pasteToastParent;
-	std::shared_ptr<QMimeData> _pendingRichPaste;
 	const not_null<Ui::InputField*> _field;
 	std::unique_ptr<Controls::RichDraftPreview> _richDraftPreview;
 	base::unique_qptr<Ui::RpWidget> _fieldDisabled;
@@ -654,6 +656,8 @@ private:
 	UserData *_inlineBot = nullptr;
 	QString _inlineBotUsername;
 	bool _inlineLookingUpBot = false;
+	bool _inlineBotAutomatic = false;
+	QString _automaticInlineSuppressedText;
 	mtpRequestId _inlineBotResolveRequestId = 0;
 	bool _isInlineBot = false;
 	bool _botCommandShown = false;

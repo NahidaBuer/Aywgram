@@ -141,6 +141,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
 
+#include <QtCore/QMimeData>
+
 // AyuGram includes
 #include "ayu/ayu_settings.h"
 #include "history/history_item_components.h"
@@ -2346,17 +2348,10 @@ void ComposeControls::offerRichPaste(not_null<const QMimeData*> data) {
 					}
 					_field->setTextCursor(cursor);
 				}
-				showRichEditorWithPaste(copy);
+				showRichEditor(copy);
 			}),
 		});
 	});
-}
-
-void ComposeControls::showRichEditorWithPaste(
-		std::shared_ptr<QMimeData> data) {
-	_pendingRichPaste = std::move(data);
-	showRichEditor();
-	_pendingRichPaste = nullptr;
 }
 
 bool ComposeControls::confirmMediaEdit(Ui::PreparedList &list) {
@@ -2651,7 +2646,8 @@ void ComposeControls::clearRichDraft() {
 				&draft)) {
 			session().api().saveDraftToCloud(
 				not_null{ thread },
-				*cloudDraft);
+				*cloudDraft,
+				CloudDraftSavePurpose::PlainText);
 		}
 	}
 }
@@ -4050,7 +4046,9 @@ void ComposeControls::setupSendMenu(
 		Fn<void(Api::SendOptions)> send) {
 	using namespace SendMenu;
 	const auto sendAction = [=](Action action, Details details) {
-		if (action.type == ActionType::ChangePrice) {
+		if (action.type == ActionType::OpenMarkdownEditor) {
+			openMarkdownInRichEditor();
+		} else if (action.type == ActionType::ChangePrice) {
 			_chosenStarsCount = details.price.value_or(0);
 			updateSendButtonType();
 		} else if (action.type == ActionType::CaptionUp
@@ -4109,6 +4107,13 @@ void ComposeControls::initSendAsButton(
 
 void ComposeControls::cancelInlineBot() {
 	const auto &textWithTags = _field->getTextWithTags();
+	if (_inlineBotAutomatic) {
+		_automaticInlineSuppressedText = textWithTags.text;
+		_inlineBotAutomatic = false;
+		_inlineBotUsername.clear();
+		clearInlineBot();
+		return;
+	}
 	if (textWithTags.text.size() > _inlineBotUsername.size() + 2) {
 		setFieldText(
 			{ '@' + _inlineBotUsername + ' ', TextWithTags::Tags() },
@@ -4576,7 +4581,9 @@ void ComposeControls::initExpandButton() {
 	});
 }
 
-void ComposeControls::showRichEditor() {
+void ComposeControls::showRichEditor(
+		std::shared_ptr<QMimeData> initialPaste,
+		std::optional<TextWithTags> fieldToReplace) {
 	if (!_regularWindow || !_history || !_sendActionFactory) {
 		return;
 	}
@@ -4596,25 +4603,36 @@ void ComposeControls::showRichEditor() {
 	}
 	if (_mode == Mode::Scheduled) {
 		using Options = Iv::Editor::ComposeBoxOptions;
+		auto options = Options{
+			.scope = Options::Scope::Detached,
+			.initialPaste = initialPaste,
+			.submitPolicy = Options::SubmitPolicy::Schedule,
+			.returnText = crl::guard(
+				_wrap.get(),
+				[=](TextWithTags text) {
+					setText(text);
+				}),
+		};
+		auto migrated = crl::guard(_wrap.get(), [=] {
+			if (!fieldToReplace
+				|| _field->getTextWithTags() == *fieldToReplace) {
+				migrateScheduledFieldToRichEditor();
+			}
+		});
+		auto onMigrated = Fn<void()>();
+		if (fieldToReplace) {
+			options.initialPasteApplied = std::move(migrated);
+		} else {
+			onMigrated = std::move(migrated);
+		}
 		Iv::Editor::ShowComposeBox(
 			_regularWindow,
 			_history->peer,
 			_sendActionFactory(),
 			sendMenuDetails(),
-			getTextWithAppliedMarkdown(),
-			crl::guard(_wrap.get(), [=] {
-				migrateScheduledFieldToRichEditor();
-			}),
-			Options{
-				.scope = Options::Scope::Detached,
-				.initialPaste = _pendingRichPaste,
-				.submitPolicy = Options::SubmitPolicy::Schedule,
-				.returnText = crl::guard(
-					_wrap.get(),
-					[=](TextWithTags text) {
-						setText(text);
-					}),
-			});
+			fieldToReplace ? TextWithTags() : getTextWithAppliedMarkdown(),
+			std::move(onMigrated),
+			std::move(options));
 		return;
 	}
 	if (_currentDialogsEntryState.section
@@ -4629,29 +4647,39 @@ void ComposeControls::showRichEditor() {
 			|| action.options.shortcutId != expectedShortcutId) {
 			return;
 		}
-		auto fieldText = getTextWithAppliedMarkdown();
 		using Options = Iv::Editor::ComposeBoxOptions;
+		auto options = Options{
+			.scope = Options::Scope::Detached,
+			.initialPaste = initialPaste,
+			.returnText = crl::guard(
+				_wrap.get(),
+				[=](TextWithTags text) {
+					if (isShortcutComposeEligible()
+						&& _shortcutId == expectedShortcutId) {
+						setText(text);
+					}
+				}),
+		};
+		auto migrated = crl::guard(_wrap.get(), [=] {
+			if (!fieldToReplace
+				|| _field->getTextWithTags() == *fieldToReplace) {
+				migrateShortcutFieldToRichEditor(expectedShortcutId);
+			}
+		});
+		auto onMigrated = Fn<void()>();
+		if (fieldToReplace) {
+			options.initialPasteApplied = std::move(migrated);
+		} else {
+			onMigrated = std::move(migrated);
+		}
 		Iv::Editor::ShowComposeBox(
 			_regularWindow,
 			_history->peer,
 			std::move(action),
 			sendMenuDetails(),
-			std::move(fieldText),
-			crl::guard(_wrap.get(), [=] {
-				migrateShortcutFieldToRichEditor(expectedShortcutId);
-			}),
-			Options{
-				.scope = Options::Scope::Detached,
-				.initialPaste = _pendingRichPaste,
-				.returnText = crl::guard(
-					_wrap.get(),
-					[=](TextWithTags text) {
-						if (isShortcutComposeEligible()
-							&& _shortcutId == expectedShortcutId) {
-							setText(text);
-						}
-					}),
-			});
+			fieldToReplace ? TextWithTags() : getTextWithAppliedMarkdown(),
+			std::move(onMigrated),
+			std::move(options));
 		return;
 	}
 	if (_currentDialogsEntryState.section
@@ -4660,44 +4688,79 @@ void ComposeControls::showRichEditor() {
 			return;
 		}
 		using Options = Iv::Editor::ComposeBoxOptions;
+		auto options = Options{
+			.scope = Options::Scope::Detached,
+			.initialPaste = initialPaste,
+			.returnText = crl::guard(
+				_wrap.get(),
+				[=](TextWithTags text) {
+					if (isWelcomeComposeEligible()) {
+						setText(text);
+					}
+				}),
+			.welcomeTemplates = true,
+		};
+		auto migrated = crl::guard(_wrap.get(), [=] {
+			if (!fieldToReplace
+				|| _field->getTextWithTags() == *fieldToReplace) {
+				migrateWelcomeFieldToRichEditor();
+			}
+		});
+		auto onMigrated = Fn<void()>();
+		if (fieldToReplace) {
+			options.initialPasteApplied = std::move(migrated);
+		} else {
+			onMigrated = std::move(migrated);
+		}
 		Iv::Editor::ShowComposeBox(
 			_regularWindow,
 			_history->peer,
 			_sendActionFactory(),
 			sendMenuDetails(),
-			getTextWithAppliedMarkdown(),
-			crl::guard(_wrap.get(), [=] {
-				migrateWelcomeFieldToRichEditor();
-			}),
-			Options{
-				.scope = Options::Scope::Detached,
-				.initialPaste = _pendingRichPaste,
-				.returnText = crl::guard(
-					_wrap.get(),
-					[=](TextWithTags text) {
-						if (isWelcomeComposeEligible()) {
-							setText(text);
-						}
-					}),
-				.welcomeTemplates = true,
-			});
+			fieldToReplace ? TextWithTags() : getTextWithAppliedMarkdown(),
+			std::move(onMigrated),
+			std::move(options));
 		return;
 	}
 	if (_mode != Mode::Normal || !hasRichDraftThreadScope()) {
 		return;
+	}
+	auto options = Iv::Editor::ComposeBoxOptions{
+		.initialPaste = std::move(initialPaste),
+	};
+	auto migrated = crl::guard(_wrap.get(), [=] {
+		if (!fieldToReplace
+			|| _field->getTextWithTags() == *fieldToReplace) {
+			migrateFieldToRichEditor();
+		}
+	});
+	auto onMigrated = Fn<void()>();
+	if (fieldToReplace) {
+		options.initialPasteApplied = std::move(migrated);
+	} else {
+		onMigrated = std::move(migrated);
 	}
 	Iv::Editor::ShowComposeBox(
 		_regularWindow,
 		_history->peer,
 		_sendActionFactory(),
 		sendMenuDetails(),
-		getTextWithAppliedMarkdown(),
-		crl::guard(_wrap.get(), [=] {
-			migrateFieldToRichEditor();
-		}),
-		Iv::Editor::ComposeBoxOptions{
-			.initialPaste = _pendingRichPaste,
-		});
+		fieldToReplace ? TextWithTags() : getTextWithAppliedMarkdown(),
+		std::move(onMigrated),
+		std::move(options));
+}
+
+void ComposeControls::openMarkdownInRichEditor() {
+	if (!canOpenMarkdownEditor()) {
+		return;
+	}
+	const auto source = _field->getTextWithTags();
+	if (source.text.trimmed().isEmpty()) {
+		return;
+	}
+	auto data = std::make_shared<QMimeData>();
+	data->setText(source.text);
+	showRichEditor(std::move(data), source);
 }
 
 void ComposeControls::setSendAsFileConfirmed(
@@ -4837,6 +4900,19 @@ SendMenu::Details ComposeControls::saveMenuDetails() const {
 }
 
 SendMenu::Details ComposeControls::sendButtonMenuDetails() const {
+	const auto withMarkdownEditor = [=](SendMenu::Details result) {
+		result.markdownEditorAllowed = _history
+			&& canOpenMarkdownEditor()
+			&& !_field->getTextWithTags().text.trimmed().isEmpty()
+			&& forwardItems().empty()
+			&& !_inlineBot
+			&& !shownRichMessage()
+			&& result.spoiler == SendMenu::SpoilerState::None
+			&& result.caption == SendMenu::CaptionState::None
+			&& result.photoQuality == SendMenu::PhotoQualityState::None
+			&& result.cover == SendMenu::CoverState::None;
+		return result;
+	};
 	if (showStopButton()) {
 		return {};
 	}
@@ -4844,13 +4920,15 @@ SendMenu::Details ComposeControls::sendButtonMenuDetails() const {
 	if (type == Ui::SendButton::Type::Save) {
 		return saveMenuDetails();
 	} else if (type != Ui::SendButton::Type::Send) {
-		return SendMenu::Details();
+		return (type == Ui::SendButton::Type::Schedule)
+			? withMarkdownEditor({})
+			: SendMenu::Details();
 	}
 	auto result = sendMenuDetails();
 	if (!hasSendableContent() && !_previewShown) {
 		result.effectAllowed = false;
 	}
-	return result;
+	return withMarkdownEditor(std::move(result));
 }
 
 void ComposeControls::updateSendButtonType() {
@@ -5208,6 +5286,23 @@ bool ComposeControls::canShowRichEditor() const {
 		&& (composeEligible || isEditingMessage())
 		&& !textExceedsMaxSize()
 		&& !(media && !media->webpage())
+		&& Iv::Editor::CanAuthorRichMessages(&_show->session());
+}
+
+bool ComposeControls::canOpenMarkdownEditor() const {
+	const auto composeEligible = (_mode == Mode::Scheduled)
+		|| ((_mode == Mode::Normal) && hasRichDraftThreadScope())
+		|| isShortcutComposeEligible()
+		|| isWelcomeComposeEligible();
+	return _history
+		&& !isEditingMessage()
+		&& _regularWindow
+		&& _sendActionFactory
+		&& _wrap->isVisible()
+		&& !_recording.current()
+		&& _field->isVisible()
+		&& Data::CanSendTexts(_history->peer, !_topicRootId)
+		&& composeEligible
 		&& Iv::Editor::CanAuthorRichMessages(&_show->session());
 }
 
@@ -6341,7 +6436,16 @@ void ComposeControls::updateInlineBotQuery() {
 	if (!_history || !_regularWindow) {
 		return;
 	}
-	const auto query = parseInlineBotQuery();
+	const auto fieldText = _field->getTextWithTags().text;
+	if (!_automaticInlineSuppressedText.isEmpty()
+		&& _automaticInlineSuppressedText != fieldText) {
+		_automaticInlineSuppressedText.clear();
+	}
+	auto query = parseInlineBotQuery();
+	if (query.automatic && _automaticInlineSuppressedText == fieldText) {
+		query = {};
+	}
+	_inlineBotAutomatic = query.automatic;
 	if (_inlineBotUsername != query.username) {
 		_inlineBotUsername = query.username;
 		auto &api = session().api();
@@ -6377,8 +6481,12 @@ void ComposeControls::updateInlineBotQuery() {
 				_inlineBotResolveRequestId = 0;
 				const auto query = parseInlineBotQuery();
 				if (_inlineBotUsername == query.username) {
+					const auto pinned = !query.expectedBotId
+						|| (resolvedBot
+							&& resolvedBot->id.value == peerFromUser(
+								UserId(query.expectedBotId)).value);
 					applyInlineBotQuery(
-						query.lookingUpBot ? resolvedBot : query.bot,
+						query.lookingUpBot && pinned ? resolvedBot : query.bot,
 						query.query);
 				} else {
 					clearInlineBot();

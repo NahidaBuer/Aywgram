@@ -1086,10 +1086,17 @@ void Widget::chosenRow(const ChosenRow &row) {
 	const auto sublistJump = history
 		? history->peer->monoforumSublistFor(row.sublistJumpPeerId)
 		: nullptr;
+	const auto communityOnlyFromBadge
+		= AyuSettings::getInstance().openCommunityOnlyFromBadge();
+	const auto communityBadgeClick = communityOnlyFromBadge
+		&& row.communityBadgeClick
+		&& history
+		&& (row.message.fullId.msg == ShowAtUnreadMsgId);
 	const auto userpicCommunity = [&]() -> ChannelData* {
 		if (!history
 			|| !row.userpicClick
-			|| (row.message.fullId.msg != ShowAtUnreadMsgId)) {
+			|| (row.message.fullId.msg != ShowAtUnreadMsgId)
+			|| (communityOnlyFromBadge && !row.communityBadgeClick)) {
 			return nullptr;
 		}
 		const auto communityId = Data::PeerLinkedCommunityId(history->peer);
@@ -1143,6 +1150,11 @@ void Widget::chosenRow(const ChosenRow &row) {
 			session().data().saveViewAsMessages(topic->forum(), false);
 			controller()->showThread(topic, row.message.fullId.msg, params);
 		}
+	} else if (communityBadgeClick) {
+		if (userpicCommunity) {
+			controller()->showPeerInfo(userpicCommunity);
+		}
+		return;
 	} else if (history
 		&& row.userpicClick
 		&& (row.message.fullId.msg == ShowAtUnreadMsgId)

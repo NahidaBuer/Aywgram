@@ -116,6 +116,11 @@ public:
 		const Ui::PaintContext &context,
 		bool hasUnreadBadgesAbove) const final override;
 
+	[[nodiscard]] bool lookupIsInCommunityBadge(
+		int x,
+		int y,
+		FilterId filterId,
+		bool insideCommunity) const;
 	[[nodiscard]] bool lookupIsInTopicJump(int x, int y) const;
 	void stopLastRipple() override;
 	void clearRipple() override;

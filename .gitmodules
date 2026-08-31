@@ -93,7 +93,7 @@
 	url = https://github.com/desktop-app/lib_translate
 [submodule "Telegram/lib_icu"]
 	path = Telegram/lib_icu
-	url = https://github.com/AyuGram/lib_icu.git
+	url = https://github.com/Aywgram/lib_icu.git
 [submodule "Telegram/ThirdParty/cmark-gfm"]
 	path = Telegram/ThirdParty/cmark-gfm
 	url = https://github.com/desktop-app/cmark-gfm.git

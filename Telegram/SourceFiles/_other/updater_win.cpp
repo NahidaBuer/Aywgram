@@ -130,15 +130,19 @@ WCHAR versionStr[32] = { 0 };
 bool update() {
 	writeLog(L"Update started..");
 
-	wstring updDir = L"tupdates\\temp", readyFilePath = L"tupdates\\temp\\ready", tdataDir = L"tupdates\\temp\\tdata";
+	wstring updDir = L"tupdates\\temp", readyFilePath = L"tupdates\\temp\\ready", manifestFilePath = L"tupdates\\temp\\update-metadata.json", tdataDir = L"tupdates\\temp\\tdata";
 	{
 		HANDLE readyFile = CreateFile(readyFilePath.c_str(), GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
-		if (readyFile != INVALID_HANDLE_VALUE) {
-			CloseHandle(readyFile);
-		} else {
-			updDir = L"tupdates\\ready"; // old
-			tdataDir = L"tupdates\\ready\\tdata";
+		HANDLE manifestFile = CreateFile(manifestFilePath.c_str(), GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+		if (readyFile == INVALID_HANDLE_VALUE
+			|| manifestFile == INVALID_HANDLE_VALUE) {
+			if (readyFile != INVALID_HANDLE_VALUE) CloseHandle(readyFile);
+			if (manifestFile != INVALID_HANDLE_VALUE) CloseHandle(manifestFile);
+			delFolder();
+			return false;
 		}
+		CloseHandle(readyFile);
+		CloseHandle(manifestFile);
 	}
 
 	HANDLE versionFile = CreateFile((tdataDir + L"\\version").c_str(), GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
@@ -209,8 +213,9 @@ bool update() {
 					writeLog(L"Target binary found: '" + tofname + L"', changing to '" + fullBinaryPath + L"'");
 					tofname = fullBinaryPath;
 				}
-				if (equal(fname, readyFilePath)) {
-					writeLog(L"Skipped ready file '" + fname + L"'");
+				if (equal(fname, readyFilePath)
+					|| equal(fname, manifestFilePath)) {
+					writeLog(L"Skipped staging file '" + fname + L"'");
 				} else {
 					from.push_back(fname);
 					to.push_back(tofname);
@@ -404,8 +409,8 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE prevInstance, LPWSTR cmdPara
 				if (needupdate && update()) {
 					updateRegistry();
 				}
-				if (writeprotected) { // if we can't clear all tupdates\ready (Updater.exe is there) - clear only version
-					if (DeleteFile(L"tupdates\\temp\\tdata\\version") || DeleteFile(L"tupdates\\ready\\tdata\\version")) {
+				if (writeprotected) {
+					if (DeleteFile(L"tupdates\\temp\\tdata\\version")) {
 						writeLog(L"Version file deleted!");
 					} else {
 						writeLog(L"Error: could not delete version file");

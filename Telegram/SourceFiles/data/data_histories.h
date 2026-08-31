@@ -52,6 +52,7 @@ public:
 
 	[[nodiscard]] History *find(PeerId peerId);
 	[[nodiscard]] not_null<History*> findOrCreate(PeerId peerId);
+	void enumerate(Fn<void(not_null<History*>)> action) const;
 
 	void applyPeerDialogs(const MTPmessages_PeerDialogs &dialogs);
 

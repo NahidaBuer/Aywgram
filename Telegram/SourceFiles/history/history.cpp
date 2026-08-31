@@ -7,6 +7,9 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/history.h"
 
+#include "ayu/ayu_chat_settings.h"
+#include "ayu/ayu_settings.h"
+
 #include "history/view/history_view_element.h"
 #include "history/view/history_view_item_preview.h"
 #include "history/view/history_view_translate_tracker.h"
@@ -181,6 +184,22 @@ History::History(not_null<Data::Session*> owner, PeerId peerId)
 		}
 	}
 	updateCommunityRegistration();
+	AyuChatSettings::Changes(
+	) | rpl::filter([=](const AyuChatSettings::Change &change) {
+		return change.feature == AyuChatSettings::Feature::AutoTranslate
+			&& (!change.peer
+				|| change.peer->migrateToOrMe() == peer->migrateToOrMe());
+	}) | rpl::on_next([=] {
+		refreshAyuAutoTranslate();
+	}, _ayuAutoTranslateLifetime);
+	AyuSettings::getInstance().translationProviderChanges(
+	) | rpl::on_next([=] {
+		_ayuAutoTranslateActive = false;
+	}, _ayuAutoTranslateLifetime);
+	Core::App().settings().translateToValue(
+	) | rpl::skip(1) | rpl::on_next([=] {
+		_ayuAutoTranslateActive = false;
+	}, _ayuAutoTranslateLifetime);
 }
 
 History::~History() = default;
@@ -309,7 +328,9 @@ void History::takeLocalDraft(not_null<History*> from) {
 		setLocalDraft(std::move(draft));
 	}
 	from->clearLocalDraft(topicRootId, monoforumPeerId);
-	session().api().saveDraftToCloudDelayed(from);
+	session().api().saveDraftToCloudDelayed(
+		from,
+		CloudDraftSavePurpose::PlainText);
 }
 
 void History::createLocalDraftFromCloud(
@@ -521,6 +542,27 @@ void History::draftSavedToCloud(MsgId topicRootId, PeerId monoforumPeerId) {
 		thread->updateChatListEntry();
 	}
 	session().local().writeDrafts(this);
+}
+
+void History::markIgnoredRemotePlainDraft(
+		MsgId topicRootId,
+		PeerId monoforumPeerId) {
+	_ignoredRemotePlainDrafts.emplace(
+		Data::DraftKey::Cloud(topicRootId, monoforumPeerId));
+}
+
+void History::clearIgnoredRemotePlainDraft(
+		MsgId topicRootId,
+		PeerId monoforumPeerId) {
+	_ignoredRemotePlainDrafts.remove(
+		Data::DraftKey::Cloud(topicRootId, monoforumPeerId));
+}
+
+bool History::takeIgnoredRemotePlainDraft(
+		MsgId topicRootId,
+		PeerId monoforumPeerId) {
+	return _ignoredRemotePlainDrafts.remove(
+		Data::DraftKey::Cloud(topicRootId, monoforumPeerId));
 }
 
 const Data::ForwardDraft &History::forwardDraft(
@@ -4555,6 +4597,10 @@ void History::translateOfferFrom(LanguageId id) {
 	} else {
 		_translation->offerFrom(id);
 	}
+	if (!id) {
+		_ayuAutoTranslateActive = false;
+	}
+	refreshAyuAutoTranslate();
 }
 
 LanguageId History::translateOfferedFrom() const {
@@ -4562,6 +4608,7 @@ LanguageId History::translateOfferedFrom() const {
 }
 
 void History::translateTo(LanguageId id) {
+	_ayuAutoTranslateActive = false;
 	if (!_translation) {
 		return;
 	} else if (!id && !translateOfferedFrom()) {
@@ -4569,6 +4616,24 @@ void History::translateTo(LanguageId id) {
 		session().changes().historyUpdated(this, UpdateFlag::TranslatedTo);
 	} else {
 		_translation->translateTo(id);
+	}
+}
+
+void History::refreshAyuAutoTranslate() {
+	const auto enabled = AyuChatSettings::Resolve(
+		peer,
+		AyuChatSettings::Feature::AutoTranslate);
+	if (enabled
+		&& _translation
+		&& translateOfferedFrom()
+		&& !translatedTo()) {
+		_translation->translateTo(Core::App().settings().translateTo());
+		_ayuAutoTranslateActive = true;
+	} else if (!enabled && _ayuAutoTranslateActive) {
+		_ayuAutoTranslateActive = false;
+		if (_translation) {
+			_translation->translateTo(LanguageId());
+		}
 	}
 }
 

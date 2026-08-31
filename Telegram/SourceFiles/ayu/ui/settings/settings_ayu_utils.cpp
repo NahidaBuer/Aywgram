@@ -6,9 +6,11 @@
 // Copyright @Radolyn, 2026
 #include "ayu/ui/settings/settings_ayu_utils.h"
 
+#include "ayu/ui/settings/settings_main.h"
 #include "lang_auto.h"
 #include "base/event_filter.h"
 #include "core/application.h"
+#include "core/deep_links/deep_links_settings.h"
 #include "lang/lang_text_entity.h"
 #include "settings/settings_common.h"
 #include "styles/style_ayu_styles.h"
@@ -93,8 +95,9 @@ void SetupCopyLinkMenus(
 		if (!widget || id.size() <= prefix.size() || !id.startsWith(prefix)) {
 			continue;
 		}
-		const auto link = u"https://t.me/ayuSettings?s="_q
-			+ id.mid(prefix.size());
+		const auto link = Core::DeepLinks::SettingsDeepLink(
+			AyuMain::Id(),
+			id);
 		base::install_event_filter(widget, [=](not_null<QEvent*> e) {
 			if (e->type() != QEvent::ContextMenu) {
 				return base::EventFilterResult::Continue;
