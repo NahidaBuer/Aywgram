@@ -55,13 +55,13 @@ cd /d D:\TBuild
 git clone --recursive <本仓库地址> AywGram
 ```
 
-本仓库当前固定使用 Qt 6.11.1。只准备 x64 Release 构建所需的 Qt 6 和第三方库：
+本仓库当前固定使用 Qt 6.11.2。只准备 x64 Release 构建所需的 Qt 6 和第三方库：
 
 ```bat
-AywGram\Telegram\build\prepare\win.bat skip-debug qt6
+AywGram\Telegram\build\prepare\win.bat skip-debug skip-dump-syms qt6
 ```
 
-`prepare` 会下载 Qt 源码和其他依赖、应用 Telegram 补丁，并将静态 Qt 安装到 `BuildPath\Libraries\win64\Qt-6.11.1`。Qt Online Installer 和系统级 Qt 安装不是必需项。
+`prepare` 会下载 Qt 源码和其他依赖、应用 Telegram 补丁，并将静态 Qt 安装到 `BuildPath\Libraries\win64\Qt-6.11.2`。Qt Online Installer 和系统级 Qt 安装不是必需项。
 
 准备完成后不要单独移动仓库；构建脚本和 CMake 缓存会记录 `BuildPath` 下的绝对路径。
 
@@ -71,7 +71,12 @@ AywGram\Telegram\build\prepare\win.bat skip-debug qt6
 
 ```bat
 cd /d D:\TBuild\AywGram\Telegram
-configure.bat x64 qt6 -D TDESKTOP_API_ID=YOUR_API_ID -D TDESKTOP_API_HASH=YOUR_API_HASH
+configure.bat x64 qt6 ^
+    -D TDESKTOP_API_ID=YOUR_API_ID ^
+    -D TDESKTOP_API_HASH=YOUR_API_HASH ^
+    -D CMAKE_C_FLAGS_RELEASE="/O2 /Ob2 /DNDEBUG" ^
+    -D CMAKE_CXX_FLAGS_RELEASE="/O2 /Ob2 /DNDEBUG" ^
+    -D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT=
 ```
 
 可以在 Visual Studio 2026 中打开 `BuildPath\AywGram\out\Telegram.slnx`，选择 `Telegram` 目标和 Release 配置；也可以直接使用 Visual Studio 随附的 CMake：
