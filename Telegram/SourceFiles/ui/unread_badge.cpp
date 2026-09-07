@@ -125,6 +125,7 @@ struct PeerBadge::EmojiStatus {
 	QPoint lastPosition;
 	QColor lastColor;
 	int skip = 0;
+	bool painted = false;
 };
 
 struct PeerBadge::BotVerifiedData {
@@ -249,6 +250,9 @@ int PeerBadge::drawGetWidth(Painter &p, Descriptor &&descriptor) {
 	const auto peer = descriptor.peer;
 	if ((descriptor.scam && (peer->isScam() || peer->isFake()))
 		|| (descriptor.direct && peer->isMonoforum())) {
+		if (_emojiStatus) {
+			_emojiStatus->painted = false;
+		}
 		return drawTextBadge(p, descriptor);
 	}
 	const auto verifyCheck = descriptor.verified && peer->isVerified();
@@ -342,6 +346,8 @@ int PeerBadge::drawGetWidth(Painter &p, Descriptor &&descriptor) {
 			rectForName.setWidth(rectForName.width() + verifyWidth);
 		}
 		descriptor.nameWidth += result;
+	} else if (_emojiStatus) {
+		_emojiStatus->painted = false;
 	}
 
 	if (paintProject) {
@@ -452,6 +458,7 @@ int PeerBadge::drawPremiumEmojiStatus(
 		iconx - 2 * _emojiStatus->skip,
 		icony + _emojiStatus->skip);
 	_emojiStatus->lastColor = (*descriptor.premiumFg)->c;
+	_emojiStatus->painted = true;
 	_emojiStatus->emoji->paint(p, {
 		.textColor = _emojiStatus->lastColor,
 		.now = descriptor.now,
@@ -534,7 +541,7 @@ int PeerBadge::drawProjectSupporter(Painter &p, const Descriptor &descriptor) {
 }
 
 QRect PeerBadge::emojiStatusRect() const {
-	if (!_emojiStatus || !_emojiStatus->emoji) {
+	if (!_emojiStatus || !_emojiStatus->emoji || !_emojiStatus->painted) {
 		return QRect();
 	}
 	return QRect(
@@ -546,7 +553,7 @@ void PeerBadge::paintEmojiStatusFrame(
 		QPainter &p,
 		crl::time now,
 		bool paused) {
-	if (!_emojiStatus || !_emojiStatus->emoji) {
+	if (!_emojiStatus || !_emojiStatus->emoji || !_emojiStatus->painted) {
 		return;
 	}
 	paintEmojiStatusFrame(p, now, paused, _emojiStatus->lastPosition);
@@ -557,7 +564,7 @@ void PeerBadge::paintEmojiStatusFrame(
 		crl::time now,
 		bool paused,
 		QPoint position) {
-	if (!_emojiStatus || !_emojiStatus->emoji) {
+	if (!_emojiStatus || !_emojiStatus->emoji || !_emojiStatus->painted) {
 		return;
 	}
 	_emojiStatus->emoji->paint(p, {

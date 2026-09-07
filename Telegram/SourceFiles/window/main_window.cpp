@@ -571,7 +571,6 @@ void MainWindow::init() {
 		}, lifetime());
 	}
 	refreshTitleWidget();
-
 	updateTitle();
 	updateWindowIcon();
 }
@@ -906,13 +905,14 @@ QRect MainWindow::computeDesktopRect() const {
 }
 
 void MainWindow::savePosition(Qt::WindowState state) {
+	if (!isVisible() || !positionInited()) {
+		return;
+	}
+
 	if (state == Qt::WindowActive) {
 		state = windowHandle()->windowState();
 	}
-
-	if (state == Qt::WindowMinimized
-		|| !isVisible()
-		|| !positionInited()) {
+	if (state == Qt::WindowMinimized) {
 		return;
 	}
 	if (const auto saved = Core::App().savedWindows()) {

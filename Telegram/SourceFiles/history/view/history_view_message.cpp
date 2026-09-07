@@ -3396,7 +3396,9 @@ PointState Message::pointState(QPoint point) const {
 }
 
 bool Message::displayFromPhoto() const {
-	return hasFromPhoto() && !isAttachedToNext();
+	return hasFromPhoto()
+		&& !isAttachedToNext()
+		&& !data()->isSponsored();
 }
 
 void Message::clickHandlerPressedChanged(
@@ -3937,9 +3939,7 @@ bool Message::hasFromPhoto() const {
 	case Context::SavedSublist:
 	case Context::ScheduledTopic: {
 		const auto item = data();
-		if (item->isSponsored()) {
-			return false;
-		} else if (item->isPostHidingAuthor()) {
+		if (item->isPostHidingAuthor()) {
 			return false;
 		} else if (item->isPost()) {
 			return true;
@@ -5639,11 +5639,13 @@ void Message::refreshDataIdHook() {
 
 int Message::monospaceMaxWidth() const {
 	const auto fromText = hasRichPage()
-		? std::max(
+		? std::max({
 			textualMaxWidth()
 				- st::msgPadding.left()
 				- st::msgPadding.right(),
-			richpage()->article.lastLayoutWidth())
+			richpage()->article.lastLayoutWidth(),
+			richPageDemandedTextWidth(),
+		})
 		: hasVisibleText()
 		? text().countMaxMonospaceWidth()
 		: 0;
@@ -5669,11 +5671,26 @@ int Message::bubbleTextWidth(int bubbleWidth) const {
 		- st::msgPadding.right();
 }
 
+int Message::richPageDemandedTextWidth() const {
+	const auto rich = richpage();
+	return rich
+		? std::min(
+			rich->article.contentDemandedWidth(),
+			kMaxWidth - st::msgPadding.left() - st::msgPadding.right())
+		: 0;
+}
+
 int Message::bubbleTextualWidth() const {
 	const auto full = textualMaxWidth();
 	if (hasRichPage()) {
-		const auto innerWidth = bubbleTextWidth(full);
-		[[maybe_unused]] const auto laidOutHeight = textHeightFor(innerWidth);
+		auto innerWidth = bubbleTextWidth(full);
+		[[maybe_unused]] auto laidOutHeight = textHeightFor(innerWidth);
+		// Horizontally scrolled blocks never fit at readable width.
+		const auto demanded = richPageDemandedTextWidth();
+		if (demanded > innerWidth) {
+			innerWidth = demanded;
+			laidOutHeight = textHeightFor(innerWidth);
+		}
 		const auto laidOutWidth = richpage()->article.lastLayoutWidth();
 		return st::msgPadding.left()
 			+ std::max(laidOutWidth, 1)

@@ -318,6 +318,12 @@ int Launcher::exec() {
 		return psCleanup();
 	}
 
+	// Before Logs::start(), which is where the working directory gets
+	// chosen: a translocated bundle never sees its TelegramForcePortable.
+	if (!Platform::CheckAppTranslocation()) {
+		return 0;
+	}
+
 	// Must be started before Platform is started.
 	Logs::start();
 	base::options::init(cWorkingDir() + "tdata/experimental_options.json");
@@ -479,6 +485,7 @@ void Launcher::processArguments() {
 	auto parseMap = std::map<QByteArray, KeyFormat> {
 		{ "-debug"          , KeyFormat::NoValues },
 		{ "-testagent"      , KeyFormat::NoValues },
+		{ Platform::kUntranslocatedArgument, KeyFormat::NoValues },
 		{ "-key"            , KeyFormat::OneValue },
 		{ "-autostart"      , KeyFormat::NoValues },
 		{ "-fixprevious"    , KeyFormat::NoValues },

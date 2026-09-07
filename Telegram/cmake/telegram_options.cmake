@@ -56,3 +56,4 @@ option(DESKTOP_APP_DISABLE_SWIFT6 "Disable local on-device translation (build wi
 if (DESKTOP_APP_DISABLE_SWIFT6)
     target_compile_definitions(Telegram PRIVATE TDESKTOP_DISABLE_SWIFT6)
 endif()
+
