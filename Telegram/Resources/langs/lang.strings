@@ -8909,8 +8909,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_ChannelBottomButtonDiscuss" = "Discuss";
 "ayu_SettingsShowID" = "Show Peer ID";
 "ayu_SettingsShowID_Hide" = "Hide";
-"ayu_SettingsShowMessageShot" = "Show Message Shot";
-"ayu_SettingsShowMessageShotDescription" = "Allows taking a screenshot of the selected messages.";
+"ayu_SettingsShowMessageShot" = "Show Message Screenshot";
+"ayu_SettingsShowMessageShotDescription" = "Allows you to capture selected messages as an image.";
 "ayu_SettingsRecentStickersCount" = "Recent Stickers Count";
 "ayu_SettingsCustomizationHint" = "You must restart the application after making changes in the \"Customization\" section.";
 "ayu_MaterialSwitches" = "MD3 Switch Style";
@@ -8958,15 +8958,15 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_SettingsIncreaseWebviewWidth" = "Increase Content Width";
 "ayu_ExportDataTitle" = "Export AywGram Database?";
 "ayu_ExportDataDescription" = "It will be exported to the public folder under Saved Attachments.";
-"ayu_ExportDataConfirm" = "Yes, export";
-"ayu_ExportDataCancel" = "No, close window";
+"ayu_ExportDataConfirm" = "Export";
+"ayu_ExportDataCancel" = "Cancel";
 "ayu_ExportDataSuccess" = "Database exported successfully.";
 "ayu_ExportDataFailure" = "Failed to export database.";
 "ayu_ImportDataNotFound" = "No database to import.";
 "ayu_ImportDataTitle" = "Import AywGram Database?";
 "ayu_ImportDataDescription" = "It will replace the current database.";
-"ayu_ImportDataConfirm" = "Yes, replace existing";
-"ayu_ImportDataCancel" = "No, close window";
+"ayu_ImportDataConfirm" = "Replace";
+"ayu_ImportDataCancel" = "Cancel";
 "ayu_ImportDataSuccess" = "Database imported successfully.";
 "ayu_ImportDataFailure" = "Failed to import database.";
 "ayu_RegexFilters" = "Message Filters";
@@ -9027,7 +9027,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_FiltersClearPopupTitle" = "Clear filters";
 "ayu_FiltersClearPopupText" = "Are you sure you want to clear all filters?";
 "ayu_FiltersClearPopupActionText" = "Clear";
-"ayu_FiltersClearPopupAltActionText" = "Clear unknown";
+"ayu_FiltersClearPopupAltActionText" = "Clear Unknown Items";
 "ayu_AppIconHeader" = "App Icon";
 "ayu_IconDefault" = "Default";
 "ayu_IconAlternative" = "AywGram Alt";
@@ -9101,7 +9101,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_PeekOnlineFailed" = "Couldn't peek online";
 "ayu_OneViewTTL" = "one view";
 "ayu_OnePlayTTL" = "one play";
-"ayu_UserMessagesMenuText" = "User Messages";
+"ayu_UserMessagesMenuText" = "Messages from This User";
 "ayu_ReadUntilMenuText" = "Read Message";
 "ayu_DeleteKeepLocally" = "Keep locally";
 "ayu_BoxActionReset" = "Reset";
@@ -9130,7 +9130,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_MonospaceFont" = "Monospace Font";
 "ayu_FontDefault" = "Default";
 "ayu_CustomizeFontTitle" = "Customize Font";
-"ayu_MessageShotTopBarText" = "Shot";
+"ayu_MessageShotTopBarText" = "Message Screenshot";
 "ayu_MessageShotPreview" = "Preview";
 "ayu_MessageShotPreferences" = "Preferences";
 "ayu_MessageShotCopy" = "Copy";
