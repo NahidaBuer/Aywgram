@@ -8865,10 +8865,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_SendForwardFirst" = "Send comment after forwarding";
 "ayu_TranslationProvider" = "Translation Provider";
 "ayu_LinksHeader" = "Links";
-"ayu_LinksChannel" = "Repository";
-"ayu_LinksChats" = "Issues";
-"ayu_LinksTranslate" = "Translate";
-"ayu_LinksDocumentation" = "Documentation";
+"ayu_LinksChannel" = "Channel";
+"ayu_LinksGroup" = "Group Chat";
+"ayu_LinksRepository" = "Repository";
+"ayu_LinksIssues" = "Issue Tracker";
 "ayu_CategoriesHeader" = "Categories";
 "ayu_SupportHeader" = "Support";
 "ayu_SupportDescription1" = "Support Development";
