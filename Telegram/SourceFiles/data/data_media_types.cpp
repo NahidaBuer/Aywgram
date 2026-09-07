@@ -778,6 +778,10 @@ bool Media::hasSpoiler() const {
 	return false;
 }
 
+bool Media::hasSpoilerForPreview() const {
+	return hasSpoiler() || ttlSeconds();
+}
+
 crl::time Media::ttlSeconds() const {
 	return 0;
 }
@@ -978,7 +982,7 @@ Image *MediaPhoto::replyPreview() const {
 }
 
 bool MediaPhoto::replyPreviewLoaded() const {
-	return _photo->replyPreviewLoaded(_spoiler);
+	return _photo->replyPreviewLoaded(hasSpoilerForPreview());
 }
 
 TextWithEntities MediaPhoto::notificationText() const {
@@ -1003,11 +1007,12 @@ ItemPreview MediaPhoto::toPreview(ToPreviewOptions options) const {
 	const auto radius = _chat
 		? ImageRoundRadius::Ellipse
 		: ImageRoundRadius::Small;
+	const auto spoilered = hasSpoilerForPreview();
 	if (auto found = FindCachedPreview(
 			options.existing,
 			_photo,
 			radius,
-			_spoiler)) {
+			spoilered)) {
 		images.push_back(std::move(found));
 	} else {
 		const auto media = _photo->createMediaView();
@@ -1015,7 +1020,7 @@ ItemPreview MediaPhoto::toPreview(ToPreviewOptions options) const {
 				parent(),
 				media,
 				radius,
-				_spoiler)
+				spoilered)
 			; prepared || !prepared.cacheKey) {
 			images.push_back(std::move(prepared));
 			if (!prepared.cacheKey) {
@@ -1152,6 +1157,10 @@ MediaFile::MediaFile(
 , _spoiler(args.spoiler) {
 	parent->history()->owner().registerDocumentItem(_document, parent);
 
+	if (_ttlSeconds) {
+		_document->setForbidsFileSave();
+	}
+
 	if (!_emoji.isEmpty()) {
 		if (const auto emoji = Ui::Emoji::Find(_emoji)) {
 			_emoji = emoji->text();
@@ -1247,7 +1256,7 @@ Image *MediaFile::replyPreview() const {
 }
 
 bool MediaFile::replyPreviewLoaded() const {
-	return _document->replyPreviewLoaded(_spoiler);
+	return _document->replyPreviewLoaded(hasSpoilerForPreview());
 }
 
 ItemPreview MediaFile::toPreview(ToPreviewOptions options) const {
@@ -1264,8 +1273,7 @@ ItemPreview MediaFile::toPreview(ToPreviewOptions options) const {
 	auto images = std::vector<ItemPreviewImage>();
 	auto context = std::any();
 	const auto existing = options.existing;
-	const auto spoilered = _spoiler
-		|| (_document->isVideoMessage() && ttlSeconds());
+	const auto spoilered = hasSpoilerForPreview();
 	const auto radius = _document->isVideoMessage()
 		? ImageRoundRadius::Ellipse
 		: ImageRoundRadius::Small;

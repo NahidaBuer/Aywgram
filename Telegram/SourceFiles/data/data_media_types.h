@@ -271,6 +271,7 @@ public:
 	virtual bool dropForwardedInfo() const;
 	virtual bool forceForwardedInfo() const;
 	[[nodiscard]] virtual bool hasSpoiler() const;
+	[[nodiscard]] bool hasSpoilerForPreview() const;
 	[[nodiscard]] virtual crl::time ttlSeconds() const;
 	[[nodiscard]] bool ttlSecondsSingleView() const;
 

@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "test/test_capture.h"
 
 #include "test/test_log.h"
+#include "ui/layers/box_layer_widget.h"
 #include "ui/ui_utility.h"
 
 #include "styles/palette.h"
@@ -24,6 +25,7 @@ constexpr auto kContactSheetGap = 8;
 constexpr auto kCoverageSamples = 32;
 constexpr auto kUnpaintedMinPermille = 100;
 constexpr auto kBackgroundOwnerHops = 6;
+constexpr auto kWalkedChainHead = 3;
 
 [[nodiscard]] QString WithPngExtension(const QString &name) {
 	return name.endsWith(u".png"_q, Qt::CaseInsensitive)
@@ -126,13 +128,6 @@ constexpr auto kBackgroundOwnerHops = 6;
 	return (1000 * unpainted) / int(points.size());
 }
 
-[[nodiscard]] QString WidgetDescription(not_null<QWidget*> widget) {
-	const auto &instance = *widget;
-	return u"%1 %2"_q.arg(
-		QString::fromUtf8(typeid(instance).name()),
-		RectText(widget->geometry()));
-}
-
 [[nodiscard]] QString BackgroundOwnerDetails(
 		not_null<QWidget*> widget,
 		const QRect &logicalRect) {
@@ -145,9 +140,12 @@ constexpr auto kBackgroundOwnerHops = 6;
 		if (!mapped.isEmpty()) {
 			const auto unpainted = UnpaintedPermille(ancestor, mapped);
 			if (unpainted < kUnpaintedMinPermille) {
-				return u"grab %1 instead (unpainted %2/1000)"_q
+				return u"grab %1 instead (unpainted %2/1000)%3"_q
 					.arg(WidgetDescription(ancestor))
-					.arg(unpainted);
+					.arg(unpainted)
+					.arg(dynamic_cast<Ui::BoxLayerWidget*>(ancestor)
+						? u" - Test::PaintingLayerRoot() resolves it"_q
+						: QString());
 			}
 		}
 		ancestor = (ancestor == top) ? nullptr : ancestor->parentWidget();
@@ -195,7 +193,45 @@ constexpr auto kBackgroundOwnerHops = 6;
 		.arg(BackgroundOwnerDetails(widget, logicalRect));
 }
 
+// The walk a refusal prints always names the window it stopped at, and never
+// more than kWalkedChainHead entries before it, so a target buried deep in a
+// widget tree cannot turn one refusal into a multi-kilobyte log line.
+[[nodiscard]] QString ElidedChain(const QStringList &walked) {
+	if (walked.size() <= kWalkedChainHead + 1) {
+		return walked.join(u" < "_q);
+	}
+	auto shown = QStringList();
+	for (auto i = 0; i != kWalkedChainHead; ++i) {
+		shown.push_back(walked[i]);
+	}
+	shown.push_back(u"\u2026"_q);
+	shown.push_back(walked.back());
+	return shown.join(u" < "_q);
+}
+
+[[nodiscard]] QString ViaWindowText(const WindowMappedCapture &reading) {
+	return u"window-mapped capture: target=%1 window=%2 mapped=%3 - a blank "
+		u"frame is a Note and never a FAIL, because the decisive oracle for a "
+		u"widget that paints no opaque background of its own is textual and "
+		u"this capture only corroborates it%4"_q
+		.arg(reading.identity.isEmpty() ? u"<none>"_q : reading.identity)
+		.arg(reading.window
+			? WidgetDescription(reading.window.data())
+			: u"<none>"_q)
+		.arg(RectText(reading.mapped))
+		.arg(reading.refusal.isEmpty()
+			? QString()
+			: u" - %1"_q.arg(reading.refusal));
+}
+
 } // namespace
+
+QString WidgetDescription(not_null<QWidget*> widget) {
+	const auto &instance = *widget;
+	return u"%1 %2"_q.arg(
+		QString::fromUtf8(typeid(instance).name()),
+		RectText(widget->geometry()));
+}
 
 QImage GrabWidget(not_null<QWidget*> widget) {
 	return Ui::GrabWidgetToImage(widget, QRect(), st::windowBg->c);
@@ -369,6 +405,105 @@ bool CaptureMappedRect(
 		widget,
 		Ui::MapFrom(widget, rectOrigin, logicalRect),
 		name);
+}
+
+PaintingLayerRootResult PaintingLayerRoot(QWidget *box) {
+	if (!box) {
+		return {
+			.refusal = u"no widget was handed to the painting layer root "
+				u"resolver"_q,
+		};
+	}
+	auto walked = QStringList();
+	for (auto widget = box; widget; widget = widget->parentWidget()) {
+		if (const auto layer = dynamic_cast<Ui::BoxLayerWidget*>(widget)) {
+			return { .widget = layer };
+		}
+		walked.push_back(WidgetDescription(widget));
+		if (widget == widget->window()) {
+			break;
+		}
+	}
+	return {
+		.refusal = u"no Ui::BoxLayerWidget between the target and its own "
+			u"window, so it is not a box inside a layer and has no painting "
+			u"layer root; walked %1 widget(s) and stopped at the window: "
+			u"[%2]"_q.arg(walked.size()).arg(ElidedChain(walked)),
+	};
+}
+
+bool CaptureInLayerRoot(not_null<QWidget*> box, const QString &name) {
+	const auto root = PaintingLayerRoot(box);
+	if (!root.resolved()) {
+		Fail(u"capture %1"_q.arg(name), root.refusal);
+		return false;
+	}
+	return CaptureMappedRect(root.widget.data(), box, box->rect(), name);
+}
+
+WindowMappedCapture ReadViaWindow(QWidget *widget) {
+	if (!widget) {
+		return {
+			.refusal = u"no widget was handed to the window-mapped "
+				u"capture"_q,
+		};
+	}
+	auto result = WindowMappedCapture{
+		.identity = WidgetDescription(widget),
+	};
+	if (!widget->isVisible()) {
+		result.refusal = u"target is not visible: %1"_q.arg(result.identity);
+		return result;
+	} else if (widget->size().isEmpty()) {
+		result.refusal = u"target has empty geometry: %1"_q.arg(
+			result.identity);
+		return result;
+	}
+	const auto window = widget->window();
+	if (window == widget) {
+		result.refusal = u"target is its own window, so there is no opaque "
+			u"window behind it to grab: %1"_q.arg(result.identity);
+		return result;
+	}
+	result.mapped = Ui::MapFrom(window, widget, widget->rect());
+	const auto misframed = MisframedDetails(window, result.mapped);
+	if (!misframed.isEmpty()) {
+		result.refusal = misframed;
+		return result;
+	}
+	result.window = window;
+	return result;
+}
+
+QImage GrabViaWindow(QWidget *widget) {
+	const auto reading = ReadViaWindow(widget);
+	return reading.resolved()
+		? GrabRect(reading.window.data(), reading.mapped)
+		: QImage();
+}
+
+bool ViaWindowReady(QWidget *widget) {
+	return !LooksBlank(GrabViaWindow(widget));
+}
+
+QString ViaWindowDetails(QWidget *widget) {
+	return ViaWindowText(ReadViaWindow(widget));
+}
+
+bool CaptureViaWindow(not_null<QWidget*> widget, const QString &name) {
+	const auto reading = ReadViaWindow(widget);
+	if (!reading.resolved()) {
+		Fail(u"capture %1"_q.arg(name), reading.refusal);
+		return false;
+	}
+	LogGeometry(name, QRect(widget->mapToGlobal(QPoint()), widget->size()));
+	const auto image = GrabRect(reading.window.data(), reading.mapped);
+	if (LooksBlank(image)) {
+		Note(u"capture %1 declined a blank frame: %2"_q
+			.arg(name, ViaWindowText(reading)));
+		return false;
+	}
+	return !SaveImage(image, name).isEmpty();
 }
 
 QImage Crop(const QImage &image, const QRect &pixelRect) {

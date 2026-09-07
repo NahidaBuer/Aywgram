@@ -1762,8 +1762,9 @@ void Message::draw(Painter &p, const PaintContext &context) const {
 
 	const auto hasGesture = context.gestureHorizontal.translation
 		&& (context.gestureHorizontal.msgBareId == item->fullId().msg.bare);
+	const auto gestureShift = context.gestureHorizontal.visualTranslation();
 	if (hasGesture) {
-		p.translate(context.gestureHorizontal.translation, 0);
+		p.translate(gestureShift, 0);
 	}
 	const auto selectionModeResult = delegate()->elementInSelectionMode(this);
 	const auto selectionTranslation = (selectionModeResult.progress > 0)
@@ -2277,10 +2278,9 @@ void Message::draw(Painter &p, const PaintContext &context) const {
 		}
 	}
 	if (hasGesture) {
-		p.translate(-context.gestureHorizontal.translation, 0);
+		p.translate(-gestureShift, 0);
 		if (context.reactionInfo && context.reactionInfo->effectPaint) {
-			const auto shift = context.gestureHorizontal.translation;
-			context.reactionInfo->effectOffset += QPoint(shift, 0);
+			context.reactionInfo->effectOffset += QPoint(gestureShift, 0);
 		}
 
 		constexpr auto kShiftRatio = 1.5;
@@ -2288,13 +2288,17 @@ void Message::draw(Painter &p, const PaintContext &context) const {
 		constexpr auto kMaxHeightRatio = 3.5;
 		constexpr auto kStrokeWidth = 2.;
 		constexpr auto kWaveWidth = 10.;
+		const auto mirrored = !context.gestureHorizontal.inverted;
 		const auto isLeftSize = !context.outbg
 			|| (delegate()->elementChatMode() == ElementChatMode::Wide);
 		const auto ratio = std::min(context.gestureHorizontal.ratio, 1.);
 		const auto reachRatio = context.gestureHorizontal.reachRatio;
 		const auto size = st::historyFastShareSize;
+		const auto bubbleRight = mirrored
+			? (width() - g.x())
+			: rect::right(g);
 		const auto outerWidth = st::historySwipeIconSkip
-			+ (isLeftSize ? rect::right(g) : width())
+			+ (isLeftSize ? bubbleRight : width())
 			+ ((g.height() < size * kMaxHeightRatio)
 				? rightActionSize().value_or(QSize()).width()
 				: 0);
@@ -2323,6 +2327,10 @@ void Message::draw(Painter &p, const PaintContext &context) const {
 		pen.setWidthF(strokeWidth - (1. * (reachScale / kBouncePart)));
 		const auto arcRect = rect - Margins(strokeWidth);
 		p.save();
+		if (mirrored) {
+			p.translate(width(), 0);
+			p.scale(-1., 1.);
+		}
 		{
 			auto hq = PainterHighQualityEnabler(p);
 			p.setPen(Qt::NoPen);
@@ -2601,9 +2609,16 @@ void Message::paintFromName(
 	const auto statusWidth = _fromNameStatus && !hidePremiumStatuses
 		? st::dialogsPremiumIcon.icon.width()
 		: 0;
-	const auto nameAvailableWidth = (statusWidth && availableWidth > statusWidth)
-		? (availableWidth - statusWidth)
-		: availableWidth;
+	const auto via = item->Get<HistoryMessageVia>();
+	const auto viaShown = via && !displayForwardedFrom() && via->width;
+	const auto viaSkipWidth = viaShown
+		? (via->width + st::msgServiceFont->spacew)
+		: 0;
+	const auto nameAvailableWidth = std::max(
+		((statusWidth && availableWidth > statusWidth)
+			? (availableWidth - statusWidth)
+			: availableWidth) - viaSkipWidth,
+		0);
 	if (statusWidth && availableWidth > statusWidth) {
 		const auto x = availableLeft
 			+ std::min(nameAvailableWidth, nameText->maxWidth());
@@ -2666,7 +2681,7 @@ void Message::paintFromName(
 		.availableWidth = nameAvailableWidth,
 		.elisionLines = 1,
 	});
-	const auto skipWidth = nameText->maxWidth()
+	const auto skipWidth = nameWidth
 		+ (_fromNameStatus && !hidePremiumStatuses
 			? (st::dialogsPremiumIcon.icon.width()
 				+ st::msgServiceFont->spacew)
@@ -2675,7 +2690,6 @@ void Message::paintFromName(
 	availableLeft += skipWidth;
 	availableWidth -= skipWidth;
 
-	auto via = item->Get<HistoryMessageVia>();
 	if (via && !displayForwardedFrom() && availableWidth > 0) {
 		p.setPen(stm->msgServiceFg);
 		paintLinkRipple(
@@ -3396,7 +3410,9 @@ PointState Message::pointState(QPoint point) const {
 }
 
 bool Message::displayFromPhoto() const {
-	return hasFromPhoto() && !isAttachedToNext();
+	return hasFromPhoto()
+		&& !isAttachedToNext()
+		&& !data()->isSponsored();
 }
 
 void Message::clickHandlerPressedChanged(
@@ -3937,9 +3953,7 @@ bool Message::hasFromPhoto() const {
 	case Context::SavedSublist:
 	case Context::ScheduledTopic: {
 		const auto item = data();
-		if (item->isSponsored()) {
-			return false;
-		} else if (item->isPostHidingAuthor()) {
+		if (item->isPostHidingAuthor()) {
 			return false;
 		} else if (item->isPost()) {
 			return true;
@@ -4325,11 +4339,23 @@ bool Message::getStateFromName(
 		const auto statusWidth = (from && _fromNameStatus)
 			? st::dialogsPremiumIcon.icon.width()
 			: 0;
+		const auto via = item->Get<HistoryMessageVia>();
+		const auto viaShown = via && !displayForwardedFrom() && via->width;
+		const auto viaSkipWidth = viaShown
+			? (via->width + st::msgServiceFont->spacew)
+			: 0;
+		const auto nameAvailableWidth = std::max(
+			((statusWidth && availableWidth > statusWidth)
+				? (availableWidth - statusWidth)
+				: availableWidth) - viaSkipWidth,
+			0);
+		const auto nameWidth = std::min(
+			nameText->maxWidth(),
+			nameAvailableWidth);
 		if (statusWidth && availableWidth > statusWidth) {
-			const auto x = availableLeft + std::min(
-				availableWidth - statusWidth,
-				nameText->maxWidth()
-			) - (_fromNameStatus->custom ? (2 * _fromNameStatus->skip) : 0);
+			const auto x = availableLeft
+				+ nameWidth
+				- (_fromNameStatus->custom ? (2 * _fromNameStatus->skip) : 0);
 			const auto checkWidth = _fromNameStatus->custom
 				? (st::emojiSize - 2 * _fromNameStatus->skip)
 				: statusWidth;
@@ -4341,14 +4367,14 @@ bool Message::getStateFromName(
 		}
 		if (point.x() >= availableLeft
 			&& point.x() < availableLeft + availableWidth
-			&& point.x() < availableLeft + nameText->maxWidth()) {
+			&& point.x() < availableLeft + nameWidth) {
 			outResult->link = fromLink();
 			recordLinkRipplePoint(point, trect.topLeft());
 			_fromLinkRipplePointSet = 1;
 			return true;
 		}
 
-		const auto skipWidth = nameText->maxWidth()
+		const auto skipWidth = nameWidth
 			+ (_fromNameStatus
 				? (st::dialogsPremiumIcon.icon.width()
 					+ st::msgServiceFont->spacew)
@@ -4357,7 +4383,6 @@ bool Message::getStateFromName(
 		availableLeft += skipWidth;
 		availableWidth -= skipWidth;
 
-		auto via = item->Get<HistoryMessageVia>();
 		if (via
 			&& !displayForwardedFrom()
 			&& point.x() >= availableLeft
@@ -5639,11 +5664,13 @@ void Message::refreshDataIdHook() {
 
 int Message::monospaceMaxWidth() const {
 	const auto fromText = hasRichPage()
-		? std::max(
+		? std::max({
 			textualMaxWidth()
 				- st::msgPadding.left()
 				- st::msgPadding.right(),
-			richpage()->article.lastLayoutWidth())
+			richpage()->article.lastLayoutWidth(),
+			richPageDemandedTextWidth(),
+		})
 		: hasVisibleText()
 		? text().countMaxMonospaceWidth()
 		: 0;
@@ -5669,11 +5696,26 @@ int Message::bubbleTextWidth(int bubbleWidth) const {
 		- st::msgPadding.right();
 }
 
+int Message::richPageDemandedTextWidth() const {
+	const auto rich = richpage();
+	return rich
+		? std::min(
+			rich->article.contentDemandedWidth(),
+			kMaxWidth - st::msgPadding.left() - st::msgPadding.right())
+		: 0;
+}
+
 int Message::bubbleTextualWidth() const {
 	const auto full = textualMaxWidth();
 	if (hasRichPage()) {
-		const auto innerWidth = bubbleTextWidth(full);
-		[[maybe_unused]] const auto laidOutHeight = textHeightFor(innerWidth);
+		auto innerWidth = bubbleTextWidth(full);
+		[[maybe_unused]] auto laidOutHeight = textHeightFor(innerWidth);
+		// Horizontally scrolled blocks never fit at readable width.
+		const auto demanded = richPageDemandedTextWidth();
+		if (demanded > innerWidth) {
+			innerWidth = demanded;
+			laidOutHeight = textHeightFor(innerWidth);
+		}
 		const auto laidOutWidth = richpage()->article.lastLayoutWidth();
 		return st::msgPadding.left()
 			+ std::max(laidOutWidth, 1)
@@ -6425,29 +6467,24 @@ void Message::fromNameUpdated(int width) const {
 	}
 	const auto from = displayFrom();
 	validateFromNameText(from);
-	if (const auto via = item->Get<HistoryMessageVia>()) {
-		if (!displayForwardedFrom()) {
-			const auto nameText = [&]() -> const Ui::Text::String * {
-				if (from) {
-					return &_fromName;
-				} else if (const auto info = item->originalHiddenSenderInfo()) {
-					return &info->nameText();
-				} else {
-					Unexpected("Corrupted forwarded information in message.");
-				}
-			}();
-			via->resize(width
-				- st::msgPadding.left()
-				- st::msgPadding.right()
-				- nameText->maxWidth()
-				- (_fromNameStatus
-					? (st::dialogsPremiumIcon.icon.width()
-						+ st::msgServiceFont->spacew)
-					: 0)
-				- st::msgServiceFont->spacew);
-		}
+	const auto via = item->Get<HistoryMessageVia>();
+	const auto guestChat = item->Get<HistoryMessageGuestChat>();
+	if (!via && !guestChat) {
+		return;
 	}
-	if (const auto guestChat = item->Get<HistoryMessageGuestChat>()) {
+	const auto available = width
+		- st::msgPadding.left()
+		- st::msgPadding.right()
+		- (_fromNameStatus
+			? (st::dialogsPremiumIcon.icon.width()
+				+ st::msgServiceFont->spacew)
+			: 0);
+	auto viaWidth = 0;
+	if (via && !displayForwardedFrom()) {
+		via->resize(available - st::msgServiceFont->spacew);
+		viaWidth = st::msgServiceFont->spacew + via->width;
+	}
+	if (guestChat) {
 		const auto nameText = [&]() -> const Ui::Text::String * {
 			if (from) {
 				return &_fromName;
@@ -6457,22 +6494,13 @@ void Message::fromNameUpdated(int width) const {
 				Unexpected("Corrupted forwarded information in message.");
 			}
 		}();
-		auto viaWidth = 0;
-		if (const auto via = item->Get<HistoryMessageVia>()) {
-			if (!displayForwardedFrom()) {
-				viaWidth = st::msgServiceFont->spacew + via->width;
-			}
-		}
-		guestChat->resize(width
-			- st::msgPadding.left()
-			- st::msgPadding.right()
-			- nameText->maxWidth()
-			- (_fromNameStatus
-				? (st::dialogsPremiumIcon.icon.width()
-					+ st::msgServiceFont->spacew)
-				: 0)
-			- st::msgServiceFont->spacew
-			- viaWidth);
+		const auto nameWidth = std::min(
+			nameText->maxWidth(),
+			std::max(available - viaWidth, 0));
+		guestChat->resize(available
+			- viaWidth
+			- nameWidth
+			- st::msgServiceFont->spacew);
 	}
 }
 

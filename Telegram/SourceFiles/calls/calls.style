@@ -83,6 +83,7 @@ callMutedPeerIcon: icon {{ "calls/calls_mute_userpic", callIconFg }};
 callOutgoingPreviewMin: size(360px, 120px);
 callOutgoingPreview: size(540px, 180px); // default, for height == callHeight.
 callOutgoingPreviewMax: size(1620px, 540px);
+callOutgoingPreviewSkipMin: 24px;
 callOutgoingDefaultSize: size(160px, 110px);
 
 callInnerPadding: 12px;
@@ -453,6 +454,46 @@ callRatingComment: InputField(defaultInputField) {
 	heightMax: 135px;
 }
 callRatingCommentTop: 8px;
+
+callRateWidth: 300px;
+callRateHeight: 152px;
+callRateRadius: 28px;
+callRateSkip: 16px;
+callRateTitleTop: 24px;
+callRateDescriptionTop: 50px;
+callRateStarsTop: 90px;
+callRateStarsHeight: 100px;
+callRateStarSize: 37px;
+callRateStarSkip: 4px;
+callRateBurstSize: 133px;
+callRateShowShift: 24px;
+callRateStarShowShift: 30px;
+callRateTitle: FlatLabel(defaultFlatLabel) {
+	minWidth: 40px;
+	textFg: callNameFg;
+	align: align(top);
+	style: TextStyle(defaultTextStyle) {
+		font: font(15px semibold);
+	}
+}
+callRateDescription: FlatLabel(callRateTitle) {
+	style: TextStyle(defaultTextStyle) {
+		font: font(15px);
+	}
+}
+callRateStarRipple: RippleAnimation(defaultRippleAnimation) {
+	color: callMuteRipple;
+}
+callRateEndedIcon: icon {{ "calls/call_ended", callNameFg }};
+callRateEndedSkip: 4px;
+callRateCloseWidth: 358px;
+callRateCloseHeight: 52px;
+callRateCloseRadius: 8px;
+callRateCloseSkip: 24px;
+callRateCloseFont: font(18px semibold);
+callRateCloseRipple: RippleAnimation(defaultRippleAnimation) {
+	color: callIconActiveRipple;
+}
 
 callDebugPadding: margins(24px, 0px, 24px, 0px);
 callDebugLabel: FlatLabel(defaultFlatLabel) {

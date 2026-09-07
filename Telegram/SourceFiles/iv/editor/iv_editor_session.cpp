@@ -4340,6 +4340,17 @@ void ArticleSession::applyInitialPaste() {
 	if (!data || !_editor) {
 		return;
 	}
+	const auto notifyApplied = [this] {
+		if (auto applied = base::take(
+				_composeOptions.initialPasteApplied)) {
+			applied();
+		}
+	};
+	if (const auto structured = ClipboardDataFromMimeData(data.get())) {
+		_editor->pasteStructuredClipboardData(*structured);
+		notifyApplied();
+		return;
+	}
 	const auto limits = _state->limits();
 	const auto used = CountRichPageBlocks(_state->richPage());
 	auto imported = BlocksFromMimeData(_session, data.get(), limits, used);
@@ -4348,10 +4359,15 @@ void ArticleSession::applyInitialPaste() {
 	}
 	if (imported && !imported->blocks.empty()) {
 		_editor->insertPreparedBlocks(std::move(imported->blocks));
-		if (auto applied = base::take(
-				_composeOptions.initialPasteApplied)) {
-			applied();
-		}
+		notifyApplied();
+		return;
+	} else if (!data->hasText()) {
+		return;
+	}
+	auto plain = SplitTextIntoRichPage(TextWithEntities{ data->text() });
+	if (!plain.blocks.empty()) {
+		_editor->insertPreparedBlocks(std::move(plain.blocks));
+		notifyApplied();
 	}
 }
 
