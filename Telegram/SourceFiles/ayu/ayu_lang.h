@@ -7,7 +7,7 @@
 #pragma once
 
 #include <QtNetwork/QNetworkReply>
-#include <QtXml/QDomDocument>
+#include <QJsonDocument>
 
 class AyuLanguage : public QObject
 {
@@ -20,24 +20,44 @@ public:
 	static AyuLanguage *instance;
 
 	void fetchLanguage(const QString &id, const QString &baseId);
-	void applyLanguageJson(QJsonDocument doc);
+	[[nodiscard]] bool applyLanguagePack(
+		const QJsonDocument &doc,
+		const QString &expectedLocale);
 
 public Q_SLOTS:
 	void fetchFinished();
-	void fetchError(QNetworkReply::NetworkError e);
 
 private:
+	enum class RequestKind {
+		None,
+		Manifest,
+		LanguagePack,
+	};
+
 	AyuLanguage();
 	~AyuLanguage() override = default;
 
 	void loadCachedLanguage();
-	[[nodiscard]] bool loadBundledLanguage();
+	void loadBundledLanguage();
+	[[nodiscard]] bool applyBundledZhHans();
+	[[nodiscard]] bool applyLegacyLanguageJson(const QJsonDocument &doc);
+	void requestManifest();
+	void requestLanguagePack(
+		const QString &locale,
+		const QString &path,
+		const QByteArray &sha256,
+		qint64 size);
 	void saveCachedLanguage(const QByteArray &json, const QString &langId);
 	[[nodiscard]] QString getCacheDir() const;
 	[[nodiscard]] QString getCachePath(const QString &langId) const;
+	[[nodiscard]] QString normalizedLocale(const QString &id) const;
 
 	QNetworkAccessManager networkManager;
-	QNetworkReply *_chkReply = nullptr;
-	bool needFallback = false;
+	QNetworkReply *_reply = nullptr;
+	RequestKind _requestKind = RequestKind::None;
 	QString _currentLangId;
+	QString _baseLangId;
+	QByteArray _expectedHash;
+	qint64 _expectedSize = 0;
+
 };
