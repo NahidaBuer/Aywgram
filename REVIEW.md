@@ -2,6 +2,55 @@
 
 This file contains style and formatting rules that the review subagent must check and fix. These are mechanical issues that should always be caught during code review.
 
+## Comments
+
+This is important! Do not write single-line comments that describe what the next line does - they are bloat. Comments are allowed ONLY to describe complex algorithms in detail, when the explanation requires at least 4-5 lines. Self-documenting code with clear variable and function names is preferred.
+
+```cpp
+// BAD - don't do this:
+// Get the user's name
+auto name = user->name();
+// Check if premium
+if (user->isPremium()) {
+
+// GOOD - no comments needed, code is self-explanatory:
+auto name = user->name();
+if (user->isPremium()) {
+
+// ACCEPTABLE - complex algorithm explanation (4+ lines):
+// The algorithm works by first collecting all visible messages
+// in the viewport, then calculating their intersection with
+// the clip rectangle. Messages are grouped by date headers,
+// and we need to account for sticky headers that may overlap
+// with the first message in each group.
+```
+
+## Use auto for type deduction
+
+Prefer `auto` (or `const auto`, `const auto &`) instead of explicit types:
+
+```cpp
+// Prefer this:
+auto currentTitle = tr::lng_settings_title(tr::now);
+auto nameProducer = GetNameProducer();
+
+// Instead of this:
+QString currentTitle = tr::lng_settings_title(tr::now);
+rpl::producer<QString> nameProducer = GetNameProducer();
+```
+
+## Use _q for QString literals
+
+Prefer the project literal `u"..."_q` instead of the verbose `QStringLiteral("...")` macro when creating `QString` values:
+
+```cpp
+// Prefer this:
+auto text = u"Settings"_q;
+
+// Instead of this:
+auto text = QStringLiteral("Settings");
+```
+
 ## Empty line before closing brace
 
 Always add an empty line before the closing brace of a **class** (which has one or more sections like `public:` / `private:`). Plain **structs** with just data members do NOT get a trailing empty line — they are compact: `struct Foo { data lines; };`.
@@ -524,6 +573,8 @@ auto HistoryView::Controls::SetupCaptionAiButton(
 		SetupCaptionAiButtonArgs &&args)
 -> not_null<HistoryView::Controls::ComposeAiButton*>;
 ```
+
+The trailing return type rule applies to both declarations and definitions.
 
 ## Mind data structure sizes and alignment
 

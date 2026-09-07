@@ -73,6 +73,10 @@ settings.local.json
 .local-tools
 *.override.md
 
+# ignore py/posh cache
+*.pyc
+/Microsoft/
+
 # Generated changelog page (built by CI, deployed to GitHub Pages)
 /docs/changelog/
 

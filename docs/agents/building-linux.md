@@ -1,7 +1,9 @@
 # Agent Build Guide: Linux
 
+Follow [AGENTS.md](../../AGENTS.md#build-and-validation) for build authorization and configuration selection.
+
 Read this file only for native Linux or WSL/Linux builds. Human setup
-instructions are in the [Linux build guide](building-linux.md).
+instructions are in the [Linux build guide](../building-linux.md).
 
 Linux dependencies are normally under `../Libraries`. Set `QT` only when the
 selected environment requires it; prefer the version chosen by the repository
@@ -36,9 +38,6 @@ checkout whose real path is `/home/{user}/Telegram/tdesktop`.
   before treating the repository as broken.
 - Keep the checkout LF-only unless a file already uses another convention. Do
   not let native Windows tools add CRLF or a UTF-8 BOM.
-- When using `task-think` from WSL, keep `.ai/` artifacts and edited project
-  files LF-only. Its Windows normalization phase applies only to native Windows
-  checkouts.
 
 Do not assume WSL has the native build toolchain. Inspect existing `out/`
 artifacts before deciding which platform configured them, and never run native
