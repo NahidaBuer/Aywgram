@@ -14,6 +14,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 namespace Ui {
 struct PreparedFileInformation;
+struct PreparedFileArchive;
 } // namespace Ui
 
 namespace Media::Encode {
@@ -24,6 +25,10 @@ struct VideoSource;
 namespace Main {
 class Session;
 } // namespace Main
+
+namespace Storage {
+struct ArchiveEntries;
+} // namespace Storage
 
 struct FilePrepareResult;
 
@@ -221,6 +226,8 @@ struct FilePrepareResult {
 	std::shared_ptr<Media::Encode::VideoSource> videoSource;
 	crl::time videoCoverOffset = 0;
 	std::shared_ptr<Media::Encode::Job> animationJob;
+	std::shared_ptr<Ui::PreparedFileArchive> archive;
+	std::shared_ptr<Storage::ArchiveEntries> archiveEntries;
 	QString transcodedTempPath;
 
 	std::vector<MTPInputDocument> attachedStickers;
@@ -262,6 +269,7 @@ public:
 		bool forceFile = false;
 		bool sendLargePhotos = false;
 		std::shared_ptr<Media::Encode::Job> animationJob;
+		std::shared_ptr<Ui::PreparedFileArchive> archive;
 		uint64 idOverride = 0;
 		QString displayName;
 	};
@@ -335,6 +343,7 @@ private:
 	bool _forceFile = false;
 	bool _sendLargePhotos = false;
 	std::shared_ptr<Media::Encode::Job> _animationJob;
+	std::shared_ptr<Ui::PreparedFileArchive> _archive;
 
 	std::shared_ptr<FilePrepareResult> _result;
 
