@@ -25,7 +25,7 @@ Defer broad behavior changes, packaging/CI policy, branding replacement, agent w
 - Preserve Ayu JSON/KV preferences. For Telegram `QDataStream` settings, append new fields at the final end and guard reads with `!stream.atEnd()` plus a product default.
 - Keep AywGram/NahidaBuer application identity in `core/version.h`, Windows resources, packaging, updater files, icons, and macOS assets while advancing compatible version numbers.
 - Keep bundled Simplified Chinese initialization and mirror new `ayu_` language keys into `zh-hans.json`.
-- Do not accept upstream `.agents`, `.claude`, GitHub workflow, Snap, or release-policy changes as application-source conflict resolutions.
+- Preserve repository-owned `.agents` workflows. Do not accept other upstream Harness workflows, GitHub workflow, Snap, or release-policy changes as application-source conflict resolutions.
 - Preserve newer compatible submodule descendants when an official tag points backward. Merge diverged histories only inside the submodule.
 
 ## Submodule contract
@@ -42,4 +42,4 @@ Defer broad behavior changes, packaging/CI policy, branding replacement, agent w
 
 Each checkpoint must have no unmerged paths, pass `git diff --check`, contain no conflict markers, preserve the required feature probes, and have coherent version/resource/submodule pointers. Do not squash official version checkpoints together during the maintenance run.
 
-Build only after all integration checkpoints and static checks pass. Build Debug first; build Release only when explicitly requested or when the invoking request names the full Debug-then-Release workflow.
+Build only after all integration checkpoints and static checks pass and the user authorizes it. Follow the root [build policy](../../../../AGENTS.md#build-and-validation): default to Release when no configuration is named; Debug requires an explicit request or approved diagnostic need and is never a prerequisite for Release. Static integration requires no build, existing executable, test account or in-app testing.

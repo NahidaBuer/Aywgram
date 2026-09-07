@@ -40,10 +40,7 @@ void initLang() {
 	const auto id = language.id();
 	const auto baseId = language.baseId();
 	AyuLanguage::init();
-	if (!id.startsWith(u"zh-hans"_q)
-		&& !baseId.startsWith(u"zh-hans"_q)) {
-		AyuLanguage::currentInstance()->fetchLanguage(id, baseId);
-	}
+	AyuLanguage::currentInstance()->fetchLanguage(id, baseId);
 }
 
 void initUiSettings() {

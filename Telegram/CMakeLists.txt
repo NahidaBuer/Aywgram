@@ -2422,6 +2422,7 @@ endif()
 
 nice_target_sources(Telegram ${res_loc}
 PRIVATE
+    ayw_langpacks/dist/ayw_langpacks.qrc
     qrc/ayu/ayu.qrc
 
     qrc/emoji_1.qrc

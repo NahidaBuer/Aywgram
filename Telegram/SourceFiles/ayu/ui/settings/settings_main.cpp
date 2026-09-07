@@ -143,43 +143,43 @@ void BuildLinks(SectionBuilder &builder) {
 	builder.addSubsectionTitle(tr::ayu_LinksHeader());
 
 	builder.addButton({
-		.id = u"ayu/repository"_q,
+		.id = u"ayu/channel"_q,
 		.title = tr::ayu_LinksChannel(),
 		.icon = { &st::menuIconChannel },
-		.label = rpl::single(QString("GitHub")),
+		.label = rpl::single(u"@AywGram"_q),
 		.onClick = [=] {
 			QDesktopServices::openUrl(
-				QString("https://github.com/NahidaBuer/AywGram"));
+				u"https://t.me/AywGram"_q);
+		},
+	});
+	builder.addButton({
+		.id = u"ayu/group"_q,
+		.title = tr::ayu_LinksGroup(),
+		.icon = { &st::menuIconChats },
+		.label = rpl::single(u"@AywGram_Group"_q),
+		.onClick = [=] {
+			QDesktopServices::openUrl(
+				u"https://t.me/AywGram_Group"_q);
+		},
+	});
+	builder.addButton({
+		.id = u"ayu/repository"_q,
+		.title = tr::ayu_LinksRepository(),
+		.icon = { &st::menuIconLink },
+		.label = rpl::single(u"GitHub"_q),
+		.onClick = [=] {
+			QDesktopServices::openUrl(
+				u"https://github.com/NahidaBuer/AywGram"_q);
 		},
 	});
 	builder.addButton({
 		.id = u"ayu/issues"_q,
-		.title = tr::ayu_LinksChats(),
-		.icon = { &st::menuIconChats },
-		.label = rpl::single(QString("GitHub Issues")),
+		.title = tr::ayu_LinksIssues(),
+		.icon = { &st::menuIconReport },
+		.label = rpl::single(u"GitHub Issues"_q),
 		.onClick = [=] {
 			QDesktopServices::openUrl(
-				QString("https://github.com/NahidaBuer/AywGram/issues"));
-		},
-	});
-	builder.addButton({
-		.id = u"ayu/crowdin"_q,
-		.title = tr::ayu_LinksTranslate(),
-		.icon = { &st::menuIconTranslate },
-		.label = rpl::single(u"GitHub"_q),
-		.onClick = [=] {
-			QDesktopServices::openUrl(
-				u"https://github.com/Aywgram/Languages"_q);
-		},
-	});
-	builder.addButton({
-		.id = u"ayu/website"_q,
-		.title = tr::ayu_LinksDocumentation(),
-		.icon = { &st::menuIconIpAddress },
-		.label = rpl::single(u"GitHub Docs"_q),
-		.onClick = [=] {
-			QDesktopServices::openUrl(
-				u"https://github.com/NahidaBuer/AywGram/tree/main/docs"_q);
+				u"https://github.com/NahidaBuer/AywGram/issues"_q);
 		},
 	});
 

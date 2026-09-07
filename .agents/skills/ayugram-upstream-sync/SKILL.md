@@ -9,16 +9,18 @@ Use a staged, report-first workflow for recurring maintenance of this AywGram fo
 
 ## Establish scope
 
-1. Read repository-root `AGENTS.md` and `AGENTS.local.md` when present.
+1. Read repository-root [AGENTS.md](../../../AGENTS.md), then `AGENTS.override.md` when present for checkout-local differences.
 2. Treat `upstream` as an optional supplemental source, `ayugram` as public AyuGram, `telegram` as official Telegram Desktop, and `origin` as this distribution fork's publishing remote. Verify URLs every run.
 3. Select the requested mode:
    - `audit`: fetch, compare, and report only.
    - `plan`: audit and propose ordered integration checkpoints.
    - `integrate`: perform the approved merges or ports and static validation.
-   - `build`: run only the explicitly requested configurations after integration.
+   - `build`: run the authorized build after integration; use Release when the request does not name a configuration.
 4. Keep reports, logs, temporary patches, and generated files under `out/upstream-sync/`. Never create root `build/` or `cmake-build-*` directories.
 
 ## Audit
+
+Fetch the relevant remotes before comparing commits unless an offline snapshot was requested. Inspect worktree changes so they are not mistaken for committed upstream differences.
 
 Run the bundled audit from the repository root:
 
@@ -32,17 +34,21 @@ For planning or integration, read [integration-policy.md](references/integration
 
 ## Integrate
 
-1. Preserve pre-existing user changes before cleaning the worktree. Record every stash or recoverable move and do not silently drop or commit it.
+Treat submodule pointers, generated sources, API schemas, settings serialization, styles and localization as explicit integration risks. Keep related main-repository and submodule changes aligned.
+
+1. Start integration from a clean worktree, preserving pre-existing user changes before cleaning it. Record every stash or recoverable move and do not silently drop or commit it.
 2. Work on the user-selected branch. Otherwise create `integrate/upstream-tdesktop-YYYYMMDD` from the agreed baseline. Never rename or delete `dev` without explicit authorization.
 3. Integrate approved supplemental patches first, selected AyuGram changes second, and Telegram changes last unless topology requires another order. Explain deviations.
 4. Merge official Telegram release tags sequentially, one checkpoint commit per version. Review the commits after the newest tag on `telegram/dev` separately.
 5. Do not bulk-merge a supplemental branch, `origin/dev`, or an upstream workflow branch merely for parity. Port or merge only reviewed changes authorized by the request.
-6. Ignore workflow skills, agent pipelines, and unrelated CI introduced by upstream. Preserve this repository's local `.agents`, `.claude`, release policy, branding, and updater behavior.
+6. Ignore workflow skills, agent pipelines, and unrelated CI introduced by upstream. Preserve this repository's `.agents` workflows, local maintenance instructions, release policy, branding, and updater behavior; do not introduce other Harness workflows as application-source integration.
 7. Resolve conflicts by inspecting the base, ours, and theirs. Preserve distribution-specific and Ayu behavior while adapting it to the final Telegram API and structure. Never resolve a product file by blindly taking one side.
 8. Treat submodules as independent integrations. Create and push compatibility commits when histories diverge, then verify the final hash is reachable from the `.gitmodules` URL before staging the superproject gitlink.
 9. Commit each checkpoint with a concise repository-style subject. Do not push the main branch unless requested.
 
 ## Validate
+
+Static-only work does not require a build, existing executable, test account or in-app testing. Follow the root guide's validation policy and report runtime checks that remain unperformed.
 
 Read [feature-checklist.md](references/feature-checklist.md) before resolving high-risk conflicts and again before completion.
 
@@ -59,14 +65,9 @@ Also verify selected release tags and remote tips are ancestors of `HEAD`, inspe
 
 ## Build
 
-Build only when the user explicitly authorizes it. Use the configured repository-root `out/` tree. When the user authorizes a build without naming a configuration, build Release. On this native Windows checkout, set UTF-8 compiler input:
+Follow the root [build policy](../../../AGENTS.md#build-and-validation): explicit authorization is required; an unnamed configuration defaults to Release; Debug requires an explicit request or approved diagnostic need and is never a prerequisite for Release. Use repository-root `out/`.
 
-```powershell
-$env:CL = '/utf-8'
-cmake --build out --config Release --target Telegram
-```
-
-Build Debug only when the user explicitly requests it. If Debug becomes necessary for diagnosis, explain the need and obtain approval before running it. Never build Debug merely as a prerequisite for Release.
+Before configuring or building, read only the target platform guide: [Windows](../../../docs/agents/building-windows.md), [macOS](../../../docs/agents/building-macos.md), or [Linux/WSL](../../../docs/agents/building-linux.md). Use its environment checks and build command; do not assume CMake is on PATH or copy another machine's toolchain.
 
 Repair ordinary configure, compile, and link failures within the integration scope, committing focused compatibility fixes. If C1041, LNK1104, an executable/PDB access error, or another file-in-use error occurs, stop immediately and ask the user to close AywGram/Telegram and its debugger. Do not retry or delete locked files.
 

@@ -109,3 +109,6 @@
 [submodule "Telegram/ThirdParty/libfido2"]
 	path = Telegram/ThirdParty/libfido2
 	url = https://github.com/Yubico/libfido2.git
+[submodule "Telegram/Resources/ayw_langpacks"]
+	path = Telegram/Resources/ayw_langpacks
+	url = https://github.com/AywGram/LanguagePacks.git

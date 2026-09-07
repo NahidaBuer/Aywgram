@@ -1,7 +1,9 @@
 # Agent Build Guide: macOS
 
+Follow [AGENTS.md](../../AGENTS.md#build-and-validation) for build authorization and configuration selection.
+
 Read this file only for macOS builds. Human setup instructions are in the
-[macOS build guide](building-mac.md).
+[macOS build guide](../building-mac.md).
 
 macOS builds require Xcode and dependencies under
 `../Libraries/local/Qt-*`. The Qt version is selected by
