@@ -207,6 +207,56 @@ jobs:
           path: fragments
           merge-multiple: true
 
+      - name: Validate release version.
+        id: version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+        run: python3 .github/scripts/release_version.py --tag "$RELEASE_TAG" --github-output "$GITHUB_OUTPUT"
+
+      - name: Collect metadata from prerelease assets.
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          APP_VERSION: ${{ steps.version.outputs.app_version }}
+          RELEASE_REVISION: ${{ steps.version.outputs.revision }}
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
+        run: |
+          set -euo pipefail
+          prerelease_json="$RUNNER_TEMP/prerelease.json"
+          gh api "repos/${GH_REPO}/releases/tags/${RELEASE_TAG}" > "$prerelease_json"
+          mkdir -p assets fragments
+          while IFS='|' read -r target asset_name; do
+            fragment="fragments/update-fragment-${target}.json"
+            if [ -f "$fragment" ]; then
+              continue
+            fi
+            if ! jq -e --arg name "$asset_name" \
+              '.assets[]? | select(.name == $name)' \
+              "$prerelease_json" >/dev/null; then
+              continue
+            fi
+            gh release download "$RELEASE_TAG" \
+              --repo "$GH_REPO" \
+              --pattern "$asset_name" \
+              --dir assets
+            python3 .github/scripts/update_release_metadata.py fragment \
+              --target "$target" \
+              --app-version "$APP_VERSION" \
+              --revision "$RELEASE_REVISION" \
+              --version-name "$VERSION_NAME" \
+              --release "$RELEASE_TAG" \
+              --asset "assets/$asset_name" \
+              --output "$fragment"
+          done <<EOF
+          windows-x86_64|AywGram-v${VERSION_NAME}-windows-x86_64.zip
+          windows-arm64|AywGram-v${VERSION_NAME}-windows-arm64.zip
+          mac-arm64|AywGram-v${VERSION_NAME}-mac-arm64.zip
+          linux-x86_64|AywGram-v${VERSION_NAME}-linux-x86_64.tar.gz
+          EOF
+
       - name: Merge into the sole metadata release.
         shell: bash
         env:
@@ -341,8 +391,8 @@ jobs:
             manual_asset_row 'Windows x86_64' "AywGram-v${VERSION}-windows-x86_64.zip"
             printf '\n## Update metadata\n\n'
             printf 'Automatic metadata refresh result: `%s`.\n\n' "$METADATA_RESULT"
-            printf 'The workflow updates the repository\x27s sole published Release with successful build fragments.\n'
-            printf 'After manually uploading an updater-compatible archive, run the Refresh update metadata workflow.\n\n'
+            printf 'The workflow updates the repository\x27s sole published Release with successful build fragments and recognized prerelease assets.\n'
+            printf 'Assets uploaded after metadata collection starts require the Refresh update metadata workflow.\n\n'
             printf 'Recognized optional filenames:\n\n'
             printf -- '- `AywGram-v%s-windows-x86_64.zip`\n' "$VERSION"
           } > "$notes"
