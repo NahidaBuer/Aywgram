@@ -493,6 +493,11 @@ dialogsSearchInMenu: PopupMenu(defaultPopupMenu) {
 }
 dialogsSearchInCheck: icon {{ "player/player_check", mediaPlayerActiveFg }};
 dialogsSearchInCheckSkip: 8px;
+dialogsSearchInMessageTypeVideo: icon {{ "info/info_media_video", menuIconColor, point(-4px, -4px) }};
+dialogsSearchInMessageTypeMusic: icon {{ "info/info_media_audio", menuIconColor, point(-4px, -4px) }};
+dialogsSearchInMessageTypeVoice: icon {{ "info/info_media_voice", menuIconColor, point(-4px, -4px) }};
+dialogsSearchInMessageTypeRoundVideo: icon {{ "info/info_media_round", menuIconColor, point(-4px, -4px) }};
+dialogsSearchInMessageTypeMention: icon {{ "settings/mention", menuIconColor }};
 dialogsSearchFromStyle: defaultTextStyle;
 
 dialogsScamPadding: margins(2px, 0px, 2px, 0px);
