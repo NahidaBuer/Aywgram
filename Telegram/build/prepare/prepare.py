@@ -1956,7 +1956,7 @@ mac_release:
 stage('tlottie', """
     git clone https://github.com/dkaraush/tlottie.git
     cd tlottie
-    git checkout 758c7cb744
+    git checkout 4b940c7942
 win:
     SET "RUSTUP_HOME=%THIRDPARTY_DIR%\\rust\\rustup"
     SET "CARGO_HOME=%THIRDPARTY_DIR%\\rust\\cargo"
