@@ -2642,8 +2642,13 @@ void ChatWidget::sendTextWithTags(
 		}
 	}
 
-	const auto nextLocalMessageId = session().data().nextLocalMessageId();
 	const auto hasText = !message.textWithTags.text.trimmed().isEmpty();
+	const auto deferCommentLocalMessageId = hasText
+		&& AyuSettings::getInstance().sendForwardFirst()
+		&& _composeControls->readyToForward();
+	const auto nextLocalMessageId = deferCommentLocalMessageId
+		? std::optional<MsgId>()
+		: std::make_optional(session().data().nextLocalMessageId());
 
 	if (const auto field = _composeControls->fieldForMention(); field
 		&& hasText

@@ -6060,8 +6060,13 @@ void HistoryWidget::sendTextWithTags(
 		return;
 	}
 
-	const auto nextLocalMessageId = session().data().nextLocalMessageId();
 	const auto hasText = !message.textWithTags.text.trimmed().isEmpty();
+	const auto deferCommentLocalMessageId = hasText
+		&& AyuSettings::getInstance().sendForwardFirst()
+		&& !_forwardPanel->empty();
+	const auto nextLocalMessageId = deferCommentLocalMessageId
+		? std::optional<MsgId>()
+		: std::make_optional(session().data().nextLocalMessageId());
 
 	if (hasText
 		&& message.webPage.url.isEmpty()
