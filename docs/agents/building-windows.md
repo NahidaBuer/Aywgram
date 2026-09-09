@@ -28,9 +28,60 @@ if (-not (Test-Path -LiteralPath $ayuCmakePath -PathType Leaf)) {
 }
 $env:CL = '/utf-8'
 & $ayuCmakePath --build $ayuBuildTree --config Release --target Telegram
+if ($LASTEXITCODE -ne 0) { throw 'Release build failed; do not package existing artifacts.' }
 ```
 
 If the shell cannot change directories, set `$ayuBuildTree` to the verified absolute `out/` path and use that same tree for cache inspection and the build. The target is `Telegram`; this fork's Release executable is `out/Release/AywGram.exe`.
+
+## Release Packaging
+
+Every successful authorized local Windows x64 Release build includes packaging before reporting completion. Match the distribution layout in `.github/workflows/win.yml`, with generated output under `out/dist/`. Run the following from the repository root only after the current Release build succeeds and the cache confirms x64. The `Telegram` target depends on `Updater` when auto-update is enabled; if either executable is missing, stop and investigate the configuration instead of producing an incomplete ZIP.
+
+Use the version constants from the source used for that build: `AppVersionStr` alone when `AppReleaseRevision` is zero, otherwise `<AppVersionStr>-<AppReleaseRevision>`. This matches CI's `.github/scripts/release_version.py` naming. For a tagged release, ensure the source revision matches the intended `pre-release-v<base>-<revision>` tag before building; changing only the ZIP name does not change the embedded version.
+
+```powershell
+$ayuVersionSource = Get-Content -LiteralPath 'Telegram/SourceFiles/core/version.h' -Raw -Encoding UTF8
+$ayuBaseMatch = [regex]::Match($ayuVersionSource, 'constexpr auto AppVersionStr = "([0-9]+\.[0-9]+\.[0-9]+)";')
+$ayuRevisionMatch = [regex]::Match($ayuVersionSource, 'constexpr auto AppReleaseRevision = ([0-9]+);')
+if (-not $ayuBaseMatch.Success -or -not $ayuRevisionMatch.Success) {
+    throw 'Missing release version constants.'
+}
+$ayuVersionName = $ayuBaseMatch.Groups[1].Value
+$ayuRevision = [int]$ayuRevisionMatch.Groups[1].Value
+if ($ayuRevision -gt 99) { throw 'Release revision must be between 0 and 99.' }
+if ($ayuRevision -gt 0) { $ayuVersionName += "-$ayuRevision" }
+$ayuReleaseDir = Join-Path (Get-Location).Path 'out/Release'
+$ayuItems = @(
+    (Join-Path $ayuReleaseDir 'AywGram.exe'),
+    (Join-Path $ayuReleaseDir 'Updater.exe')
+)
+foreach ($ayuItem in $ayuItems) {
+    if (-not (Test-Path -LiteralPath $ayuItem -PathType Leaf)) {
+        throw "Missing Release executable: $ayuItem"
+    }
+}
+$ayuModules = Join-Path $ayuReleaseDir 'modules'
+if (Test-Path -LiteralPath $ayuModules -PathType Container) { $ayuItems += $ayuModules }
+$ayuDist = Join-Path (Get-Location).Path 'out/dist'
+New-Item -ItemType Directory -Path $ayuDist -Force -ErrorAction Stop | Out-Null
+$ayuZip = Join-Path $ayuDist "AywGram-v$ayuVersionName-windows-x86_64.zip"
+Compress-Archive -LiteralPath $ayuItems -DestinationPath $ayuZip -CompressionLevel Optimal -Force -ErrorAction Stop
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$ayuArchive = [System.IO.Compression.ZipFile]::OpenRead($ayuZip)
+try {
+    $ayuEntries = @($ayuArchive.Entries.FullName)
+    foreach ($ayuRequired in @('AywGram.exe', 'Updater.exe')) {
+        if ($ayuRequired -cnotin $ayuEntries) { throw "ZIP is missing $ayuRequired at its root." }
+    }
+    $ayuEntries
+} finally {
+    $ayuArchive.Dispose()
+}
+Get-Item -LiteralPath $ayuZip | Select-Object FullName, Length
+Get-FileHash -LiteralPath $ayuZip -Algorithm SHA256
+```
+
+Recreate the same-version ZIP with `-Force`, never `-Update`, so removed files cannot linger. Inspect the displayed entries: the two executables belong at the root and optional modules under `modules/`, with no enclosing `Release/` directory, PDBs, logs, caches or user data. A build or packaging failure must not be reported as a ready release package. Report the ZIP's absolute path, size and SHA-256 with the build result. Uploading or publishing to GitHub is a separate action requiring user authorization.
 
 ## Missing or Changed Environment
 
