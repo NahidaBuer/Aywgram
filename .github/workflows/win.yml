@@ -3,6 +3,21 @@ name: Windows.
 on:
   workflow_call:
     inputs:
+      source_sha:
+        description: Validated release commit supplied by the prerelease coordinator.
+        required: false
+        default: ''
+        type: string
+      warm_cache:
+        description: Build caches only on the default branch; do not distribute artifacts.
+        required: false
+        default: false
+        type: boolean
+      compiler_cache:
+        description: Enable application compiler caching.
+        required: false
+        default: true
+        type: boolean
       arch:
         required: false
         default: arm64
@@ -25,6 +40,16 @@ on:
         type: boolean
   workflow_dispatch:
     inputs:
+      warm_cache:
+        description: Build caches only on the default branch; do not distribute artifacts.
+        required: false
+        default: false
+        type: boolean
+      compiler_cache:
+        description: Enable application compiler caching.
+        required: false
+        default: true
+        type: boolean
       arch:
         description: Windows architecture to build.
         required: true
@@ -50,6 +75,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
 
@@ -58,8 +84,33 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Validate cache mode.
+        shell: bash
+        env:
+          WARM_CACHE: ${{ inputs.warm_cache }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          DISTRIBUTE: ${{ inputs.distribute }}
+          UPDATE_METADATA: ${{ inputs.update_metadata }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          TARGET_ARCH: ${{ inputs.arch }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          case "$TARGET_ARCH" in
+            arm64|x64) ;;
+            *) echo "::error::Unsupported Windows architecture: $TARGET_ARCH"; exit 1;;
+          esac
+          if [ "$WARM_CACHE" = true ]; then
+            if [ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ] \
+              || [ "$DISTRIBUTE" = true ] || [ "$UPDATE_METADATA" = true ] \
+              || [ -n "$RELEASE_TAG" ] || [ -n "$SOURCE_SHA" ]; then
+              echo '::error::Cache warming requires the default branch, no release_tag/source_sha and no distribution or metadata update.'
+              exit 1
+            fi
+          fi
+
       - name: Validate prerelease and secrets.
-        if: ${{ inputs.distribute == true }}
+        if: ${{ inputs.distribute == true && inputs.warm_cache != true }}
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
@@ -98,18 +149,21 @@ jobs:
     name: Windows ${{ inputs.arch }} (Qt 6)
     runs-on: ${{ inputs.arch == 'arm64' && 'windows-11-arm' || 'windows-latest' }}
     needs: validate-distribution
+    concurrency:
+      group: ${{ inputs.warm_cache && format('warm-cache-windows-{0}', inputs.arch) || format('windows-{0}-{1}-{2}', inputs.arch, github.run_id, github.run_attempt) }}
+      cancel-in-progress: false
 
     strategy:
       fail-fast: false
       matrix:
         arch: ["${{ inputs.arch }}"]
         qt: [qt6]
-        generator: [""]
 
     env:
-      UPLOAD_ARTIFACT: "true"
-      ONLY_CACHE: "false"
-      PREPARE_PATH: "Telegram/build/prepare/prepare.py"
+      UPLOAD_ARTIFACT: ${{ inputs.warm_cache && 'false' || 'true' }}
+      SCCACHE_CACHE_SIZE: '1G'
+      SCCACHE_IDLE_TIMEOUT: '0'
+      SCCACHE_IGNORE_SERVER_IO_ERROR: '1'
       API_ID: ${{ secrets.API_ID }}
       API_HASH: ${{ secrets.API_HASH }}
 
@@ -125,19 +179,23 @@ jobs:
           if not exist "%TBUILD_TARGET%\tmp" mkdir "%TBUILD_TARGET%\tmp"
           mklink /d "%GITHUB_WORKSPACE%\TBuild" "%TBUILD_TARGET%"
           echo TBUILD=%GITHUB_WORKSPACE%\TBuild>>%GITHUB_ENV%
-          echo LibrariesPath=%GITHUB_WORKSPACE%\TBuild\Libraries>>%GITHUB_ENV%
+          if "${{ inputs.arch }}"=="x64" (
+            echo LibrariesPath=%GITHUB_WORKSPACE%\TBuild\Libraries\win64>>%GITHUB_ENV%
+          ) else (
+            echo LibrariesPath=%GITHUB_WORKSPACE%\TBuild\Libraries>>%GITHUB_ENV%
+          )
           echo TEMP=%TBUILD_TARGET%\tmp>>%GITHUB_ENV%
           echo TMP=%TBUILD_TARGET%\tmp>>%GITHUB_ENV%
           echo TMPDIR=%TBUILD_TARGET%\tmp>>%GITHUB_ENV%
 
       - name: Get repository name.
         shell: bash
-        run: echo "REPO_NAME=${GITHUB_REPOSITORY##*/}" >> $GITHUB_ENV
+        run: echo "REPO_NAME=${GITHUB_REPOSITORY##*/}" >> "$GITHUB_ENV"
 
       - name: Clone.
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.release_tag || github.ref }}
+          ref: ${{ inputs.warm_cache && github.sha || inputs.source_sha || inputs.release_tag || github.ref }}
           submodules: recursive
           path: ${{ env.TBUILD }}\${{ env.REPO_NAME }}
 
@@ -159,13 +217,7 @@ jobs:
             echo "Could not determine the Windows SDK version from $DOCPATH" >&2
             exit 1
           fi
-          echo "SDK=$SDK" >> $GITHUB_ENV
-
-          sed -i '/CMAKE_${lang}_FLAGS_DEBUG_INIT/s/${_Zi}//' "$PROGRAMFILES"/CMake/share/cmake*/Modules/Platform/Windows-MSVC.cmake
-
-          echo "$(sha256sum $TBUILD/$REPO_NAME/$PREPARE_PATH | awk '{ print $1 }')" >> CACHE_KEY.txt
-          echo "$SDK" >> CACHE_KEY.txt
-          echo "CACHE_KEY=$(sha256sum CACHE_KEY.txt | awk '{ print $1 }')" >> $GITHUB_ENV
+          echo "SDK=$SDK" >> "$GITHUB_ENV"
 
           echo "Configurate git for cherry-picks."
           git config --global user.email "you@example.com"
@@ -175,9 +227,13 @@ jobs:
         if: matrix.arch == 'arm64'
         shell: pwsh
         run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installed = & $vswhere -products '*' -version '[18.0,19.0)' -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 Microsoft.VisualStudio.Component.VC.ATL.ARM64 -property installationPath
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to inspect Visual Studio installations.' }
+          if ($installed) { Write-Host "Using existing VS 2026 ARM64 tools: $installed"; exit 0 }
           $exe = Join-Path $env:RUNNER_TEMP 'vs_buildtools.exe'
           Invoke-WebRequest -Uri https://aka.ms/vs/18/stable/vs_buildtools.exe -OutFile $exe
-          $p = Start-Process -FilePath $exe -Wait -PassThru -ArgumentList `
+          $p = Start-Process -FilePath $exe -WindowStyle Hidden -Wait -PassThru -ArgumentList `
             '--quiet','--wait','--norestart','--nocache', `
             '--add','Microsoft.VisualStudio.Workload.VCTools', `
             '--add','Microsoft.VisualStudio.Component.VC.Tools.ARM64', `
@@ -192,6 +248,14 @@ jobs:
           sdk: ${{ env.SDK }}
           toolset: ${{ case(matrix.arch == 'arm64', '', '14.44') }}
 
+      - name: Compute cache keys.
+        id: cache-key
+        run: python "%TBUILD%\%REPO_NAME%\.github\scripts\ci_cache.py" keys windows ${{ inputs.arch }}
+
+      - name: Install sccache.
+        if: inputs.compiler_cache
+        run: python "%TBUILD%\%REPO_NAME%\.github\scripts\ci_cache.py" install windows-${{ inputs.arch }}
+
       - name: NuGet sources.
         run: |
           nuget sources Disable -Name "Microsoft Visual Studio Offline Packages"
@@ -199,15 +263,15 @@ jobs:
 
       - name: ThirdParty cache.
         id: cache-third-party
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: ${{ env.TBUILD }}\ThirdParty
-          key: ${{ runner.OS }}-${{ runner.arch }}-third-party-${{ env.CACHE_KEY }}
-          restore-keys: ${{ runner.OS }}-${{ runner.arch }}-third-party-
+          key: ${{ steps.cache-key.outputs.prefix }}-third-party-${{ steps.cache-key.outputs.dependencies }}
+          restore-keys: ${{ steps.cache-key.outputs.prefix }}-third-party-
 
       - name: Libraries cache.
         id: cache-libs
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: |
             ${{ env.LibrariesPath }}\*
@@ -215,25 +279,28 @@ jobs:
             !${{ env.LibrariesPath }}\[qQ]t[_-]*
             ${{ env.LibrariesPath }}\cache_keys\*
             !${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
-          key: ${{ runner.OS }}-${{ matrix.arch }}-libs-v2-${{ env.CACHE_KEY }}
-          restore-keys: ${{ runner.OS }}-${{ matrix.arch }}-libs-v2-
+          key: ${{ steps.cache-key.outputs.prefix }}-libs-${{ steps.cache-key.outputs.dependencies }}
+          restore-keys: ${{ steps.cache-key.outputs.prefix }}-libs-
 
       - name: Qt cache.
         id: cache-qt
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: |
             ${{ env.LibrariesPath }}\[qQ]t[_-]*
             ${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
-          key: ${{ runner.OS }}-${{ matrix.arch }}-${{ matrix.qt || 'qt' }}-${{ env.CACHE_KEY }}
-          restore-keys: ${{ runner.OS }}-${{ matrix.arch }}-${{ matrix.qt || 'qt' }}-
+          key: ${{ steps.cache-key.outputs.prefix }}-qt-${{ steps.cache-key.outputs.dependencies }}
+          restore-keys: ${{ steps.cache-key.outputs.prefix }}-qt-
 
       - name: Libraries.
         env:
           CMAKE_BUILD_PARALLEL_LEVEL: "2"
           NUMBER_OF_PROCESSORS: "2"
         run: |
-          %TBUILD%\%REPO_NAME%\Telegram\build\prepare\win.bat skip-debug skip-dump-syms silent ${{ matrix.qt }}
+          python "%TBUILD%\%REPO_NAME%\.github\scripts\ci_cache.py" mark dependencies
+          call "%TBUILD%\%REPO_NAME%\Telegram\build\prepare\win.bat" skip-debug skip-dump-syms silent ${{ matrix.qt }}
+          if errorlevel 1 exit /b 1
+          python "%TBUILD%\%REPO_NAME%\.github\scripts\ci_cache.py" mark dependencies --end
 
       - name: Prune dependency caches.
         shell: pwsh
@@ -269,7 +336,7 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: ${{ env.TBUILD }}\ThirdParty
-          key: ${{ runner.OS }}-${{ runner.arch }}-third-party-${{ env.CACHE_KEY }}
+          key: ${{ steps.cache-key.outputs.prefix }}-third-party-${{ steps.cache-key.outputs.dependencies }}
 
       - name: Save libraries cache.
         if: steps.cache-libs.outputs.cache-hit != 'true'
@@ -281,7 +348,7 @@ jobs:
             !${{ env.LibrariesPath }}\[qQ]t[_-]*
             ${{ env.LibrariesPath }}\cache_keys\*
             !${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
-          key: ${{ runner.OS }}-${{ matrix.arch }}-libs-v2-${{ env.CACHE_KEY }}
+          key: ${{ steps.cache-key.outputs.prefix }}-libs-${{ steps.cache-key.outputs.dependencies }}
 
       - name: Save Qt cache.
         if: steps.cache-qt.outputs.cache-hit != 'true'
@@ -290,64 +357,80 @@ jobs:
           path: |
             ${{ env.LibrariesPath }}\[qQ]t[_-]*
             ${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
-          key: ${{ runner.OS }}-${{ matrix.arch }}-${{ matrix.qt || 'qt' }}-${{ env.CACHE_KEY }}
+          key: ${{ steps.cache-key.outputs.prefix }}-qt-${{ steps.cache-key.outputs.dependencies }}
 
       - name: Read configuration matrix.
         id: matrix
         shell: bash
         run: |
           cd "$TBUILD/$REPO_NAME"
-          ARCH=""
-          if [ -n "${{ matrix.arch }}" ]; then
-            case "${{ matrix.arch }}" in
-              x64_x86) ARCH="x86";;
-              x64) ARCH="";;
-              arm64) ARCH="arm";;
-              *) ARCH="${{ matrix.arch }}";;
-            esac
-            echo "Architecture from matrix: $ARCH"
-          fi
-
-          GENERATOR=""
-          if [ -n "${{ matrix.generator }}" ]; then
-            GENERATOR="-G \"${{ matrix.generator }}\""
-            echo "Generator from matrix: $GENERATOR"
-          fi
-          echo "TDESKTOP_BUILD_GENERATOR=$GENERATOR" >> $GITHUB_ENV
-
-          [ -n "$GENERATOR" ] && ARCH=""
-          echo "TDESKTOP_BUILD_ARCH=$ARCH" >> $GITHUB_ENV
-
-          API="-D TDESKTOP_API_TEST=ON"
-          if [ -n "$API_ID" ] && [ -n "$API_HASH" ]; then
-            API="-D TDESKTOP_API_ID=\"$API_ID\" -D TDESKTOP_API_HASH=\"$API_HASH\""
-          fi
           if [ "${{ matrix.arch }}" = arm64 ]; then
-            echo "target=windows-arm64" >> $GITHUB_OUTPUT
+            echo "target=windows-arm64" >> "$GITHUB_OUTPUT"
           else
-            echo "target=windows-x86_64" >> $GITHUB_OUTPUT
+            echo "target=windows-x86_64" >> "$GITHUB_OUTPUT"
           fi
-          echo "TDESKTOP_BUILD_API=$API" >> $GITHUB_ENV
+
+      - name: Restore application compiler cache.
+        id: cache-app
+        if: inputs.compiler_cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ env.SCCACHE_DIR }}
+          key: ${{ steps.cache-key.outputs.app-key }}
+          restore-keys: ${{ steps.cache-key.outputs.app-prefix }}
+
+      - name: Start application timer.
+        shell: bash
+        run: python "$TBUILD/$REPO_NAME/.github/scripts/ci_cache.py" mark application
+
+      - name: Reset compiler cache statistics.
+        id: cache-reset
+        if: inputs.compiler_cache
+        shell: bash
+        run: sccache --start-server && sccache --zero-stats
 
       - name: Telegram Desktop build.
-        if: env.ONLY_CACHE == 'false'
+        shell: pwsh
         env:
           CMAKE_BUILD_PARALLEL_LEVEL: "2"
           NUMBER_OF_PROCESSORS: "2"
+          COMPILER_CACHE: ${{ inputs.compiler_cache }}
         run: |
-          cd %TBUILD%\%REPO_NAME%\Telegram
+          Set-Location "$env:TBUILD\$env:REPO_NAME\Telegram"
+          $configureArgs = @(
+            '-G', 'Ninja Multi-Config', 'qt6',
+            '-D', 'CMAKE_CONFIGURATION_TYPES=Release',
+            '-D', 'CMAKE_MSVC_DEBUG_INFORMATION_FORMAT=',
+            '-D', 'DESKTOP_APP_DISABLE_AUTOUPDATE=OFF',
+            '-D', 'DESKTOP_APP_DISABLE_CRASH_REPORTS=OFF'
+          )
+          if ($env:API_ID -and $env:API_HASH) {
+            $configureArgs += @('-D', "TDESKTOP_API_ID=$env:API_ID", '-D', "TDESKTOP_API_HASH=$env:API_HASH")
+          } else {
+            $configureArgs += @('-D', 'TDESKTOP_API_TEST=ON')
+          }
+          if ($env:COMPILER_CACHE -eq 'true') {
+            $configureArgs += @('-D', 'CMAKE_C_COMPILER_LAUNCHER=sccache', '-D', 'CMAKE_CXX_COMPILER_LAUNCHER=sccache')
+          }
+          python configure.py @configureArgs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build ..\out --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python ..\.github\scripts\ci_cache.py mark application --end
 
-          call configure.bat ^
-          %TDESKTOP_BUILD_GENERATOR% ^
-          %TDESKTOP_BUILD_ARCH% ^
-          ${{ matrix.qt }} ^
-          %TDESKTOP_BUILD_API% ^
-          -D CMAKE_CONFIGURATION_TYPES=Release ^
-          -D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT= ^
-          -D DESKTOP_APP_DISABLE_AUTOUPDATE=OFF ^
-          -D DESKTOP_APP_DISABLE_CRASH_REPORTS=OFF
+      - name: Read compiler cache statistics.
+        id: cache-stats
+        continue-on-error: true
+        if: ${{ !cancelled() && inputs.compiler_cache && steps.cache-reset.outcome == 'success' }}
+        shell: bash
+        run: python "$TBUILD/$REPO_NAME/.github/scripts/ci_cache.py" stats sccache
 
-          cmake --build ..\out --config Release --parallel %CMAKE_BUILD_PARALLEL_LEVEL%
+      - name: Save application compiler cache.
+        if: ${{ !cancelled() && steps.cache-stats.outcome == 'success' && steps.cache-stats.outputs.changed == 'true' }}
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ env.SCCACHE_DIR }}
+          key: ${{ steps.cache-key.outputs.app-key }}
 
       - name: Package distribution.
         id: package
@@ -371,7 +454,7 @@ jobs:
           "asset_path=dist/$assetName" >> $env:GITHUB_OUTPUT
 
       - name: Create update metadata fragment.
-        if: inputs.update_metadata == true
+        if: inputs.update_metadata == true && inputs.warm_cache != true
         shell: bash
         run: |
           python "$TBUILD/$REPO_NAME/.github/scripts/update_release_metadata.py" fragment \
@@ -392,7 +475,7 @@ jobs:
           retention-days: 1
 
       - name: Publish prerelease asset and notify Telegram.
-        if: ${{ inputs.distribute == true }}
+        if: ${{ inputs.distribute == true && inputs.warm_cache != true }}
         shell: bash
         env:
           ASSET_NAME: ${{ steps.package.outputs.asset_name }}
@@ -407,9 +490,20 @@ jobs:
         run: bash "$TBUILD/$REPO_NAME/.github/scripts/publish-prerelease.sh"
 
       - uses: actions/upload-artifact@v7
-        if: inputs.update_metadata == true
+        if: inputs.update_metadata == true && inputs.warm_cache != true
         name: Upload update metadata fragment.
         with:
           name: update-fragment-${{ steps.matrix.outputs.target }}
           path: dist/update-fragment-${{ steps.matrix.outputs.target }}.json
           retention-days: 1
+
+      - name: Summarize caches.
+        continue-on-error: true
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          CACHE_RESULTS: >-
+            [{"layer": "ThirdParty", "key": "${{ steps.cache-third-party.outputs.cache-primary-key }}", "restored": "${{ steps.cache-third-party.outputs.cache-matched-key }}", "hit": "${{ steps.cache-third-party.outputs.cache-hit }}"}, {"layer": "Libraries", "key": "${{ steps.cache-libs.outputs.cache-primary-key }}", "restored": "${{ steps.cache-libs.outputs.cache-matched-key }}", "hit": "${{ steps.cache-libs.outputs.cache-hit }}"}, {"layer": "Qt", "key": "${{ steps.cache-qt.outputs.cache-primary-key }}", "restored": "${{ steps.cache-qt.outputs.cache-matched-key }}", "hit": "${{ steps.cache-qt.outputs.cache-hit }}"}, {"layer": "Application", "key": "${{ steps.cache-app.outputs.cache-primary-key }}", "restored": "${{ steps.cache-app.outputs.cache-matched-key }}", "hit": "${{ steps.cache-app.outputs.cache-hit }}"}]
+        run: python "$TBUILD/$REPO_NAME/.github/scripts/ci_cache.py" summary

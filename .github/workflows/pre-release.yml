@@ -1,4 +1,5 @@
 name: Prerelease.
+run-name: Prerelease ${{ inputs.release_tag || github.ref_name }} (${{ github.event_name == 'push' && 'dispatch' || 'build' }})
 
 on:
   push:
@@ -10,40 +11,90 @@ on:
         description: Existing pre-release-v<base>-<revision> tag to build and publish.
         required: true
         type: string
+      source_sha:
+        description: Optional full commit SHA; automatically supplied by tag dispatch.
+        required: false
+        type: string
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
-  group: prerelease-${{ inputs.release_tag || github.ref_name }}
+  group: prerelease-${{ github.event_name }}-${{ github.ref }}-${{ inputs.release_tag || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
 
+  dispatch:
+    name: Dispatch release on the default branch
+    if: ${{ github.event_name == 'push' && github.event.deleted != true }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+
+    steps:
+      - name: Clone triggering commit.
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Dispatch actual build.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: python3 .github/scripts/release_dispatch.py dispatch
+
   prepare:
     name: Prepare prerelease
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
 
     outputs:
       linux_previous_asset_id: ${{ steps.release.outputs.linux_previous_asset_id }}
       mac_previous_asset_id: ${{ steps.release.outputs.mac_previous_asset_id }}
       release_tag: ${{ steps.release.outputs.release_tag }}
-      source_sha: ${{ steps.release.outputs.source_sha }}
+      source_sha: ${{ steps.source.outputs.source_sha }}
       started_at: ${{ steps.release.outputs.started_at }}
       version: ${{ steps.release.outputs.version }}
       windows_previous_asset_id: ${{ steps.release.outputs.windows_previous_asset_id }}
 
     steps:
-      - name: Clone.
+      - name: Validate workflow branch.
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]; then
+            echo '::error::Run Prerelease from the default branch and supply release_tag.'
+            exit 1
+          fi
+
+      - name: Clone workflow revision.
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.release_tag || github.ref }}
+          ref: ${{ github.sha }}
+
+      - name: Resolve and validate release commit.
+        id: source
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: python3 .github/scripts/release_dispatch.py prepare
+
+      - name: Clone release commit.
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.source.outputs.source_sha }}
 
       - name: Validate release version.
         id: version
         shell: bash
         env:
-          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: python3 .github/scripts/release_version.py --tag "$RELEASE_TAG" --github-output "$GITHUB_OUTPUT"
 
       - name: Create or update prerelease.
@@ -53,12 +104,13 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
           VERSION_NAME: ${{ steps.version.outputs.version_name }}
         run: |
           set -euo pipefail
-          release_tag="${RELEASE_TAG_INPUT:-$GITHUB_REF_NAME}"
+          release_tag="$RELEASE_TAG_INPUT"
           started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          source_sha="$(git rev-parse HEAD)"
+          source_sha="$SOURCE_SHA"
           version="$VERSION_NAME"
           title="AywGram v${version} CI"
           notes="$RUNNER_TEMP/prerelease-notes.md"
@@ -162,6 +214,7 @@ jobs:
       distribute: true
       update_metadata: true
       release_tag: ${{ needs.prepare.outputs.release_tag }}
+      source_sha: ${{ needs.prepare.outputs.source_sha }}
     secrets: inherit
 
   mac:
@@ -173,6 +226,7 @@ jobs:
       distribute: true
       update_metadata: true
       release_tag: ${{ needs.prepare.outputs.release_tag }}
+      source_sha: ${{ needs.prepare.outputs.source_sha }}
     secrets: inherit
 
   windows:
@@ -183,6 +237,7 @@ jobs:
       distribute: true
       update_metadata: true
       release_tag: ${{ needs.prepare.outputs.release_tag }}
+      source_sha: ${{ needs.prepare.outputs.source_sha }}
     secrets: inherit
 
   metadata:
@@ -198,7 +253,7 @@ jobs:
       - name: Clone.
         uses: actions/checkout@v7
         with:
-          ref: ${{ needs.prepare.outputs.release_tag }}
+          ref: ${{ needs.prepare.outputs.source_sha }}
 
       - name: Download successful metadata fragments.
         uses: actions/download-artifact@v8

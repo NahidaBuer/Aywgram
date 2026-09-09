@@ -3,6 +3,21 @@ name: MacOS.
 on:
   workflow_call:
     inputs:
+      source_sha:
+        description: Validated release commit supplied by the prerelease coordinator.
+        required: false
+        default: ''
+        type: string
+      warm_cache:
+        description: Build caches only on the default branch; do not distribute artifacts.
+        required: false
+        default: false
+        type: boolean
+      compiler_cache:
+        description: Enable application compiler caching.
+        required: false
+        default: true
+        type: boolean
       arch:
         required: false
         default: arm64
@@ -25,6 +40,16 @@ on:
         type: boolean
   workflow_dispatch:
     inputs:
+      warm_cache:
+        description: Build caches only on the default branch; do not distribute artifacts.
+        required: false
+        default: false
+        type: boolean
+      compiler_cache:
+        description: Enable application compiler caching.
+        required: false
+        default: true
+        type: boolean
       arch:
         description: mac architecture to build.
         required: true
@@ -49,6 +74,11 @@ on:
 
 permissions:
   contents: write
+  actions: read
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
 
@@ -57,6 +87,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Validate cache mode.
+        shell: bash
+        env:
+          WARM_CACHE: ${{ inputs.warm_cache }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          DISTRIBUTE: ${{ inputs.distribute }}
+          UPDATE_METADATA: ${{ inputs.update_metadata }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [ "$WARM_CACHE" = true ]; then
+            if [ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ] \
+              || [ "$DISTRIBUTE" = true ] || [ "$UPDATE_METADATA" = true ] \
+              || [ -n "$RELEASE_TAG" ] || [ -n "$SOURCE_SHA" ]; then
+              echo '::error::Cache warming requires the default branch, no release_tag/source_sha and no distribution or metadata update.'
+              exit 1
+            fi
+          fi
+
       - name: Validate architecture, prerelease and secrets.
         shell: bash
         env:
@@ -97,70 +147,23 @@ jobs:
             exit 1
           fi
 
-  prepare-libraries:
-    name: Prepare Libraries
-    runs-on: macos-latest
-    needs: validate-distribution
-
-    strategy:
-      matrix:
-        defines:
-          - ""
-    env:
-      REPO_NAME: ${{ github.event.repository.name }}
-      UPLOAD_ARTIFACT: "true"
-      ONLY_CACHE: "false"
-      PREPARE_PATH: "Telegram/build/prepare/prepare.py"
-
-    steps:
-      - name: Clone.
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.release_tag || github.ref }}
-          submodules: recursive
-          path: ${{ env.REPO_NAME }}
-
-      - name: First set up.
-        run: |
-          sudo chown -R `whoami`:admin /usr/local/share
-
-          brew update
-          brew upgrade || true
-          brew install automake libtool meson nasm ninja pkg-config
-
-          # Disable spotlight.
-          sudo mdutil -a -i off
-
-          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
-
-          sudo sed -i '' '/CMAKE_${lang}_FLAGS_DEBUG_INIT/s/ -g//' /opt/homebrew/share/cmake/Modules/Compiler/GNU.cmake
-
-      - name: Libraries cache.
-        id: cache-libs
-        uses: actions/cache@v6
-        with:
-          path: |
-            Libraries
-            ThirdParty
-          key: ${{ runner.OS }}-libs-${{ hashFiles(format('{0}/{1}', env.REPO_NAME, env.PREPARE_PATH)) }}
-          restore-keys: ${{ runner.OS }}-libs-
-
-      - name: Libraries.
-        run: |
-          ./$REPO_NAME/Telegram/build/prepare/mac.sh skip-debug silent
-
-      - name: Free up some disk space.
-        run: find Libraries '(' '(' ! '(' -name '*.a' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -name '*.pc' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -perm +111 ')' -type f ')' -o -empty ')' -delete
-
   build:
     name: mac (${{ inputs.arch }})
     runs-on: macos-latest
-    needs: prepare-libraries
+    needs: validate-distribution
+    concurrency:
+      group: ${{ inputs.warm_cache && 'warm-cache-mac-arm64' || format('mac-{0}-{1}', github.run_id, github.run_attempt) }}
+      cancel-in-progress: false
     env:
       REPO_NAME: ${{ github.event.repository.name }}
-      UPLOAD_ARTIFACT: "true"
-      ONLY_CACHE: "false"
-      PREPARE_PATH: "Telegram/build/prepare/prepare.py"
+      UPLOAD_ARTIFACT: ${{ inputs.warm_cache && 'false' || 'true' }}
+      CCACHE_MAXSIZE: '1Gi'
+      CCACHE_COMPILERCHECK: content
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_SLOPPINESS: pch_defines,time_macros
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_UPGRADE: '1'
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
       API_ID: ${{ secrets.API_ID }}
       API_HASH: ${{ secrets.API_HASH }}
 
@@ -168,7 +171,7 @@ jobs:
       - name: Clone.
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.release_tag || github.ref }}
+          ref: ${{ inputs.warm_cache && github.sha || inputs.source_sha || inputs.release_tag || github.ref }}
           submodules: recursive
           path: ${{ env.REPO_NAME }}
 
@@ -181,25 +184,95 @@ jobs:
           cd "$REPO_NAME"
           python3 .github/scripts/release_version.py --tag "$RELEASE_TAG" --apply --github-output "$GITHUB_OUTPUT"
 
+      - name: Set up build tools.
+        run: |
+          for tool in automake libtool meson nasm ninja pkg-config; do
+            if ! brew list --versions "$tool" >/dev/null 2>&1; then
+              brew install "$tool"
+            fi
+          done
+          xcodebuild -version
+
+      - name: Compute cache keys.
+        id: cache-key
+        run: python3 "$REPO_NAME/.github/scripts/ci_cache.py" keys mac arm64
+
+      - name: Install ccache and compiler wrappers.
+        if: inputs.compiler_cache
+        run: |
+          python3 "$REPO_NAME/.github/scripts/ci_cache.py" install mac-arm64
+          python3 "$REPO_NAME/.github/scripts/ci_cache.py" mac-wrappers
+
       - name: Libraries cache.
         id: cache-libs
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: |
             Libraries
             ThirdParty
-          key: ${{ runner.OS }}-libs-${{ hashFiles(format('{0}/{1}', env.REPO_NAME, env.PREPARE_PATH)) }}
-          restore-keys: ${{ runner.OS }}-libs-
+          key: ${{ steps.cache-key.outputs.prefix }}-libs-${{ steps.cache-key.outputs.dependencies }}
+          restore-keys: ${{ steps.cache-key.outputs.prefix }}-libs-
+
+      - name: Libraries.
+        run: |
+          python3 "$REPO_NAME/.github/scripts/ci_cache.py" mark dependencies
+          "./$REPO_NAME/Telegram/build/prepare/mac.sh" skip-debug silent
+          python3 "$REPO_NAME/.github/scripts/ci_cache.py" mark dependencies --end
+
+      - name: Prune dependency cache.
+        run: find Libraries '(' '(' ! '(' -name '*.a' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -name '*.pc' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -perm +111 ')' -type f ')' -o -empty ')' -delete
+
+      - name: Save libraries cache.
+        if: steps.cache-libs.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            Libraries
+            ThirdParty
+          key: ${{ steps.cache-libs.outputs.cache-primary-key }}
+
+      - name: Restore application compiler cache.
+        id: cache-app
+        if: inputs.compiler_cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ steps.cache-key.outputs.app-key }}
+          restore-keys: ${{ steps.cache-key.outputs.app-prefix }}
+
+      - name: Start application timer.
+        shell: bash
+        run: python3 "$REPO_NAME/.github/scripts/ci_cache.py" mark application
+
+      - name: Reset compiler cache statistics.
+        id: cache-reset
+        if: inputs.compiler_cache
+        shell: bash
+        run: ccache --zero-stats
 
       - name: Configure.
+        env:
+          COMPILER_CACHE: ${{ inputs.compiler_cache }}
         run: |
-          cd $REPO_NAME/Telegram
+          cd "$REPO_NAME/Telegram"
           API_ARGS=(-D TDESKTOP_API_TEST=ON)
           if [ -n "$API_ID" ] && [ -n "$API_HASH" ]; then
             API_ARGS=(-D TDESKTOP_API_ID="$API_ID" -D TDESKTOP_API_HASH="$API_HASH")
           fi
 
+          CACHE_ARGS=()
+          if [ "$COMPILER_CACHE" = true ]; then
+            CACHE_ARGS=(
+              "-DCMAKE_XCODE_ATTRIBUTE_CC=$CACHE_C_WRAPPER"
+              "-DCMAKE_XCODE_ATTRIBUTE_CXX=$CACHE_CXX_WRAPPER"
+              "-DCMAKE_XCODE_ATTRIBUTE_LD=$REAL_C_COMPILER"
+              "-DCMAKE_XCODE_ATTRIBUTE_LDPLUSPLUS=$REAL_CXX_COMPILER"
+              "-DCMAKE_CXX_FLAGS=-Xclang -fno-pch-timestamp"
+              "-DCMAKE_OBJCXX_FLAGS=-Xclang -fno-pch-timestamp"
+            )
+          fi
           ./configure.sh \
+          "${CACHE_ARGS[@]}" \
           -D CMAKE_CONFIGURATION_TYPES=Release \
           -D CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
           "${API_ARGS[@]}" \
@@ -208,10 +281,24 @@ jobs:
           -D CMAKE_EXE_LINKER_FLAGS="-Wl,-x"
 
       - name: Telegram Desktop build.
-        if: env.ONLY_CACHE == 'false'
         run: |
-          cd $REPO_NAME/Telegram
+          cd "$REPO_NAME/Telegram"
           cmake --build ../out --config Release --parallel
+          python3 ../.github/scripts/ci_cache.py mark application --end
+
+      - name: Read compiler cache statistics.
+        id: cache-stats
+        continue-on-error: true
+        if: ${{ !cancelled() && inputs.compiler_cache && steps.cache-reset.outcome == 'success' }}
+        shell: bash
+        run: python3 "$REPO_NAME/.github/scripts/ci_cache.py" stats ccache
+
+      - name: Save application compiler cache.
+        if: ${{ !cancelled() && steps.cache-stats.outcome == 'success' && steps.cache-stats.outputs.changed == 'true' }}
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ steps.cache-key.outputs.app-key }}
 
       - name: Package distribution.
         id: package
@@ -249,7 +336,7 @@ jobs:
           retention-days: 1
 
       - name: Publish prerelease asset and notify Telegram.
-        if: ${{ inputs.distribute == true }}
+        if: ${{ inputs.distribute == true && inputs.warm_cache != true }}
         shell: bash
         env:
           ASSET_NAME: ${{ steps.package.outputs.asset_name }}
@@ -264,9 +351,20 @@ jobs:
         run: bash "$REPO_NAME/.github/scripts/publish-prerelease.sh"
 
       - uses: actions/upload-artifact@v7
-        if: inputs.update_metadata == true
+        if: inputs.update_metadata == true && inputs.warm_cache != true
         name: Upload update metadata fragment.
         with:
           name: update-fragment-mac-${{ inputs.arch }}
           path: dist/update-fragment-mac-${{ inputs.arch }}.json
           retention-days: 1
+
+      - name: Summarize caches.
+        continue-on-error: true
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          CACHE_RESULTS: >-
+            [{"layer": "Libraries", "key": "${{ steps.cache-libs.outputs.cache-primary-key }}", "restored": "${{ steps.cache-libs.outputs.cache-matched-key }}", "hit": "${{ steps.cache-libs.outputs.cache-hit }}"}, {"layer": "Application", "key": "${{ steps.cache-app.outputs.cache-primary-key }}", "restored": "${{ steps.cache-app.outputs.cache-matched-key }}", "hit": "${{ steps.cache-app.outputs.cache-hit }}"}]
+        run: python3 "$REPO_NAME/.github/scripts/ci_cache.py" summary

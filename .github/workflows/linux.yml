@@ -3,6 +3,21 @@ name: Linux.
 on:
   workflow_call:
     inputs:
+      source_sha:
+        description: Validated release commit supplied by the prerelease coordinator.
+        required: false
+        default: ''
+        type: string
+      warm_cache:
+        description: Build caches only on the default branch; do not distribute artifacts.
+        required: false
+        default: false
+        type: boolean
+      compiler_cache:
+        description: Enable application compiler caching.
+        required: false
+        default: true
+        type: boolean
       distribute:
         required: false
         default: false
@@ -21,6 +36,16 @@ on:
         type: boolean
   workflow_dispatch:
     inputs:
+      warm_cache:
+        description: Build caches only on the default branch; do not distribute artifacts.
+        required: false
+        default: false
+        type: boolean
+      compiler_cache:
+        description: Enable application compiler caching.
+        required: false
+        default: true
+        type: boolean
       distribute:
         description: Upload to an existing prerelease and notify Telegram.
         required: true
@@ -38,6 +63,11 @@ on:
 
 permissions:
   contents: write
+  actions: read
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
 
@@ -46,8 +76,28 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Validate cache mode.
+        shell: bash
+        env:
+          WARM_CACHE: ${{ inputs.warm_cache }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          DISTRIBUTE: ${{ inputs.distribute }}
+          UPDATE_METADATA: ${{ inputs.update_metadata }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [ "$WARM_CACHE" = true ]; then
+            if [ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ] \
+              || [ "$DISTRIBUTE" = true ] || [ "$UPDATE_METADATA" = true ] \
+              || [ -n "$RELEASE_TAG" ] || [ -n "$SOURCE_SHA" ]; then
+              echo '::error::Cache warming requires the default branch, no release_tag/source_sha and no distribution or metadata update.'
+              exit 1
+            fi
+          fi
+
       - name: Validate release and secrets.
-        if: ${{ inputs.distribute == true }}
+        if: ${{ inputs.distribute == true && inputs.warm_cache != true }}
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
@@ -82,16 +132,15 @@ jobs:
     name: Rocky Linux 8
     runs-on: ubuntu-latest
     needs: validate-distribution
-
-    strategy:
-      matrix:
-        defines:
-          - ""
+    concurrency:
+      group: ${{ inputs.warm_cache && 'warm-cache-linux-x86_64' || format('linux-{0}-{1}', github.run_id, github.run_attempt) }}
+      cancel-in-progress: false
 
     env:
-      UPLOAD_ARTIFACT: "true"
-      ONLY_CACHE: "false"
+      UPLOAD_ARTIFACT: ${{ inputs.warm_cache && 'false' || 'true' }}
       IMAGE_TAG: tdesktop:centos_env
+      CCACHE_MAXSIZE: '1Gi'
+      CACHE_DANCE_REVISION: 5422eac04292c961a382e0f584ea0f03ad9da723
       API_ID: ${{ secrets.API_ID }}
       API_HASH: ${{ secrets.API_HASH }}
 
@@ -99,7 +148,7 @@ jobs:
       - name: Clone.
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.release_tag || github.ref }}
+          ref: ${{ inputs.warm_cache && github.sha || inputs.source_sha || inputs.release_tag || github.ref }}
           submodules: recursive
 
       - name: Resolve release version.
@@ -113,14 +162,16 @@ jobs:
         run: |
           sudo apt update
           curl -sSL https://install.python-poetry.org | python3 -
-          curl -sSL https://github.com/ccache/ccache/releases/download/v4.13.6/ccache-4.13.6-linux-x86_64-glibc.tar.xz \
-          | sudo tar xJ -C /usr/local/bin --strip-components=1 ccache-4.13.6-linux-x86_64-glibc/ccache
-          echo "CCACHE_DIR=$RUNNER_TEMP/.tdesktop-cache" >> $GITHUB_ENV
+          python3 .github/scripts/ci_cache.py install linux-x86_64
           cd Telegram/build/docker/centos_env
           poetry install
-          DOCKERFILE=$(DEBUG= LTO= poetry run gen_dockerfile)
+          DOCKERFILE=$(DEBUG='' LTO='' poetry run gen_dockerfile)
           echo "$DOCKERFILE" > Dockerfile
           rm -rf __pycache__
+
+      - name: Compute cache keys.
+        id: cache-key
+        run: python3 .github/scripts/ci_cache.py keys linux x86_64
 
       - name: Free up some disk space.
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be
@@ -131,29 +182,48 @@ jobs:
         id: setup-buildx
         uses: docker/setup-buildx-action@v4
 
+      - name: Set up cache-dance runtime.
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Fetch cache-dance CLI.
+        run: |
+          mkdir -p out/ci-tools
+          curl --fail --show-error --location --retry 3 \
+            "https://raw.githubusercontent.com/reproducible-containers/buildkit-cache-dance/$CACHE_DANCE_REVISION/dist/index.js" \
+            --output out/ci-tools/cache-dance.js
+
       - name: Libraries cache.
         id: cache-libs
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
-          path: |
-            ${{ runner.temp }}/.buildx-cache
-            ${{ runner.temp }}/.mount-cache
-          key: ${{ runner.OS }}-libs-${{ hashFiles('Telegram/build/docker/centos_env/**') }}
-          restore-keys: ${{ runner.OS }}-libs-
+          path: ${{ runner.temp }}/.buildx-cache
+          key: ${{ steps.cache-key.outputs.prefix }}-layers-${{ steps.cache-key.outputs.dependencies }}
 
-      - name: Restore Docker cache mounts.
-        uses: reproducible-containers/buildkit-cache-dance@5422eac04292c961a382e0f584ea0f03ad9da723
+      - name: Docker mounts cache.
+        id: cache-mounts
+        uses: actions/cache/restore@v6
         with:
-          builder: ${{ steps.setup-buildx.outputs.name }}
-          cache-dir: ${{ runner.temp }}/.mount-cache
-          dockerfile: Telegram/build/docker/centos_env/Dockerfile
-          skip-extraction: ${{ steps.cache-libs.outputs.cache-hit }}
+          path: ${{ runner.temp }}/.mount-cache
+          key: ${{ steps.cache-key.outputs.prefix }}-mounts-${{ steps.cache-key.outputs.dependencies }}
+
+      - name: Inject Docker cache mounts.
+        env:
+          BUILDER: ${{ steps.setup-buildx.outputs.name }}
+        run: |
+          python3 .github/scripts/ci_cache.py mark dependencies
+          node out/ci-tools/cache-dance.js \
+            --builder "$BUILDER" --cache-dir "$RUNNER_TEMP/.mount-cache" \
+            --scratch-dir "$RUNNER_TEMP/cache-dance" \
+            --dockerfile Telegram/build/docker/centos_env/Dockerfile
 
       - name: Libraries.
+        id: libraries
         uses: docker/build-push-action@v7
         with:
           context: Telegram/build/docker/centos_env
-          load: ${{ env.ONLY_CACHE == 'false' }}
+          load: true
           tags: ${{ env.IMAGE_TAG }}
           cache-from: type=local,src=${{ runner.temp }}/.buildx-cache
           cache-to: type=local,dest=${{ runner.temp }}/.buildx-cache-new,mode=max
@@ -163,37 +233,62 @@ jobs:
           rm -rf ${{ runner.temp }}/.buildx-cache
           mv ${{ runner.temp }}/.buildx-cache{-new,}
 
+      - name: Export Docker cache mounts.
+        id: export-mounts
+        continue-on-error: true
+        env:
+          BUILDER: ${{ steps.setup-buildx.outputs.name }}
+        run: |
+          node out/ci-tools/cache-dance.js --extract \
+            --builder "$BUILDER" --cache-dir "$RUNNER_TEMP/.mount-cache" \
+            --scratch-dir "$RUNNER_TEMP/cache-dance" \
+            --dockerfile Telegram/build/docker/centos_env/Dockerfile
+          if [ -d "$RUNNER_TEMP/.mount-cache/var/cache/ccache" ]; then
+            CCACHE_DIR="$RUNNER_TEMP/.mount-cache/var/cache/ccache" ccache --max-size 1Gi --cleanup
+          fi
+          python3 .github/scripts/ci_cache.py mark dependencies --end
+
       - name: Save libraries cache.
         if: steps.cache-libs.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
-          path: |
-            ${{ runner.temp }}/.buildx-cache
-            ${{ runner.temp }}/.mount-cache
-          key: ${{ runner.OS }}-libs-${{ hashFiles('Telegram/build/docker/centos_env/**') }}
+          path: ${{ runner.temp }}/.buildx-cache
+          key: ${{ steps.cache-libs.outputs.cache-primary-key }}
 
-      - name: Restore Telegram Desktop cache.
-        id: cache-tdesktop
-        if: env.ONLY_CACHE == 'false'
+      - name: Save Docker mounts cache.
+        if: steps.cache-mounts.outputs.cache-hit != 'true' && steps.export-mounts.outcome == 'success'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/.mount-cache
+          key: ${{ steps.cache-mounts.outputs.cache-primary-key }}
+
+      - name: Restore application compiler cache.
+        id: cache-app
+        if: inputs.compiler_cache
         uses: actions/cache/restore@v6
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ${{ runner.OS }}-tdesktop-${{ matrix.defines || 'null' }}-${{ github.run_id }}
-          restore-keys: ${{ runner.OS }}-tdesktop-${{ matrix.defines || 'null' }}-
+          key: ${{ steps.cache-key.outputs.app-key }}
+          restore-keys: ${{ steps.cache-key.outputs.app-prefix }}
+
+      - name: Start application timer.
+        shell: bash
+        run: python3 .github/scripts/ci_cache.py mark application
+
+      - name: Reset compiler cache statistics.
+        id: cache-reset
+        if: inputs.compiler_cache
+        shell: bash
+        run: ccache --zero-stats
 
       - name: Telegram Desktop build.
-        if: env.ONLY_CACHE == 'false'
+        env:
+          COMPILER_CACHE: ${{ inputs.compiler_cache }}
         run: |
-          DEFINE=""
-          if [ -n "${{ matrix.defines }}" ]; then
-            DEFINE="-D ${{ matrix.defines }}=ON"
-            echo Define from matrix: $DEFINE
-            echo "ARTIFACT_NAME=AywGram ${{ matrix.defines }}" >> $GITHUB_ENV
-          else
-            echo "ARTIFACT_NAME=AywGram" >> $GITHUB_ENV
+          CACHE_ENV=(-u CCACHE_DISABLE)
+          if [ "$COMPILER_CACHE" != true ]; then
+            CACHE_ENV=(CCACHE_DISABLE=1)
           fi
-
-          ccache -z
 
           API_ARGS=(-D TDESKTOP_API_TEST=ON)
           if [ -n "$API_ID" ] && [ -n "$API_HASH" ]; then
@@ -201,50 +296,35 @@ jobs:
           fi
 
           docker run --rm \
-          -u $(id -u) \
-          -v $PWD:/usr/src/tdesktop \
-          -v ${{ env.CCACHE_DIR }}:/var/cache/ccache \
+          -u "$(id -u)" \
+          -v "$PWD:/usr/src/tdesktop" \
+          -v "$CCACHE_DIR:/var/cache/ccache" \
           -e CONFIG=Release \
+          -e CCACHE_MAXSIZE=1Gi \
           -e CCACHE_SLOPPINESS=pch_defines,time_macros \
-          $IMAGE_TAG \
-          env -u CCACHE_DISABLE /usr/src/tdesktop/Telegram/build/docker/centos_env/build.sh \
+          "$IMAGE_TAG" \
+          env "${CACHE_ENV[@]}" /usr/src/tdesktop/Telegram/build/docker/centos_env/build.sh \
           -D CMAKE_CONFIGURATION_TYPES=Release \
           "${API_ARGS[@]}" \
           -D DESKTOP_APP_DISABLE_AUTOUPDATE=OFF \
-          -D DESKTOP_APP_DISABLE_CRASH_REPORTS=OFF \
-          $DEFINE
+          -D DESKTOP_APP_DISABLE_CRASH_REPORTS=OFF
+          python3 .github/scripts/ci_cache.py mark application --end
 
-      - name: Count ccache misses.
-        id: ccache-stats
-        if: ${{ !cancelled() && env.ONLY_CACHE == 'false' }}
-        run: |
-          MISSES=$(ccache --print-stats | sed -n 's/^cache_miss\t//p' | head -1)
-          case "$MISSES" in (*[!0-9]*|'') MISSES=0;; esac
-          echo "misses=$MISSES" >> $GITHUB_OUTPUT
-          echo "ccache misses this run: $MISSES"
+      - name: Read compiler cache statistics.
+        id: cache-stats
+        continue-on-error: true
+        if: ${{ !cancelled() && inputs.compiler_cache && steps.cache-reset.outcome == 'success' }}
+        shell: bash
+        run: python3 .github/scripts/ci_cache.py stats ccache
 
-      - name: Trim Telegram Desktop cache.
-        if: >
-          !cancelled()
-            && env.ONLY_CACHE == 'false'
-            && github.ref_name == github.event.repository.default_branch
-            && steps.ccache-stats.outcome == 'success'
-            && fromJSON(steps.ccache-stats.outputs.misses) > 300
-        run: ccache --evict-older-than 1d
-
-      - name: Save Telegram Desktop cache.
-        if: >
-          !cancelled()
-            && env.ONLY_CACHE == 'false'
-            && steps.ccache-stats.outcome == 'success'
-            && fromJSON(steps.ccache-stats.outputs.misses) > 300
+      - name: Save application compiler cache.
+        if: ${{ !cancelled() && steps.cache-stats.outcome == 'success' && steps.cache-stats.outputs.changed == 'true' }}
         uses: actions/cache/save@v6
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ${{ steps.cache-tdesktop.outputs.cache-primary-key }}
+          key: ${{ steps.cache-key.outputs.app-key }}
 
       - name: Check.
-        if: env.ONLY_CACHE == 'false'
         run: |
           filePath="out/Release/AywGram"
           if test -f "$filePath"; then
@@ -260,7 +340,7 @@ jobs:
 
       - name: Package distribution.
         id: package
-        if: env.ONLY_CACHE == 'false'
+        if: inputs.warm_cache != true
         shell: bash
         run: |
           set -euo pipefail
@@ -293,7 +373,7 @@ jobs:
           retention-days: 1
 
       - name: Publish prerelease asset and notify Telegram.
-        if: ${{ inputs.distribute == true }}
+        if: ${{ inputs.distribute == true && inputs.warm_cache != true }}
         shell: bash
         env:
           ASSET_NAME: ${{ steps.package.outputs.asset_name }}
@@ -308,9 +388,20 @@ jobs:
         run: bash .github/scripts/publish-prerelease.sh
 
       - uses: actions/upload-artifact@v7
-        if: inputs.update_metadata == true
+        if: inputs.update_metadata == true && inputs.warm_cache != true
         name: Upload update metadata fragment.
         with:
           name: update-fragment-linux-x86_64
           path: dist/update-fragment-linux-x86_64.json
           retention-days: 1
+
+      - name: Summarize caches.
+        continue-on-error: true
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          CACHE_RESULTS: >-
+            [{"layer": "Docker layers", "key": "${{ steps.cache-libs.outputs.cache-primary-key }}", "restored": "${{ steps.cache-libs.outputs.cache-matched-key }}", "hit": "${{ steps.cache-libs.outputs.cache-hit }}"}, {"layer": "Docker mounts", "key": "${{ steps.cache-mounts.outputs.cache-primary-key }}", "restored": "${{ steps.cache-mounts.outputs.cache-matched-key }}", "hit": "${{ steps.cache-mounts.outputs.cache-hit }}"}, {"layer": "Application", "key": "${{ steps.cache-app.outputs.cache-primary-key }}", "restored": "${{ steps.cache-app.outputs.cache-matched-key }}", "hit": "${{ steps.cache-app.outputs.cache-hit }}"}]
+        run: python3 .github/scripts/ci_cache.py summary
