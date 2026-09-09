@@ -86,14 +86,15 @@ Flatpak、Snap 和商店构建仍使用各自平台的更新渠道。
 1. 平台工作流验证归档布局、Updater、文件类型和权限。
 2. 归档上传到当前 prerelease。
 3. 每个成功平台输出 metadata fragment，其中包含归档大小和 SHA-256。
-4. metadata job 下载本次成功 fragments，读取唯一普通 Release 中的旧 metadata，滚动合并后覆盖该 Release 的 `update-metadata.json`，并用合并结果同步正文中的平台下载表格。
-5. 缺失或失败的平台不会清空旧记录；整个过程中 prerelease 始终保持 prerelease。
+4. metadata job 下载本次成功 fragments，并按精确文件名扫描当前 prerelease；若某个平台没有本次 fragment 但已有手动上传的归档，则下载、验证并为其补充 fragment。
+5. metadata job 读取唯一普通 Release 中的旧 metadata，滚动合并后覆盖该 Release 的 `update-metadata.json`，并用合并结果同步正文中的平台下载表格。
+6. 缺失或失败的平台不会清空旧记录；整个过程中 prerelease 始终保持 prerelease。
 
 重复推送或移动同一个 tag 会复用 prerelease 并覆盖同名资产及摘要，只适合 CI 重试或替换尚未安装的构建。已经安装相同 `(app_version, revision)` 的客户端不会再次下载；若要向这些用户发布新构建，必须提高 revision 并创建新 tag，例如从 `pre-release-v7.1.3-1` 改为 `pre-release-v7.1.3-2`。revision 可以跳号，但不能回退。
 
 ### 手动上传后 refresh
 
-为节省构建资源，可把 updater 兼容的 Windows x86_64 或其他平台归档手动上传到 prerelease，然后运行 [`.github/workflows/refresh-update-metadata.yml`](../.github/workflows/refresh-update-metadata.yml)。
+为节省构建资源，可把 updater 兼容的 Windows x86_64 或其他平台归档手动上传到 prerelease。若上传在自动构建的 metadata 收集开始前完成，自动流程会直接识别；更晚的上传需要运行 [`.github/workflows/refresh-update-metadata.yml`](../.github/workflows/refresh-update-metadata.yml)。
 
 `prerelease_tag` 留空时，refresh 选择仓库中最新发布的 prerelease；也可以显式指定另一个 prerelease。工作流 checkout 该 tag，用共用版本脚本解析 base、revision 和完整版本，并验证源码的 `AppVersion` 与 `AppVersionStr`，然后按上表的精确文件名扫描四个活跃平台。它只下载和验证命中的归档，生成 fragments 并滚动覆盖唯一普通 Release 的 metadata。名称不匹配的安装器或附件会被忽略。
 
