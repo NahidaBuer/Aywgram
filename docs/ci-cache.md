@@ -2,7 +2,7 @@
 
 [English](ci-cache.EN.md)
 
-Windows、macOS 和 Linux 工作流共用 `ayw-ci-v3` 缓存命名空间，推送发布 tag 后仍会自动发布预发布版本。应用编译缓存默认启用；手动运行单个平台工作流时，可以设置 `compiler_cache=false`，对比关闭应用编译缓存后的构建耗时。依赖缓存始终保留。
+Windows、macOS 和 Linux 工作流共用 `ayw-ci-v3` 缓存命名空间，推送发布 tag 后仍会自动发布预发布版本。Linux x86_64 和 Windows x64 继续启用应用编译缓存。macOS ARM64 默认关闭，Windows ARM64 不支持，因为这两个编译器包装路径未能完成一次干净的 CI 构建。所有平台始终保留依赖缓存。
 
 ## 推送 tag 与共享缓存
 
@@ -22,7 +22,7 @@ Actions 中会出现两条记录：tag 上的转发运行，以及 main 上的�
 
 默认目标 `all` 包含 Linux x86_64、macOS ARM64 和 Windows ARM64，也可以单独选择其中一个目标。Windows x86_64 可单独预热，仍不参与自动预发布构建。同一平台、同一架构的预热共用并发组，并设置 `cancel-in-progress: false`。多个请求排队时，GitHub 可能用新请求替换较早的待运行请求，但不会因此取消已经开始的预热。
 
-可复用的平台工作流默认接收 `warm_cache=false` 和 `compiler_cache=true`，通过 `workflow_call` 接收可选的 `source_sha`。预热必须在默认分支运行，`release_tag` 与 `source_sha` 必须为空，且 `distribute` 与 `update_metadata` 都必须关闭。直接手动运行平台工作流也支持预热和编译缓存开关。
+可复用的平台工作流默认接收 `warm_cache=false`、各平台自己的 `compiler_cache` 默认值，并通过 `workflow_call` 接收可选的 `source_sha`。macOS 的编译缓存默认关闭，Linux 与 Windows x64 默认开启，Windows ARM64 会忽略该选项。预热必须在默认分支运行，`release_tag` 与 `source_sha` 必须为空，且 `distribute` 与 `update_metadata` 都必须关闭。直接手动运行平台工作流也支持预热，并在可用平台提供编译缓存开关。
 
 手动预热适合首次发版前、依赖或工具链更新后，以及长时间未构建后使用；日常发布本身也会更新 main 上的缓存。推送 tag 不会等待正在进行的预热。旧 tag 作用域中的缓存不会迁移到 main，也不会被主动删除。超过七天未访问的缓存可能过期，旧快照也会占用仓库缓存配额。详见 [GitHub 的缓存作用域与淘汰规则](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching)。
 
@@ -30,17 +30,18 @@ Actions 中会出现两条记录：tag 上的转发运行，以及 main 上的�
 
 | 平台 | 依赖缓存 | 应用编译缓存 |
 | --- | --- | --- |
-| Windows ARM64 / x64 | ThirdParty、非 Qt 的 Libraries、Qt 分开存储，各自包含对应的依赖准备阶段标记 | sccache 0.17.0，使用本地磁盘，每种架构上限 1 GiB |
-| macOS ARM64 | Libraries 与 ThirdParty 合并存储 | ccache 4.13.6，使用本地磁盘，上限 1 GiB |
+| Windows ARM64 | ThirdParty、非 Qt 的 Libraries、Qt 分开存储，各自包含对应的依赖准备阶段标记 | 已关闭；原生 sccache 0.17.0 服务在编译前退出 |
+| Windows x64 | ThirdParty、非 Qt 的 Libraries、Qt 分开存储，各自包含对应的依赖准备阶段标记 | sccache 0.17.0，使用本地磁盘，上限 1 GiB |
+| macOS ARM64 | Libraries 与 ThirdParty 合并存储 | 默认关闭；Xcode 编译器包装路径仅保留用于显式诊断 |
 | Linux x86_64 | Docker BuildKit 构建层与 cache mounts 分开存储 | ccache，使用本地磁盘，上限 1 GiB；容器运行时显式覆盖容量设置 |
 
 缓存 key 包含平台、目标架构和工具链指纹。Windows 记录实际使用的 MSVC、Windows SDK 与 CMake 版本；macOS 记录 Xcode、SDK、AppleClang 与 CMake 版本；Linux 记录生成后的 Docker 构建上下文指纹。依赖哈希覆盖 Git 跟踪的 prepare 脚本及 `qt_version.py`，或 Dockerfile 生成后的受跟踪构建上下文文件。临时文件、Python 字节码和虚拟环境不参与哈希。
 
-Windows 和 macOS 的依赖回退恢复范围限制在同一工具链内。恢复后，prepare 脚本仍会逐个检查依赖阶段；仅仅命中 GitHub Actions 缓存不会跳过这些检查。Windows x64 使用 `Libraries/win64`，ARM64 使用 `Libraries`。应用编译缓存的恢复前缀还包含依赖指纹、缓存工具版本与 Release 配置；每次保存时追加运行 ID 和重试次数，使快照具有独立 key，同时允许后续运行恢复先前的快照。普通应用源码变动不会改变恢复前缀。
+Windows 和 macOS 的依赖回退恢复范围限制在同一工具链内。恢复后，prepare 脚本仍会逐个检查依赖阶段；仅仅命中 GitHub Actions 缓存不会跳过这些检查。Windows x64 使用 `Libraries/win64`，ARM64 使用 `Libraries`。在支持的目标上，应用编译缓存的恢复前缀还包含依赖指纹、缓存工具版本与 Release 配置；每次保存时追加运行 ID 和重试次数，使快照具有独立 key，同时允许后续运行恢复先前的快照。普通应用源码变动不会改变恢复前缀。
 
-Windows CI 使用 Ninja Multi-Config、选定的 Native Tools 环境和现有 Release 设置，本地 Visual Studio 构建不受影响。MSVC 的预编译头（PCH）保持启用。sccache 会绕过使用 PCH 的编译，因此当前收益主要来自其余编译任务。分析整体命中率时，应同时查看不可缓存请求的计数。
+Windows CI 使用 Ninja Multi-Config、选定的 Native Tools 环境和现有 Release 设置，本地 Visual Studio 构建不受影响。Windows x64 可以使用 sccache，Windows ARM64 始终直接调用编译器。MSVC 的预编译头（PCH）保持启用。sccache 会绕过使用 PCH 的编译，因此 x64 的收益主要来自其余编译任务。分析整体命中率时，应同时查看不可缓存请求的计数。
 
-macOS 在同一个 runner 上准备依赖并构建应用，全程使用同一套 Xcode。继续使用 Xcode generator，以保留资源目录、图标和 app bundle 处理。CI 生成的编译器包装脚本调用 ccache 和选定的 clang/clang++；链接阶段使用真实编译器。Clang PCH 配置为 `pch_defines,time_macros` 和 `-Xclang -fno-pch-timestamp`。缓存不包含整个 Xcode 构建目录或最终应用 bundle。
+macOS 在同一个 runner 上准备依赖并构建应用，全程使用同一套 Xcode。继续使用 Xcode generator，以保留资源目录、图标和 app bundle 处理。自动构建直接调用选定的 clang/clang++。实验性的 `compiler_cache=true` 路径保留 ccache 包装器用于诊断，但预发布和默认手动构建不会使用它。缓存不包含整个 Xcode 构建目录或最终应用 bundle。
 
 Linux 在构建依赖镜像前注入缓存 mounts，并在保存 mount 压缩包前显式导出。导出使用固定提交版本的 cache-dance CLI，作为普通步骤运行，不再依赖 job 结束时的 action post 步骤。导出的依赖 ccache 在上传前裁剪至 1 GiB，包管理器的 mount 数据保留。导出失败时，仅跳过 mount 缓存保存，失败会体现在步骤结果中；已完成的 Docker 构建层仍可保存并用于构建应用。依赖缓存会在应用编译之前保存，因此后续应用编译失败不会丢失已经准备好的依赖。应用缓存出现少量新增内容时也会保存，取消的运行则不保存应用缓存。
 
@@ -50,6 +51,6 @@ Linux 在构建依赖镜像前注入缓存 mounts，并在保存 mount 压缩包
 
 每次构建都会在运行摘要中记录工作流 ref（缓存作用域）、发布 tag、实际源码 SHA、实际工具链、请求和恢复的 key、精确命中或回退命中状态、依赖与应用耗时、编译缓存计数（包括不可缓存原因）、本地缓存大小，以及 API 可访问时的仓库缓存总占用。统计读取失败会明确显示为不可用，并阻止保存该次应用缓存快照，不会将失败伪装成零 miss。缓存统计或摘要失败不会把成功的应用构建变成失败。
 
-实现后，应分别在全新 runner 上验证三个自动发布平台的冷、热 Release 构建，并单独验证 Windows x64。确认编译器实际经过缓存包装、出现编译缓存命中、依赖阶段正确跳过，并检查目标架构、Updater、macOS 图标与 bundle 内容，以及现有发行包布局。对比 `compiler_cache=false` 时的耗时，尤其关注保留 PCH 后 Windows 的实际收益。获准发布后，用两个不同 tag 验证实际构建均在 main 上运行，源码 SHA 分别对应各自 tag，且第二次能恢复第一次保存的兼容缓存。不能仅凭缓存目录有内容或恢复步骤显示成功，就认定编译成功。
+实现后，应分别在全新 runner 上验证三个自动发布平台的冷、热 Release 构建，并单独验证 Windows x64。在支持编译缓存的目标上，确认编译器实际经过缓存包装并出现命中；在所有目标上确认依赖阶段正确跳过，并检查目标架构、Updater、macOS 图标与 bundle 内容，以及现有发行包布局。获准发布后，用两个不同 tag 验证实际构建均在 main 上运行，源码 SHA 分别对应各自 tag，且第二次能恢复第一次保存的兼容缓存。不能仅凭缓存目录有内容或恢复步骤显示成功，就认定编译成功。
 
 静态检查包括：对平台和预热工作流运行带 ShellCheck 的 `actionlint`，以及执行 `python -B -m unittest discover -s .github/scripts -p 'test_*.py'`。CI 构建和发布需在获得相应授权后运行。缓存布局不兼容时，通过升级命名空间使旧缓存失效；不要默认通过删除共享缓存来排查问题。

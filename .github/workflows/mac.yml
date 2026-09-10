@@ -14,9 +14,9 @@ on:
         default: false
         type: boolean
       compiler_cache:
-        description: Enable application compiler caching.
+        description: Experimentally enable application compiler caching.
         required: false
-        default: true
+        default: false
         type: boolean
       arch:
         required: false
@@ -46,9 +46,9 @@ on:
         default: false
         type: boolean
       compiler_cache:
-        description: Enable application compiler caching.
+        description: Experimentally enable application compiler caching.
         required: false
-        default: true
+        default: false
         type: boolean
       arch:
         description: mac architecture to build.

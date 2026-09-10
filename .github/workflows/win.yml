@@ -14,7 +14,7 @@ on:
         default: false
         type: boolean
       compiler_cache:
-        description: Enable application compiler caching.
+        description: Enable application compiler caching where supported (x64 only).
         required: false
         default: true
         type: boolean
@@ -46,7 +46,7 @@ on:
         default: false
         type: boolean
       compiler_cache:
-        description: Enable application compiler caching.
+        description: Enable application compiler caching where supported (x64 only).
         required: false
         default: true
         type: boolean
@@ -253,7 +253,7 @@ jobs:
         run: python "%TBUILD%\%REPO_NAME%\.github\scripts\ci_cache.py" keys windows ${{ inputs.arch }}
 
       - name: Install sccache.
-        if: inputs.compiler_cache
+        if: inputs.compiler_cache && matrix.arch == 'x64'
         run: python "%TBUILD%\%REPO_NAME%\.github\scripts\ci_cache.py" install windows-${{ inputs.arch }}
 
       - name: NuGet sources.
@@ -372,7 +372,7 @@ jobs:
 
       - name: Restore application compiler cache.
         id: cache-app
-        if: inputs.compiler_cache
+        if: inputs.compiler_cache && matrix.arch == 'x64'
         uses: actions/cache/restore@v6
         with:
           path: ${{ env.SCCACHE_DIR }}
@@ -385,7 +385,7 @@ jobs:
 
       - name: Reset compiler cache statistics.
         id: cache-reset
-        if: inputs.compiler_cache
+        if: inputs.compiler_cache && matrix.arch == 'x64'
         shell: bash
         run: sccache --start-server && sccache --zero-stats
 
@@ -394,7 +394,7 @@ jobs:
         env:
           CMAKE_BUILD_PARALLEL_LEVEL: "2"
           NUMBER_OF_PROCESSORS: "2"
-          COMPILER_CACHE: ${{ inputs.compiler_cache }}
+          COMPILER_CACHE: ${{ inputs.compiler_cache && matrix.arch == 'x64' }}
         run: |
           Set-Location "$env:TBUILD\$env:REPO_NAME\Telegram"
           $configureArgs = @(
@@ -421,7 +421,7 @@ jobs:
       - name: Read compiler cache statistics.
         id: cache-stats
         continue-on-error: true
-        if: ${{ !cancelled() && inputs.compiler_cache && steps.cache-reset.outcome == 'success' }}
+        if: ${{ !cancelled() && inputs.compiler_cache && matrix.arch == 'x64' && steps.cache-reset.outcome == 'success' }}
         shell: bash
         run: python "$TBUILD/$REPO_NAME/.github/scripts/ci_cache.py" stats sccache
 
