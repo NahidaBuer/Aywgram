@@ -231,6 +231,13 @@ private:
 	void setupConnectingWidget();
 	void setupMainMenuToggle();
 	void setupMoreChatsBar();
+	void switchToChatsFilter(FilterId id);
+	[[nodiscard]] QPixmap grabForChatsFilterSlide();
+	void startChatsFilterSlide(
+		QPixmap wasCache,
+		QPixmap nowCache,
+		bool slideLeft,
+		crl::time duration);
 	void setupDownloadBar();
 	void setupShortcuts();
 	void setupStories();
@@ -454,6 +461,7 @@ private:
 	bool _searchQueryFromArchive = true;
 
 	Ui::Controls::SwipeBackResult _swipeBackData;
+	bool _chatsFilterSwipeSwitch = false;
 	bool _swipeBackMirrored = false;
 	bool _swipeBackIconMirrored = false;
 
@@ -486,6 +494,7 @@ private:
 	rpl::variable<float64> _childListShown;
 	rpl::variable<PeerId> _childListPeerId;
 	std::unique_ptr<Ui::RpWidget> _hideChildListCanvas;
+	std::unique_ptr<Ui::RpWidget> _chatsFilterSlideCanvas;
 
 };
 
