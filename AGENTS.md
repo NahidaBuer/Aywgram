@@ -36,7 +36,7 @@ Read only the relevant sections of the [coding reference](docs/agents/coding.md)
 
 ## Localization
 
-Ordinary changes maintain the English `ayu_` contract in `Telegram/Resources/langs/lang.strings` and matching Simplified Chinese in `Telegram/Resources/langs/zh-hans.lproj/zh-hans.json`. Read the [i18n skill](.agents/skills/aywgram-i18n/SKILL.md) when changing these keys or performing localization audits, English-source synchronization, release preparation or localization-heavy integrations. It owns LanguagePacks source synchronization, audit commands and release translation policy. Batch other locales during dedicated maintenance; do not require every feature change to update every language.
+Feature changes first maintain the English `ayu_` contract in `Telegram/Resources/langs/lang.strings` and matching Simplified Chinese in `Telegram/Resources/langs/zh-hans.lproj/zh-hans.json`, then synchronize `Telegram/Resources/ayw_langpacks`, translate the changed keys across its supported locales, and regenerate its artifacts. Read the [i18n skill](.agents/skills/aywgram-i18n/SKILL.md) when changing these keys or performing localization audits, source synchronization, release preparation or localization-heavy integrations. It owns audit commands and the development workflow, including committing the LanguagePacks changes before the Desktop gitlink. Do not defer a feature's language-pack updates until release; unrelated historical gaps can be handled during dedicated maintenance.
 
 ## Text Files
 

@@ -38,15 +38,22 @@ def main() -> int:
     source = packs / "source/en.json"
     expected = load_contract(repository / "Telegram/Resources/langs/lang.strings")
     current = json.loads(source.read_text(encoding="utf-8")) if source.is_file() else None
-    if current == expected:
-        print(f"LanguagePacks English source is current ({len(expected)} keys).")
+    zh_path = "translations/zh-hans.json"
+    zh_source = repository / "Telegram/Resources/langs/zh-hans.lproj/zh-hans.json"
+    expected_zh = json.loads(zh_source.read_text(encoding="utf-8"))
+    current_zh = (
+        json.loads((packs / zh_path).read_text(encoding="utf-8"))
+        if (packs / zh_path).is_file() else None
+    )
+    if current == expected and current_zh == expected_zh:
+        print(f"LanguagePacks English and Simplified Chinese are current ({len(expected)} keys).")
         return 0
     if not args.write:
-        print("LanguagePacks English source is stale; rerun with --write.")
+        print("LanguagePacks English or Simplified Chinese is stale; rerun with --write.")
         return 1
     sync = [sys.executable, "scripts/sync_sources.py", "--desktop", str(repository)]
     subprocess.run(sync, cwd=packs, check=True)
-    subprocess.run([sys.executable, "scripts/build.py"], cwd=packs, check=True)
+    print("Review changed keys in every locale, then run build.py and the full i18n audit.")
     return 0
 
 

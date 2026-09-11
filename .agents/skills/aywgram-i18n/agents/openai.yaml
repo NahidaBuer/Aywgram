@@ -1,4 +1,4 @@
 interface:
   display_name: "AywGram AI i18n"
   short_description: "Maintain contracts and AI language packs"
-  default_prompt: "Use $aywgram-i18n to audit AywGram's English and Simplified Chinese contracts and prepare release language packs."
+  default_prompt: "Use $aywgram-i18n to synchronize this feature's English, Simplified Chinese, and all supported language packs, validate them, and coordinate submodule and Desktop commits."

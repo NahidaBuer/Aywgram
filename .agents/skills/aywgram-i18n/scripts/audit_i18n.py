@@ -60,12 +60,25 @@ def load_json(path: Path) -> tuple[dict[str, object], set[str]]:
     return data, duplicates
 
 
-def load_catalog(path: Path) -> dict[str, str]:
-    content = path.read_text(encoding="utf-8")
+def parse_catalog(content: str) -> dict[str, str]:
     return {
         key: json.loads(f'"{encoded}"')
         for key, encoded in STRING_PATTERN.findall(content)
     }
+
+
+def load_catalog(path: Path) -> dict[str, str]:
+    return parse_catalog(path.read_text(encoding="utf-8"))
+
+
+def git_file(repository: Path, ref: str, path: str) -> str:
+    return subprocess.run(
+        ["git", "show", f"{ref}:{path}"],
+        cwd=repository,
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+    ).stdout
 
 
 def placeholders(value: str) -> set[str]:
@@ -83,9 +96,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--repository", type=Path, default=repository)
     parser.add_argument("--details", action="store_true")
     parser.add_argument(
+        "--base-ref",
+        default="HEAD",
+        help="Desktop commit before the feature; require its changed keys in every locale",
+    )
+    parser.add_argument(
         "--release",
         action="store_true",
-        help="also validate the LanguagePacks submodule and generated dist tree",
+        help="compatibility alias; LanguagePacks validation now always runs",
     )
     return parser.parse_args()
 
@@ -171,27 +189,39 @@ def main() -> int:
         missing_link_rows,
         runtime_errors,
     ))
-    if args.release:
-        packs = repository / "Telegram/Resources/ayw_langpacks"
-        commands = (
-            [sys.executable, "scripts/build.py", "--check"],
-            [sys.executable, "scripts/audit.py"],
-        )
-        if not (packs / "scripts/audit.py").is_file():
-            print("LanguagePacks submodule is not initialized.")
-            failed = True
-        else:
-            pack_source, _ = load_json(packs / "source/en.json")
-            pack_zh_hans, _ = load_json(packs / "translations/zh-hans.json")
-            if pack_source != catalog:
-                print("LanguagePacks source/en.json is not synchronized.")
-                failed = True
-            if pack_zh_hans != zh_hans:
-                print("LanguagePacks translations/zh-hans.json is not synchronized.")
-                failed = True
-            for command in commands:
-                if subprocess.run(command, cwd=packs, check=False).returncode:
-                    failed = True
+    packs = repository / "Telegram/Resources/ayw_langpacks"
+    if not (packs / "scripts/audit.py").is_file():
+        print("LanguagePacks submodule is not initialized.")
+        return 1
+    pack_source, source_duplicates = load_json(packs / "source/en.json")
+    pack_zh_hans, zh_duplicates = load_json(packs / "translations/zh-hans.json")
+    if pack_source != catalog or source_duplicates:
+        print("LanguagePacks source/en.json is not synchronized or has duplicate keys.")
+        failed = True
+    if pack_zh_hans != zh_hans or zh_duplicates:
+        print("LanguagePacks translations/zh-hans.json is not synchronized or has duplicate keys.")
+        failed = True
+    try:
+        desktop_base = parse_catalog(git_file(
+            repository, args.base_ref, "Telegram/Resources/langs/lang.strings"
+        ))
+        pack_base = json.loads(git_file(packs, "HEAD", "source/en.json"))
+    except (subprocess.CalledProcessError, json.JSONDecodeError) as error:
+        print(f"Could not load localization baseline: {error}")
+        return 1
+    changed_keys = {
+        key for key, value in catalog.items()
+        if desktop_base.get(key) != value or pack_base.get(key) != value
+    }
+    print(f"Feature translation contract: changed-keys={len(changed_keys)}")
+    if args.details:
+        print_keys("required in every locale", changed_keys)
+    sys.stdout.flush()
+    command = [sys.executable, "scripts/audit.py"]
+    for key in sorted(changed_keys):
+        command.extend(["--required-key", key])
+    if subprocess.run(command, cwd=packs, check=False).returncode:
+        failed = True
     return int(failed)
 
 
