@@ -16,16 +16,7 @@ AywGram 采用滚动发布模式：不定期持续发布在 Pre-release，仓库
 
 ## 功能
 
-- 灵活的幽灵模式、消息历史与防撤回
-- 字体、外观与宽屏布局等界面自定义
-- 串流模式、本地 Premium 显示、翻译与媒体预览
-- WEB 代理：通过内置 WebView 承载的 MTProxy 传输，必要时可由用户手动打开浏览器回退
-
-一些新增的功能，包括但不限于：
-
-- 强化对话设置：缩放贴纸列表、显示媒体元数据、按消息类型筛选搜索等
-- 会话迁移：与 Pyrogram 会话串及 Mithka JSON 备份互操作
-- 还在缓慢增加中...
+基于 AyuGram 与 Telegram Desktop，AywGram 聚焦隐私、消息掌控和深度定制，提供幽灵模式、防撤回与编辑历史、消息过滤与转发增强、宽屏布局、Live Photo、会话迁移及云设置同步；同时吸收 Yurigram、Nagram、NekoGram 等客户端的优秀思路，并持续加入桌面端原创体验。详见[功能与来源](docs/features.md)。
 
 > ~~AywGram 是我的个人项目~~
 

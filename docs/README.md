@@ -14,6 +14,8 @@
 
 ## 功能与维护资料
 
+- [功能与来源](features.md)（[English](features.EN.md)）：当前差异功能、原创实现、外部客户端 idea 和 Ayu/Telegram 上游归属。
+- [功能变更日志](change-log.md)：仅中文，按时间记录 AywGram 差异功能的引入与显著调整。
 - [迁移应用数据](app-data-migration.md)：Windows、macOS 与 Linux 的默认数据路径、便携模式和迁移注意事项。
 - [会话迁移](session-backup.md)：Pyrogram 会话串与 Mithka JSON 的格式、安全限制和互操作范围。
 - [自动更新与 metadata 发布](aywgram-updater.md)：GitHub Release metadata、发行资产布局、客户端安装流程和维护政策。

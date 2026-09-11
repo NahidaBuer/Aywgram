@@ -21,17 +21,7 @@ If the project rename makes existing accounts appear to be missing, manually mig
 
 ## Features
 
-- Flexible ghost mode, message history, and anti-recall
-- Font, appearance, and wide-layout customization
-- Streamer mode, local Premium display, translation, and media preview
-- WEB proxy transport, carried by an embedded WebView with an explicit browser fallback
-
-Additional features include, but are not limited to:
-
-- Enhanced chat settings, including sticker-list scaling, media metadata, and
-  message-type search filters
-- Session transfer compatible with Pyrogram strings and Mithka JSON backups
-- More features are being added gradually
+Built on AyuGram and Telegram Desktop, AywGram focuses on privacy, message control, and deep customization. It offers Ghost Mode, anti-recall and edit history, message filtering and forwarding enhancements, wide-screen layouts, Live Photos, session transfer, and cloud settings sync. It also adapts ideas from clients such as Yurigram, Nagram, and NekoGram while continuing to add original desktop experiences. See [Features and provenance](docs/features.EN.md).
 
 ~~AywGram is my personal project.~~
 
