@@ -10,6 +10,7 @@ Use the repository-owned [upstream sync skill](.agents/skills/ayugram-upstream-s
 
 ## Build and Validation
 
+- Use the repository-owned [build skill](.agents/skills/aywgram-build/SKILL.md) for local or CI builds, release packaging, build diagnosis, and update-metadata artifacts. It owns local revision injection, tagged release identity, artifact consistency, and platform-guide routing. A local build without a supplied release tag temporarily uses revision `1` by default; an explicit tag always supplies its own revision, while the committed source remains at revision `0`.
 - Build only when the user explicitly authorizes it. An authorized build defaults to Release when no configuration is named. Debug requires an explicit request or approval for a stated diagnostic need; never make Debug a prerequisite for Release.
 - Static-only work, including upstream integration, requires no existing executable, test account, build or in-app testing. Run focused static checks for the changed areas and state what remains unverified.
 - Before configuring, building, packaging or investigating a toolchain failure, read only the target platform guide: [Windows](docs/agents/building-windows.md), [macOS](docs/agents/building-macos.md), or [Linux/WSL](docs/agents/building-linux.md). Verify the actual configured toolchain before reusing `out/`; machine snapshots are not permanent requirements.

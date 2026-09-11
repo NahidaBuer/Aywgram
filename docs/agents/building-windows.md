@@ -1,6 +1,8 @@
 # Agent Build Guide: Windows
 
-Read this file only for native Windows toolchain work. Follow [AGENTS.md](../../AGENTS.md#build-and-validation) for build authorization and configuration selection. Human setup instructions are in the [Windows x64 build guide](../building-win-x64.md).
+Read this file only for native Windows toolchain work. Follow the repository [build skill](../../.agents/skills/aywgram-build/SKILL.md) for authorization, build mode, tagged revision injection and release consistency. Human setup instructions are in the [Windows x64 build guide](../building-win-x64.md).
+
+An ordinary local build without a supplied release tag temporarily injects revision `1` before compilation and therefore produces a version such as `7.2.8-1`. An explicit prerelease tag supplies its revision instead. Keep the committed `AppReleaseRevision` at `0`, and restore the temporary injection only after packaging the binaries built from it.
 
 A checkout opened through `\\wsl.localhost\...` is a Linux checkout. Do not use native Windows CMake on its `out/` tree; follow the [Linux agent guide](building-linux.md).
 

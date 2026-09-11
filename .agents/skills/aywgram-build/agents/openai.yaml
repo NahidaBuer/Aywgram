@@ -1,0 +1,4 @@
+interface:
+  display_name: "AywGram Build"
+  short_description: "Build and package consistent AywGram releases"
+  default_prompt: "Use $aywgram-build to build and validate an AywGram artifact with matching source, version, archive, and metadata."

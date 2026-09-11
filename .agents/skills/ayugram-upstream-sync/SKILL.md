@@ -65,7 +65,7 @@ Also verify selected release tags and remote tips are ancestors of `HEAD`, inspe
 
 ## Build
 
-Follow the root [build policy](../../../AGENTS.md#build-and-validation): explicit authorization is required; an unnamed configuration defaults to Release; Debug requires an explicit request or approved diagnostic need and is never a prerequisite for Release. Use repository-root `out/`.
+Read and follow the repository [build skill](../aywgram-build/SKILL.md). Explicit authorization is required; an unnamed configuration defaults to Release; Debug requires an explicit request or approved diagnostic need and is never a prerequisite for Release. Use repository-root `out/`.
 
 Before configuring or building, read only the target platform guide: [Windows](../../../docs/agents/building-windows.md), [macOS](../../../docs/agents/building-macos.md), or [Linux/WSL](../../../docs/agents/building-linux.md). Use its environment checks and build command; do not assume CMake is on PATH or copy another machine's toolchain.
 
