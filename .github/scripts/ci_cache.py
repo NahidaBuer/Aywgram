@@ -157,13 +157,17 @@ def install(args):
 
 def mac_wrappers(args):
     TOOLS.mkdir(parents=True, exist_ok=True)
-    cache = str(TOOLS / "ccache")
+    cache = (TOOLS / "ccache").as_posix()
     values = {}
     for language, compiler in (("C", "clang"), ("CXX", "clang++")):
         real = capture("xcrun", "--find", compiler)
         wrapper = TOOLS / f"cached-{compiler}"
         wrapper.write_text(
-            f'#!/bin/sh\nexec {shlex.quote(cache)} {shlex.quote(real)} "$@"\n',
+            '#!/bin/sh\n'
+            'unset IPHONEOS_DEPLOYMENT_TARGET IOS_SIMULATOR_DEPLOYMENT_TARGET\n'
+            'unset TVOS_DEPLOYMENT_TARGET WATCHOS_DEPLOYMENT_TARGET\n'
+            'unset XROS_DEPLOYMENT_TARGET DRIVERKIT_DEPLOYMENT_TARGET\n'
+            f'exec {shlex.quote(cache)} {shlex.quote(real)} "$@"\n',
             encoding="utf-8", newline="\n")
         wrapper.chmod(0o755)
         values[f"CACHE_{language}_WRAPPER"] = str(wrapper)

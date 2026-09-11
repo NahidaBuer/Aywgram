@@ -14,9 +14,9 @@ on:
         default: false
         type: boolean
       compiler_cache:
-        description: Experimentally enable application compiler caching.
+        description: Enable application compiler caching.
         required: false
-        default: false
+        default: true
         type: boolean
       arch:
         required: false
@@ -46,9 +46,9 @@ on:
         default: false
         type: boolean
       compiler_cache:
-        description: Experimentally enable application compiler caching.
+        description: Enable application compiler caching.
         required: false
-        default: false
+        default: true
         type: boolean
       arch:
         description: mac architecture to build.
@@ -197,12 +197,6 @@ jobs:
         id: cache-key
         run: python3 "$REPO_NAME/.github/scripts/ci_cache.py" keys mac arm64
 
-      - name: Install ccache and compiler wrappers.
-        if: inputs.compiler_cache
-        run: |
-          python3 "$REPO_NAME/.github/scripts/ci_cache.py" install mac-arm64
-          python3 "$REPO_NAME/.github/scripts/ci_cache.py" mac-wrappers
-
       - name: Libraries cache.
         id: cache-libs
         uses: actions/cache/restore@v6
@@ -230,6 +224,12 @@ jobs:
             Libraries
             ThirdParty
           key: ${{ steps.cache-libs.outputs.cache-primary-key }}
+
+      - name: Install ccache and compiler wrappers.
+        if: inputs.compiler_cache
+        run: |
+          python3 "$REPO_NAME/.github/scripts/ci_cache.py" install mac-arm64
+          python3 "$REPO_NAME/.github/scripts/ci_cache.py" mac-wrappers
 
       - name: Restore application compiler cache.
         id: cache-app
@@ -263,6 +263,10 @@ jobs:
           CACHE_ARGS=()
           if [ "$COMPILER_CACHE" = true ]; then
             CACHE_ARGS=(
+              "-DCMAKE_C_COMPILER=$CACHE_C_WRAPPER"
+              "-DCMAKE_CXX_COMPILER=$CACHE_CXX_WRAPPER"
+              "-DCMAKE_OBJC_COMPILER=$CACHE_C_WRAPPER"
+              "-DCMAKE_OBJCXX_COMPILER=$CACHE_CXX_WRAPPER"
               "-DCMAKE_XCODE_ATTRIBUTE_CC=$CACHE_C_WRAPPER"
               "-DCMAKE_XCODE_ATTRIBUTE_CXX=$CACHE_CXX_WRAPPER"
               "-DCMAKE_XCODE_ATTRIBUTE_LD=$REAL_C_COMPILER"

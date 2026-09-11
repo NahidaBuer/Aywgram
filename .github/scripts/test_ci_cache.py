@@ -2,6 +2,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -109,6 +110,49 @@ class CacheStatsTests(unittest.TestCase):
 
 
 class CacheInstallerTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("sh"), "POSIX shell is required")
+    def test_mac_wrapper_cleans_xcode_environment_and_forwards_exit_status(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tools = Path(directory) / "tools with spaces"
+            tools.mkdir()
+            compiler = tools / "real compiler"
+            compiler.write_text(
+                '#!/bin/sh\n'
+                'env | sort\n'
+                'printf "arg=%s\\n" "$@"\n'
+                'exit 17\n', encoding="utf-8", newline="\n")
+            compiler.chmod(0o755)
+            cache = tools / "ccache"
+            cache.write_text('#!/bin/sh\nexec "$@"\n', encoding="utf-8", newline="\n")
+            cache.chmod(0o755)
+            with patch.object(CACHE, "TOOLS", tools), \
+                    patch.object(CACHE, "capture", return_value=compiler.as_posix()), \
+                    patch.object(CACHE, "append_env_file"):
+                CACHE.mac_wrappers(None)
+            foreign = {
+                "IPHONEOS_DEPLOYMENT_TARGET": "26.5",
+                "IOS_SIMULATOR_DEPLOYMENT_TARGET": "26.5",
+                "TVOS_DEPLOYMENT_TARGET": "26.5",
+                "WATCHOS_DEPLOYMENT_TARGET": "26.5",
+                "XROS_DEPLOYMENT_TARGET": "26.5",
+                "DRIVERKIT_DEPLOYMENT_TARGET": "25.5",
+            }
+            for language in ("clang", "clang++"):
+                with self.subTest(language=language):
+                    result = subprocess.run(
+                        ["sh", (tools / f"cached-{language}").as_posix(),
+                            "-dM", "-E", "source with spaces.cpp", ""],
+                        env={**os.environ, **foreign, "MACOSX_DEPLOYMENT_TARGET": "11.0",
+                            "SDKROOT": "/Xcode Path/MacOSX.sdk"},
+                        capture_output=True, text=True, check=False)
+                    self.assertEqual(result.returncode, 17, result.stderr)
+                    for variable in foreign:
+                        self.assertNotIn(variable + "=", result.stdout)
+                    self.assertIn("MACOSX_DEPLOYMENT_TARGET=11.0\n", result.stdout)
+                    self.assertIn("SDKROOT=/Xcode Path/MacOSX.sdk\n", result.stdout)
+                    self.assertTrue(result.stdout.endswith(
+                        "arg=-dM\narg=-E\narg=source with spaces.cpp\narg=\n"))
+
     def test_checksum_failure_cannot_install_binary(self):
         with tempfile.TemporaryDirectory() as directory:
             tools = Path(directory)
