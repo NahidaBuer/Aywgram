@@ -23,8 +23,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 constexpr auto AppId = "{C9CC98BD-1BBE-4FB4-B544-13A7DD04A280}"_cs;
 constexpr auto AppName = "AywGram Desktop"_cs;
 constexpr auto AppFile = "AywGram"_cs;
-constexpr auto AppVersion = 7002007;
-constexpr auto AppVersionStr = "7.2.7";
+constexpr auto AppVersion = 7002008;
+constexpr auto AppVersionStr = "7.2.8";
 constexpr auto AppReleaseRevision = 0;
 constexpr auto AppBetaVersion = false;
 constexpr auto AppAlphaVersion = TDESKTOP_ALPHA_VERSION;
