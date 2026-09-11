@@ -8869,6 +8869,16 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_LinksGroup" = "Group Chat";
 "ayu_LinksRepository" = "Repository";
 "ayu_LinksIssues" = "Issue Tracker";
+"ayu_AboutTitle" = "About AywGram";
+"ayu_AboutMainDeveloperHeader" = "Main Developer";
+"ayu_AboutDirectContributorsHeader" = "Direct Contributors";
+"ayu_AboutReferencesHeader" = "Foundations and References";
+"ayu_AboutDevelopmentAndMaintenance" = "Development and Maintenance";
+"ayu_AboutIrenaLineContributor" = "Direct Contributor · Irena Line";
+"ayu_AboutDirectContributor" = "Direct Contributor";
+"ayu_AboutBaseProject" = "Base Project";
+"ayu_AboutReferenceClient" = "Referenced Client";
+"ayu_AboutReferencePullRequest" = "Reference Pull Request";
 "ayu_CategoriesHeader" = "Categories";
 "ayu_SupportHeader" = "Support";
 "ayu_SupportDescription1" = "Support Development";

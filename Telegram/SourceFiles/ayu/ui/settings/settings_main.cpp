@@ -10,6 +10,7 @@
 #include "lang_auto.h"
 #include "ayu/ayu_settings.h"
 #include "ayu/ui/ayu_logo.h"
+#include "ayu/ui/settings/settings_about.h"
 #include "ayu/ui/settings/settings_appearance.h"
 #include "ayu/ui/settings/settings_ayu.h"
 #include "ayu/ui/settings/settings_chats.h"
@@ -186,6 +187,19 @@ void BuildLinks(SectionBuilder &builder) {
 	builder.addSkip();
 }
 
+void BuildAbout(SectionBuilder &builder) {
+	builder.addDivider();
+	builder.addSkip();
+
+	builder.addSectionButton({
+		.title = tr::ayu_AboutTitle(),
+		.targetSection = AyuAbout::Id(),
+		.icon = { &st::menuIconInfo },
+	});
+
+	builder.addSkip();
+}
+
 const auto kMeta = BuildHelper({
 	.id = AyuMain::Id(),
 	.parentId = MainId(),
@@ -197,6 +211,7 @@ const auto kMeta = BuildHelper({
 	BuildVersionInfo(builder);
 	BuildCategories(builder);
 	BuildLinks(builder);
+	BuildAbout(builder);
 });
 
 } // namespace
