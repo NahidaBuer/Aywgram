@@ -56,7 +56,8 @@ SearchFromController::SearchFromController(
 	peer,
 	ParticipantsBoxController::Role::Members,
 	AdminDoneCallback(),
-	BannedDoneCallback())
+	BannedDoneCallback(),
+	true)
 , _callback(std::move(callback)) {
 	_excludeSelf = false;
 }

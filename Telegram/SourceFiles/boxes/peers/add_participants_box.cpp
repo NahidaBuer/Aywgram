@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_chat_participants.h"
 #include "api/api_invite_links.h"
 #include "api/api_premium.h"
+#include "ayu/utils/telegram_helpers.h"
 #include "boxes/peers/edit_participant_box.h"
 #include "boxes/peers/edit_peer_type_box.h"
 #include "boxes/peers/replace_boost_box.h"
@@ -53,6 +54,25 @@ namespace {
 constexpr auto kParticipantsFirstPageCount = 16;
 constexpr auto kParticipantsPerPage = 200;
 constexpr auto kUserpicsLimit = 3;
+
+[[nodiscard]] std::optional<ID> ParseUserIdQuery(const QString &query) {
+	const auto trimmed = query.trimmed();
+	if (trimmed.isEmpty()) {
+		return std::nullopt;
+	}
+	for (const auto ch : trimmed) {
+		const auto unicode = ch.unicode();
+		if (unicode < '0' || unicode > '9') {
+			return std::nullopt;
+		}
+	}
+	auto ok = false;
+	const auto value = trimmed.toLongLong(&ok);
+	if (!ok || value <= 0 || uint64(value) > PeerId::kChatTypeMask) {
+		return std::nullopt;
+	}
+	return value;
+}
 
 class ForbiddenRow final : public PeerListRow {
 public:
@@ -1179,10 +1199,12 @@ AddSpecialBoxController::AddSpecialBoxController(
 	not_null<PeerData*> peer,
 	Role role,
 	AdminDoneCallback adminDoneCallback,
-	BannedDoneCallback bannedDoneCallback)
+	BannedDoneCallback bannedDoneCallback,
+	bool allowUserIdSearch)
 : PeerListController(std::make_unique<AddSpecialBoxSearchController>(
 	peer,
-	&_additional))
+	&_additional,
+	allowUserIdSearch))
 , _peer(peer)
 , _api(&_peer->session().mtp())
 , _role(role)
@@ -1740,11 +1762,13 @@ std::unique_ptr<PeerListRow> AddSpecialBoxController::createRow(
 
 AddSpecialBoxSearchController::AddSpecialBoxSearchController(
 	not_null<PeerData*> peer,
-	not_null<ParticipantsAdditionalData*> additional)
+	not_null<ParticipantsAdditionalData*> additional,
+	bool allowUserIdSearch)
 : _peer(peer)
 , _additional(additional)
 , _api(&_peer->session().mtp())
-, _timer([=] { searchOnServer(); }) {
+, _timer([=] { searchOnServer(); })
+, _allowUserIdSearch(allowUserIdSearch) {
 	subscribeToMigration();
 }
 
@@ -1758,12 +1782,15 @@ void AddSpecialBoxSearchController::subscribeToMigration() {
 void AddSpecialBoxSearchController::searchQuery(const QString &query) {
 	if (_query != query) {
 		_query = query;
+		++_userIdSearchGeneration;
 		_offset = 0;
 		_requestId = 0;
+		_userIdSearchPending = false;
 		_participantsLoaded = false;
 		_chatsContactsAdded = false;
 		_chatMembersAdded = false;
 		_globalLoaded = false;
+		searchUserId();
 		if (!_query.isEmpty() && !searchParticipantsInCache()) {
 			_timer.callOnce(AutoSearchTimeout);
 		} else {
@@ -1779,7 +1806,38 @@ void AddSpecialBoxSearchController::searchOnServer() {
 }
 
 bool AddSpecialBoxSearchController::isLoading() {
-	return _timer.isActive() || _requestId;
+	return _timer.isActive() || _requestId || _userIdSearchPending;
+}
+
+void AddSpecialBoxSearchController::searchUserId() {
+	if (!_allowUserIdSearch) {
+		return;
+	}
+	const auto userId = ParseUserIdQuery(_query);
+	if (!userId) {
+		return;
+	}
+
+	_userIdSearchPending = true;
+	const auto weak = base::make_weak(this);
+	const auto query = _query;
+	const auto generation = _userIdSearchGeneration;
+	searchUserById(
+		*userId,
+		&_peer->session(),
+		[=](const QString &, PeerData *peer) {
+			crl::on_main(weak, [=] {
+				if (_query != query
+					|| _userIdSearchGeneration != generation) {
+					return;
+				}
+				_userIdSearchPending = false;
+				if (const auto user = peer ? peer->asUser() : nullptr) {
+					delegate()->peerListSearchAddRow(user);
+				}
+				delegate()->peerListSearchRefreshRows();
+			});
+		});
 }
 
 bool AddSpecialBoxSearchController::searchParticipantsInCache() {

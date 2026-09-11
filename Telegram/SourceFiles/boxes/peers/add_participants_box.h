@@ -109,7 +109,8 @@ public:
 		not_null<PeerData*> peer,
 		Role role,
 		AdminDoneCallback adminDoneCallback,
-		BannedDoneCallback bannedDoneCallback);
+		BannedDoneCallback bannedDoneCallback,
+		bool allowUserIdSearch = false);
 
 	[[nodiscard]] not_null<PeerData*> peer() const {
 		return _peer;
@@ -171,13 +172,16 @@ protected:
 };
 
 // Finds chat/channel members, then contacts, then global search results.
-class AddSpecialBoxSearchController : public PeerListSearchController {
+class AddSpecialBoxSearchController
+	: public PeerListSearchController
+	, public base::has_weak_ptr {
 public:
 	using Role = ParticipantsBoxController::Role;
 
 	AddSpecialBoxSearchController(
 		not_null<PeerData*> peer,
-		not_null<ParticipantsAdditionalData*> additional);
+		not_null<ParticipantsAdditionalData*> additional,
+		bool allowUserIdSearch);
 
 	void searchQuery(const QString &query) override;
 	bool isLoading() override;
@@ -207,6 +211,7 @@ private:
 	void addChatMembers(not_null<ChatData*> chat);
 	void addChatsContacts();
 	void requestGlobal();
+	void searchUserId();
 
 	void subscribeToMigration();
 
@@ -216,8 +221,11 @@ private:
 
 	base::Timer _timer;
 	QString _query;
+	uint64 _userIdSearchGeneration = 0;
 	mtpRequestId _requestId = 0;
 	int _offset = 0;
+	bool _allowUserIdSearch = false;
+	bool _userIdSearchPending = false;
 	bool _participantsLoaded = false;
 	bool _chatsContactsAdded = false;
 	bool _chatMembersAdded = false;
