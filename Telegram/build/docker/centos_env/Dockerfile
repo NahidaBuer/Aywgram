@@ -358,7 +358,7 @@ FROM builder AS heif
 COPY --link --from=de265 /usr/src/de265-cache /
 
 RUN --mount=type=cache,target=/var/cache/ccache <<EOF
-git clone -b v1.23.1 --depth=1 https://github.com/strukturag/libheif.git
+git clone -b v1.23.4 --depth=1 https://github.com/strukturag/libheif.git
 cd libheif
 cmake -B build . \
 	-DBUILD_SHARED_LIBS=OFF \
