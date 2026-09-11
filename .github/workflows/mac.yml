@@ -263,10 +263,6 @@ jobs:
           CACHE_ARGS=()
           if [ "$COMPILER_CACHE" = true ]; then
             CACHE_ARGS=(
-              "-DCMAKE_C_COMPILER=$CACHE_C_WRAPPER"
-              "-DCMAKE_CXX_COMPILER=$CACHE_CXX_WRAPPER"
-              "-DCMAKE_OBJC_COMPILER=$CACHE_C_WRAPPER"
-              "-DCMAKE_OBJCXX_COMPILER=$CACHE_CXX_WRAPPER"
               "-DCMAKE_XCODE_ATTRIBUTE_CC=$CACHE_C_WRAPPER"
               "-DCMAKE_XCODE_ATTRIBUTE_CXX=$CACHE_CXX_WRAPPER"
               "-DCMAKE_XCODE_ATTRIBUTE_LD=$REAL_C_COMPILER"
@@ -287,7 +283,36 @@ jobs:
       - name: Telegram Desktop build.
         run: |
           cd "$REPO_NAME/Telegram"
-          cmake --build ../out --config Release --parallel
+          XCODE_SETTINGS=(
+            IPHONEOS_DEPLOYMENT_TARGET=
+            IOS_SIMULATOR_DEPLOYMENT_TARGET=
+            TVOS_DEPLOYMENT_TARGET=
+            WATCHOS_DEPLOYMENT_TARGET=
+            XROS_DEPLOYMENT_TARGET=
+            DRIVERKIT_DEPLOYMENT_TARGET=
+          )
+          xcodebuild -project ../out/Telegram.xcodeproj \
+            -target external_qt_static_plugins_kimageformats_autogen \
+            -configuration Release -showBuildSettings -json \
+            "${XCODE_SETTINGS[@]}" > ../out/ci-xcode-build-settings.json
+          python3 - "${XCODE_SETTINGS[@]}" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          targets = json.loads(pathlib.Path('../out/ci-xcode-build-settings.json').read_text())
+          if not targets:
+              sys.exit('Xcode returned no AutoMoc build settings.')
+          for target in targets:
+              settings = target['buildSettings']
+              print(f"{target['target']}: SDKROOT={settings.get('SDKROOT')}, "
+                    f"MACOSX_DEPLOYMENT_TARGET={settings.get('MACOSX_DEPLOYMENT_TARGET')}")
+              for argument in sys.argv[1:]:
+                  name = argument.split('=', 1)[0]
+                  if settings.get(name):
+                      sys.exit(f"Unexpected Xcode build setting: {name}={settings[name]}")
+          PY
+          cmake --build ../out --config Release --parallel -- "${XCODE_SETTINGS[@]}"
           python3 ../.github/scripts/ci_cache.py mark application --end
 
       - name: Read compiler cache statistics.
