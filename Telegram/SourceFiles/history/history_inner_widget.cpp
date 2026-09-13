@@ -560,10 +560,13 @@ HistoryInner::HistoryInner(
 		rpl::on_next(
 			[=](QPoint globalPosition)
 			{
-				auto mousePos = mapFromGlobal(globalPosition);
-				auto point = _widget->clampMousePosition(mousePos);
+				const auto mousePos = mapFromGlobal(globalPosition);
+				const auto point = _widget->clampMousePosition(mousePos);
 
-				if (!inSelectionMode().inSelectionMode && !_emptyPainter && rect().contains(mousePos)) {
+				if (!inSelectionMode().inSelectionMode
+					&& !_emptyPainter
+					&& visibleRegion().contains(mousePos)) {
+					mouseActionUpdate(globalPosition);
 					if (const auto view = Element::Moused()) {
 						mouseActionCancel();
 
@@ -591,10 +594,10 @@ HistoryInner::HistoryInner(
 							}
 
 							if (!_wasForceClickPreview) {
-								toggleFavoriteReaction(view);
+								performQuickAction(view, globalPosition, true);
 							}
 						} else {
-							toggleFavoriteReaction(view);
+							performQuickAction(view, globalPosition, true);
 						}
 					}
 				}
@@ -2788,16 +2791,75 @@ void HistoryInner::mouseDoubleClickEvent(QMouseEvent *e) {
 		&& e->button() == Qt::LeftButton) {
 		if (const auto view = Element::Moused()) {
 			mouseActionCancel();
-			switch (HistoryView::CurrentQuickAction()) {
-			case HistoryView::DoubleClickQuickAction::Reply: {
-				_widget->replyToMessage(view->data());
-			} break;
-			case HistoryView::DoubleClickQuickAction::React: {
-				toggleFavoriteReaction(view);
-			} break;
-			default: break;
-			}
+			performQuickAction(view, e->globalPos());
 		}
+	}
+}
+
+void HistoryInner::performQuickAction(
+		not_null<Element*> view,
+		QPoint globalPosition,
+		bool forceClick) {
+	if (_controller->showFrozenError()) {
+		return;
+	}
+	using Quick = HistoryView::DoubleClickQuickAction;
+	const auto item = view->data();
+	const auto action = HistoryView::CurrentQuickAction(item->out(), forceClick);
+	switch (action) {
+	case Quick::Reply:
+		_widget->replyToMessage(item);
+		break;
+	case Quick::React:
+		toggleFavoriteReaction(view);
+		break;
+	case Quick::Save:
+		HistoryView::SaveMessageQuickAction(item);
+		break;
+	case Quick::Delete:
+		if (item->canDelete()) {
+			deleteItem(item);
+		}
+		break;
+	case Quick::Repeat:
+	case Quick::RepeatNoQuote:
+		AyuUi::RepeatMessage(
+			item,
+			HistoryView::Context::History,
+			action == Quick::RepeatNoQuote);
+		break;
+	case Quick::Edit:
+		if (item->out()
+			&& !item->isUploading()
+			&& item->allowsEdit(base::unixtime::now())) {
+			if (item->richPage()
+				|| Iv::Editor::HasEditWindowFor(&session(), item->fullId())) {
+				Ui::PreventDelayedActivation();
+			}
+			_widget->editMessage(item, getSelectedTextRange(item));
+		}
+		break;
+	case Quick::ReactionMenu: {
+		using namespace HistoryView::Reactions;
+		_whoReactedMenuLifetime.destroy();
+		_menu = base::make_unique_q<Ui::PopupMenu>(this, st::popupMenuWithIcons);
+		const auto attached = AttachSelectorToMenu(
+			_menu.get(),
+			_controller,
+			globalPosition,
+			item,
+			[=](ChosenReaction reaction) { reactionChosen(reaction); },
+			ItemReactionsAbout(item),
+			nullptr,
+			true);
+		if (attached == AttachSelectorResult::Attached) {
+			_menu->popupPrepared();
+		} else {
+			_menu = nullptr;
+		}
+	} break;
+	case Quick::None:
+		break;
 	}
 }
 

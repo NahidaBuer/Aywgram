@@ -9375,3 +9375,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "ayu_CloudSyncDelete" = "Delete Cloud Backup";
 "ayu_CloudSyncDeleteWarning" = "This stops automatic sync and deletes only the AywGram manifest and matching backup chunks. Local settings are not deleted.";
 "ayu_CloudSyncExcluded" = "Never synced: authorization and session keys, account passwords, passcodes, tokens, account order, local files and paths, device identifiers, databases, message history, filter contents, recent peers, window geometry, UI scale and hardware-specific settings. Proxy servers are excluded unless separately enabled.";
+
+"ayu_DoubleClickActions" = "Double-click actions";
+"ayu_DoubleClickIncoming" = "Received messages";
+"ayu_DoubleClickOutgoing" = "Sent messages";
+"ayu_ForceClickAction" = "Trackpad force-click action";
+"ayu_DoubleClickSettingsLink" = "Customize double-click actions in AywGram Settings";
+"ayu_RepeatMessageNoQuote" = "Repeat without quote";
+"ayu_QuickActionReactionMenu" = "Show reaction menu";
+"ayu_QuickActionReactionEmoji" = "Quick reaction emoji";

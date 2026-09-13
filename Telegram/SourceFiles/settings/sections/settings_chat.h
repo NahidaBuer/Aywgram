@@ -82,6 +82,7 @@ void SetupStickersEmoji(
 void SetupMessages(
 	not_null<Window::SessionController*> controller,
 	not_null<Ui::VerticalLayout*> container,
+	Fn<void(Type)> showOther,
 	HighlightRegistry *highlights = nullptr);
 
 void SetupArchive(

@@ -45,6 +45,10 @@ void AddHistoryAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item);
 void AddHideMessageAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item);
 void AddUserMessagesAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item);
 void AddMessageDetailsAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item);
+void RepeatMessage(
+	HistoryItem *item,
+	HistoryView::Context context,
+	bool noQuote);
 void AddRepeatMessageAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item, HistoryView::Context context);
 void AddReadUntilAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item);
 void AddBurnAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item);

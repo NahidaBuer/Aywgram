@@ -477,6 +477,10 @@ public:
 		not_null<const Element*> view,
 		QPoint position,
 		const TextState &replyState) const;
+	void performQuickAction(
+		not_null<Element*> view,
+		QPoint globalPosition,
+		bool forceClick = false);
 	void toggleFavoriteReaction(not_null<Element*> view) const;
 
 

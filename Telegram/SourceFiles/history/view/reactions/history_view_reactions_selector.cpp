@@ -1436,16 +1436,21 @@ AttachSelectorResult AttachSelectorToMenu(
 		not_null<HistoryItem*> item,
 		Fn<void(ChosenReaction)> chosen,
 		TextWithEntities about,
-		IconFactory iconFactory) {
+		IconFactory iconFactory,
+		bool explicitRequest) {
 	const auto &settings = AyuSettings::getInstance();
-	if (!AyuUi::needToShowItem(settings.showReactionsPanelInContextMenu())) {
+	if (!explicitRequest
+		&& !AyuUi::needToShowItem(settings.showReactionsPanelInContextMenu())) {
 		return AttachSelectorResult::Skipped;
 	}
 
 	const auto peer = item->history()->peer;
-	if ((peer->isChannel() && !peer->isMegagroup() && !settings.showChannelReactions())
+	const auto hiddenForPeer = (peer->isChannel()
+			&& !peer->isMegagroup()
+			&& !settings.showChannelReactions())
 		|| (peer->isMegagroup() && !settings.showGroupReactions())
-		|| (peer->isUser() && !settings.showPrivateChatReactions())) {
+		|| (peer->isUser() && !settings.showPrivateChatReactions());
+	if (!explicitRequest && hiddenForPeer) {
 		return AttachSelectorResult::Skipped;
 	}
 
@@ -1456,7 +1461,9 @@ AttachSelectorResult AttachSelectorToMenu(
 		controller->uiShow(),
 		Data::LookupPossibleReactions(item, true),
 		std::move(about),
-		std::move(iconFactory));
+		std::move(iconFactory),
+		nullptr,
+		explicitRequest);
 	if (!result) {
 		return result.error();
 	}
@@ -1496,10 +1503,12 @@ auto AttachSelectorToMenu(
 	const Data::PossibleItemReactionsRef &reactions,
 	TextWithEntities about,
 	IconFactory iconFactory,
-	Fn<bool()> paused)
+	Fn<bool()> paused,
+	bool explicitRequest)
 -> base::expected<not_null<Selector*>, AttachSelectorResult> {
 	const auto &settings = AyuSettings::getInstance();
-	if (!AyuUi::needToShowItem(settings.showReactionsPanelInContextMenu())) {
+	if (!explicitRequest
+		&& !AyuUi::needToShowItem(settings.showReactionsPanelInContextMenu())) {
 		return base::make_unexpected(AttachSelectorResult::Skipped);
 	}
 

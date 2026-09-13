@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "history/view/history_view_list_widget.h"
 
+#include "ayu/ui/context_menu/context_menu.h"
+
 #include "history/view/history_view_about_view.h"
 #include "base/unixtime.h"
 #include "base/qt/qt_key_modifiers.h"
@@ -55,6 +57,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "payments/payments_reaction_process.h"
 #include "history/view/history_view_reaction_preview.h"
 #include "window/section_widget.h"
+#include "window/main_window.h"
+#include "window/window_controller.h"
 #include "window/window_adaptive.h"
 #include "window/window_session_controller.h"
 #include "window/window_peer_menu.h"
@@ -590,6 +594,22 @@ ListWidget::ListWidget(
 	_scrollDateHideTimer.setCallback([this] { scrollDateHideByTimer(); });
 
 	if (const auto window = controllerOrNull()) {
+		window->window().widget()->globalForceClicks(
+		) | rpl::on_next([=](QPoint globalPosition) {
+			const auto point = mapFromGlobal(globalPosition);
+			if (!visibleRegion().contains(point)
+				|| point.y() < _visibleTop
+				|| point.y() >= _visibleBottom
+				|| hasSelectedItems()
+				|| hasSelectedText()) {
+				return;
+			}
+			mouseActionUpdate(globalPosition);
+			if (_overElement) {
+				mouseActionCancel();
+				performQuickAction(_overElement, globalPosition, true);
+			}
+		}, lifetime());
 		using PlayRequest = ChatHelpers::EmojiInteractionPlayRequest;
 		window->emojiInteractions().playRequests(
 		) | rpl::filter([=](const PlayRequest &request) {
@@ -3940,19 +3960,88 @@ void ListWidget::mouseDoubleClickEvent(QMouseEvent *e) {
 		&& (_mouseCursorState == CursorState::None
 			|| _mouseCursorState == CursorState::Date)
 		&& _selected.empty()
+		&& e->button() == Qt::LeftButton
 		&& _overElement
 		&& (_overElement->data()->isRegular()
 			|| CanReplyToEphemeral(_overElement->data()))) {
 		mouseActionCancel();
-		switch (CurrentQuickAction()) {
-		case DoubleClickQuickAction::Reply: {
-			replyToMessageRequestNotify({ _overElement->data()->fullId() });
-		} break;
-		case DoubleClickQuickAction::React: {
-			toggleFavoriteReaction(_overElement);
-		} break;
-		default: break;
+		performQuickAction(_overElement, e->globalPos());
+	}
+}
+
+void ListWidget::performQuickAction(
+		not_null<Element*> view,
+		QPoint globalPosition,
+		bool forceClick) {
+	if (!controllerOrNull() || controller()->showFrozenError()) {
+		return;
+	}
+	using Quick = HistoryView::DoubleClickQuickAction;
+	const auto item = view->data();
+	const auto action = HistoryView::CurrentQuickAction(item->out(), forceClick);
+	switch (action) {
+	case Quick::Reply:
+		replyToMessageRequestNotify({ item->fullId() });
+		break;
+	case Quick::React:
+		toggleFavoriteReaction(view);
+		break;
+	case Quick::Save:
+		HistoryView::SaveMessageQuickAction(item);
+		break;
+	case Quick::Delete:
+		if (item->canDelete()) {
+			if (item->isUploading()) {
+				controller()->cancelUploadLayer(item);
+			} else {
+				const auto items = HistoryItemsList{ item };
+				if (CanCreateModerateMessagesBox(items)) {
+					controller()->show(Box(
+						CreateModerateMessagesBox,
+						ModerateMessagesBoxEntry{ .items = items },
+						nullptr,
+						DefaultModerateMessagesBoxOptions()));
+				} else {
+					controller()->show(Box<DeleteMessagesBox>(item));
+				}
+			}
 		}
+		break;
+	case Quick::Repeat:
+	case Quick::RepeatNoQuote:
+		AyuUi::RepeatMessage(
+			item,
+			_context,
+			action == Quick::RepeatNoQuote);
+		break;
+	case Quick::Edit:
+		if (item->out()
+			&& !item->isUploading()
+			&& item->allowsEdit(base::unixtime::now())) {
+			editMessageRequestNotify(item->fullId());
+		}
+		break;
+	case Quick::ReactionMenu: {
+		using namespace HistoryView::Reactions;
+		_whoReactedMenuLifetime.destroy();
+		_menu = base::make_unique_q<Ui::PopupMenu>(this, st::popupMenuWithIcons);
+		const auto attached = AttachSelectorToMenu(
+			_menu.get(),
+			controller(),
+			globalPosition,
+			item,
+			[=](ChosenReaction reaction) { reactionChosen(reaction); },
+			ItemReactionsAbout(item),
+			nullptr,
+			true);
+		if (attached == AttachSelectorResult::Attached) {
+			_menu->popupPrepared();
+		} else {
+			_menu = nullptr;
+		}
+	} break;
+	case Quick::None:
+		break;
 	}
 }
 

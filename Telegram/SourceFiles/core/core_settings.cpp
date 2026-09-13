@@ -1240,6 +1240,7 @@ void Settings::addFromSerialized(const QByteArray &serialized) {
 		case Quick::None:
 		case Quick::Reply:
 		case Quick::React: _chatQuickAction = uncheckedChatQuickAction; break;
+		default: break;
 		}
 	}
 	_suggestAnimatedEmoji = (suggestAnimatedEmoji == 1);

@@ -7,14 +7,29 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #pragma once
 
+class HistoryItem;
+
 namespace HistoryView {
 
 enum class DoubleClickQuickAction {
 	Reply, // Default.
 	React,
 	None,
+	Save,
+	Delete,
+	Repeat,
+	RepeatNoQuote,
+	ReactionMenu,
+	Edit,
 };
 
-[[nodiscard]] DoubleClickQuickAction CurrentQuickAction();
+[[nodiscard]] DoubleClickQuickAction CurrentQuickAction(
+	bool outgoing,
+	bool forceClick = false);
+void SetQuickAction(
+	bool outgoing,
+	bool forceClick,
+	DoubleClickQuickAction action);
+void SaveMessageQuickAction(not_null<HistoryItem*> item);
 
 } // namespace HistoryView

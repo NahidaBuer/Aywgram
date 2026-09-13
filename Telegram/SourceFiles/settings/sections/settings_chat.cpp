@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "settings/sections/settings_chat.h"
 
+#include "ayu/ui/settings/settings_chats.h"
+
 #include "settings/settings_common_session.h"
 
 #include "base/timer_rpl.h"
@@ -1056,7 +1058,7 @@ void BuildMessagesSection(SectionBuilder &builder) {
 	const auto highlights = builder.highlights();
 
 	builder.add([controller, highlights](const WidgetContext &ctx) {
-		SetupMessages(controller, ctx.container.get(), highlights);
+		SetupMessages(controller, ctx.container.get(), ctx.showOther, highlights);
 		return SectionBuilder::WidgetToAdd{};
 	}, [] {
 		return SearchEntry{
@@ -1590,6 +1592,7 @@ void SetupStickersEmoji(
 void SetupMessages(
 		not_null<Window::SessionController*> controller,
 		not_null<Ui::VerticalLayout*> container,
+		Fn<void(Type)> showOther,
 		HighlightRegistry *highlights) {
 	Ui::AddDivider(container);
 	Ui::AddSkip(container);
@@ -1607,7 +1610,6 @@ void SetupMessages(
 	Ui::AddSkip(container, st::settingsSendTypeSkip);
 
 	using SendByType = Ui::InputSubmitSettings;
-	using Quick = HistoryView::DoubleClickQuickAction;
 
 	const auto skip = st::settingsSendTypeSkip;
 	auto wrap = object_ptr<Ui::VerticalLayout>(container);
@@ -1652,124 +1654,23 @@ void SetupMessages(
 
 	Ui::AddSkip(inner, st::settingsCheckboxesSkip);
 
-	const auto groupQuick = std::make_shared<Ui::RadioenumGroup<Quick>>(
-		Core::App().settings().chatQuickAction());
-	const auto addQuick = [&](Quick value, const QString &text) {
-		return inner->add(
-			object_ptr<Ui::Radioenum<Quick>>(
-				inner,
-				groupQuick,
-				value,
-				text,
-				st::settingsSendType),
-			st::settingsSendTypePadding);
-	};
-	addQuick(Quick::Reply, tr::lng_settings_chat_quick_action_reply(tr::now));
-	const auto react = addQuick(
-		Quick::React,
-		tr::lng_settings_chat_quick_action_react(tr::now));
+	const auto quickActions = inner->add(
+		object_ptr<Ui::LinkButton>(
+			inner,
+			tr::ayu_DoubleClickSettingsLink(tr::now)),
+		st::settingsSendTypePadding);
+	quickActions->setClickedCallback([=] {
+		controller->setHighlightControlId(u"ayu/doubleClickActions"_q);
+		showOther(AyuChatsId());
+	});
 	if (highlights) {
 		highlights->push_back({ u"chat/quick-reaction"_q, {
-			react,
+			quickActions,
 			{ .radius = st::boxRadius },
 		} });
-	}
-
-	const auto buttonRight = Ui::CreateSimpleCircleButton(
-		inner,
-		st::stickersRemove.ripple);
-	buttonRight->resize(st::stickersRemove.width, st::stickersRemove.height);
-	const auto toggleButtonRight = [=](bool value) {
-		buttonRight->setAttribute(Qt::WA_TransparentForMouseEvents, !value);
-	};
-	toggleButtonRight(false);
-
-	struct State {
-		struct {
-			std::vector<rpl::lifetime> lifetimes;
-			bool flag = false;
-		} icons;
-	};
-	const auto state = buttonRight->lifetime().make_state<State>();
-	state->icons.lifetimes = std::vector<rpl::lifetime>(2);
-
-	const auto &reactions = controller->session().data().reactions();
-	auto idValue = rpl::single(
-		reactions.favoriteId()
-	) | rpl::then(
-		reactions.favoriteUpdates() | rpl::map([=] {
-			return controller->session().data().reactions().favoriteId();
-		})
-	) | rpl::filter([](const Data::ReactionId &id) {
-		return !id.empty();
-	});
-	auto selected = rpl::duplicate(idValue);
-	std::move(
-		selected
-	) | rpl::on_next([=, idValue = std::move(idValue)](
-			const Data::ReactionId &id) {
-		const auto index = state->icons.flag ? 1 : 0;
-		const auto iconSize = st::settingsReactionRightIcon;
-		const auto &reactions = controller->session().data().reactions();
-		const auto &list = reactions.list(Data::Reactions::Type::All);
-		const auto i = ranges::find(list, id, &Data::Reaction::id);
-		state->icons.lifetimes[index] = rpl::lifetime();
-		if (i != end(list)) {
-			AddReactionAnimatedIcon(
-				inner,
-				buttonRight->geometryValue(
-				) | rpl::map([=](const QRect &r) {
-					return QPoint(
-						r.left() + (r.width() - iconSize) / 2,
-						r.top() + (r.height() - iconSize) / 2);
-				}),
-				iconSize,
-				*i,
-				buttonRight->events(
-				) | rpl::filter([=](not_null<QEvent*> event) {
-					return event->type() == QEvent::Enter;
-				}) | rpl::to_empty,
-				rpl::duplicate(idValue) | rpl::skip(1) | rpl::to_empty,
-				&state->icons.lifetimes[index]);
-		} else if (const auto customId = id.custom()) {
-			AddReactionCustomIcon(
-				inner,
-				buttonRight->geometryValue(
-				) | rpl::map([=](const QRect &r) {
-					return QPoint(
-						r.left() + (r.width() - iconSize) / 2,
-						r.top() + (r.height() - iconSize) / 2);
-				}),
-				iconSize,
-				controller,
-				customId,
-				rpl::duplicate(idValue) | rpl::skip(1) | rpl::to_empty,
-				&state->icons.lifetimes[index]);
-		}
-		state->icons.flag = !state->icons.flag;
-		toggleButtonRight(true);
-	}, buttonRight->lifetime());
-
-	react->geometryValue(
-	) | rpl::on_next([=](const QRect &r) {
-		const auto rightSize = buttonRight->size();
-		buttonRight->moveToRight(
-			st::settingsButtonRightSkip,
-			r.y() + (r.height() - rightSize.height()) / 2);
-	}, buttonRight->lifetime());
-
-	groupQuick->setChangedCallback([=](Quick value) {
-		Core::App().settings().setChatQuickAction(value);
-		Core::App().saveSettingsDelayed();
-	});
-
-	buttonRight->setClickedCallback([=, show = controller->uiShow()] {
-		show->showBox(Box(ReactionsSettingsBox, controller));
-	});
-	if (highlights) {
 		highlights->push_back({ u"chat/quick-reaction-choose"_q, {
-			buttonRight.get(),
-			{ .shape = HighlightShape::Ellipse },
+			quickActions,
+			{ .radius = st::boxRadius },
 		} });
 	}
 

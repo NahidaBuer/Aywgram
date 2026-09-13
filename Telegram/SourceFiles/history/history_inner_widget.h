@@ -552,6 +552,10 @@ private:
 		QPoint position,
 		const HistoryView::TextState &replyState) const
 	-> HistoryView::ReplyButton::ButtonParameters;
+	void performQuickAction(
+		not_null<Element*> view,
+		QPoint globalPosition,
+		bool forceClick = false);
 	void toggleFavoriteReaction(not_null<Element*> view) const;
 	void reactionChosen(const ChosenReaction &reaction);
 

@@ -281,7 +281,8 @@ AttachSelectorResult AttachSelectorToMenu(
 	not_null<HistoryItem*> item,
 	Fn<void(ChosenReaction)> chosen,
 	TextWithEntities about,
-	IconFactory iconFactory = nullptr);
+	IconFactory iconFactory = nullptr,
+	bool explicitRequest = false);
 
 [[nodiscard]] auto AttachSelectorToMenu(
 	not_null<Ui::PopupMenu*> menu,
@@ -291,7 +292,8 @@ AttachSelectorResult AttachSelectorToMenu(
 	const Data::PossibleItemReactionsRef &reactions,
 	TextWithEntities about,
 	IconFactory iconFactory = nullptr,
-	Fn<bool()> paused = nullptr
+	Fn<bool()> paused = nullptr,
+	bool explicitRequest = false
 ) -> base::expected<not_null<Selector*>, AttachSelectorResult>;
 
 [[nodiscard]] TextWithEntities ItemReactionsAbout(

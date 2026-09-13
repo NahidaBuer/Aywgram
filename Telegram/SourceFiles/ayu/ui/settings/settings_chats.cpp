@@ -6,25 +6,36 @@
 // Copyright @Radolyn, 2026
 #include "ayu/ui/settings/settings_chats.h"
 
-#include "lang_auto.h"
-#include "ayu/ayu_account_settings.h"
-#include "ayu/ayu_settings.h"
 #include "ayu/ui/boxes/edit_mark_box.h"
 #include "ayu/ui/components/message_preview.h"
 #include "ayu/ui/settings/ayu_builder.h"
 #include "ayu/ui/settings/settings_ayu_utils.h"
 #include "ayu/ui/settings/settings_main.h"
 #include "ayu/ui/settings/settings_message_menu.h"
+#include "ayu/ayu_account_settings.h"
+#include "ayu/ayu_settings.h"
+#include "base/platform/base_platform_info.h"
+#include "boxes/reactions_settings_box.h"
+#include "data/data_message_reactions.h"
+#include "data/data_session.h"
+#include "history/view/history_view_quick_action.h"
+#include "main/main_session.h"
 #include "settings/settings_builder.h"
 #include "settings/settings_common.h"
-#include "styles/style_ayu_icons.h"
-#include "styles/style_menu_icons.h"
-#include "styles/style_settings.h"
+#include "ui/layers/generic_box.h"
+#include "ui/widgets/buttons.h"
 #include "ui/wrap/vertical_layout.h"
 #include "window/window_session_controller.h"
+#include "lang_auto.h"
 
 #include <algorithm>
 #include <memory>
+
+#include "styles/style_ayu_icons.h"
+#include "styles/style_boxes.h"
+#include "styles/style_chat_helpers.h"
+#include "styles/style_menu_icons.h"
+#include "styles/style_settings.h"
 
 namespace Settings {
 
@@ -36,6 +47,174 @@ namespace {
 struct PreviewState {
 	MessagePreview *widget = nullptr;
 };
+
+void BuildQuickActionChoice(
+		AyuSectionBuilder &ayu,
+		rpl::producer<QString> title,
+		QString id,
+		bool outgoing,
+		bool forceClick = false) {
+	using Quick = HistoryView::DoubleClickQuickAction;
+	auto actions = std::vector{
+		Quick::Reply,
+		Quick::Save,
+		Quick::Delete,
+		Quick::Repeat,
+		Quick::RepeatNoQuote,
+		Quick::React,
+		Quick::ReactionMenu,
+	};
+	auto options = std::vector{
+		tr::lng_context_reply_msg(tr::now),
+		tr::ayu_ForwardToSavedMessage(tr::now),
+		tr::lng_context_delete_msg(tr::now),
+		tr::ayu_RepeatMessage(tr::now),
+		tr::ayu_RepeatMessageNoQuote(tr::now),
+		tr::ayu_MarkReadAfterReaction(tr::now),
+		tr::ayu_QuickActionReactionMenu(tr::now),
+	};
+	if (outgoing && !forceClick) {
+		actions.push_back(Quick::Edit);
+		options.push_back(tr::lng_context_edit_msg(tr::now));
+	}
+	actions.push_back(Quick::None);
+	options.push_back(tr::ayu_ChatOverrideDisabled(tr::now));
+	const auto current = HistoryView::CurrentQuickAction(outgoing, forceClick);
+	const auto index = int(ranges::find(actions, current) - actions.begin());
+	ayu.addChooseButton({
+		.id = std::move(id),
+		.title = rpl::duplicate(title),
+		.boxTitle = std::move(title),
+		.initialSelection = index,
+		.options = std::move(options),
+		.setter = [=](int index) {
+			HistoryView::SetQuickAction(outgoing, forceClick, actions[index]);
+		},
+	});
+}
+
+void BuildQuickActions(SectionBuilder &builder, AyuSectionBuilder &ayu) {
+	builder.addSubsectionTitle({
+		.id = u"ayu/doubleClickActions"_q,
+		.title = tr::ayu_DoubleClickActions(),
+	});
+	BuildQuickActionChoice(
+		ayu,
+		tr::ayu_DoubleClickIncoming(),
+		u"ayu/incomingDoubleClickAction"_q,
+		false);
+	BuildQuickActionChoice(
+		ayu,
+		tr::ayu_DoubleClickOutgoing(),
+		u"ayu/outgoingDoubleClickAction"_q,
+		true);
+	if (Platform::IsMac()) {
+		BuildQuickActionChoice(
+			ayu,
+			tr::ayu_ForceClickAction(),
+			u"ayu/forceClickAction"_q,
+			false,
+			true);
+	}
+	const auto controller = builder.controller();
+	const auto react = builder.addButton({
+		.id = u"ayu/quickReactionEmoji"_q,
+		.title = tr::ayu_QuickActionReactionEmoji(),
+		.onClick = [=] {
+			controller->show(Box(ReactionsSettingsBox, controller));
+		},
+	});
+	const auto inner = builder.container();
+	if (inner && controller) {
+		const auto buttonRight = Ui::CreateSimpleCircleButton(
+			inner,
+			st::stickersRemove.ripple);
+		buttonRight->resize(st::stickersRemove.width, st::stickersRemove.height);
+		const auto toggleButtonRight = [=](bool value) {
+			buttonRight->setAttribute(Qt::WA_TransparentForMouseEvents, !value);
+		};
+		toggleButtonRight(false);
+
+		struct State {
+			struct {
+				std::vector<rpl::lifetime> lifetimes;
+				bool flag = false;
+			} icons;
+		};
+		const auto state = buttonRight->lifetime().make_state<State>();
+		state->icons.lifetimes = std::vector<rpl::lifetime>(2);
+
+		const auto &reactions = controller->session().data().reactions();
+		auto idValue = rpl::single(
+			reactions.favoriteId()
+		) | rpl::then(
+			reactions.favoriteUpdates() | rpl::map([=] {
+				return controller->session().data().reactions().favoriteId();
+			})
+		) | rpl::filter([](const Data::ReactionId &id) {
+			return !id.empty();
+		});
+		auto selected = rpl::duplicate(idValue);
+		std::move(
+			selected
+		) | rpl::on_next([=, idValue = std::move(idValue)](
+				const Data::ReactionId &id) {
+			const auto index = state->icons.flag ? 1 : 0;
+			const auto iconSize = st::settingsReactionRightIcon;
+			const auto &reactions = controller->session().data().reactions();
+			const auto &list = reactions.list(Data::Reactions::Type::All);
+			const auto i = ranges::find(list, id, &Data::Reaction::id);
+			state->icons.lifetimes[index] = rpl::lifetime();
+			if (i != end(list)) {
+				AddReactionAnimatedIcon(
+					inner,
+					buttonRight->geometryValue(
+					) | rpl::map([=](const QRect &r) {
+						return QPoint(
+							r.left() + (r.width() - iconSize) / 2,
+							r.top() + (r.height() - iconSize) / 2);
+					}),
+					iconSize,
+					*i,
+					buttonRight->events(
+					) | rpl::filter([=](not_null<QEvent*> event) {
+						return event->type() == QEvent::Enter;
+					}) | rpl::to_empty,
+					rpl::duplicate(idValue) | rpl::skip(1) | rpl::to_empty,
+					&state->icons.lifetimes[index]);
+			} else if (const auto customId = id.custom()) {
+				AddReactionCustomIcon(
+					inner,
+					buttonRight->geometryValue(
+					) | rpl::map([=](const QRect &r) {
+						return QPoint(
+							r.left() + (r.width() - iconSize) / 2,
+							r.top() + (r.height() - iconSize) / 2);
+					}),
+					iconSize,
+					controller,
+					customId,
+					rpl::duplicate(idValue) | rpl::skip(1) | rpl::to_empty,
+					&state->icons.lifetimes[index]);
+			}
+			state->icons.flag = !state->icons.flag;
+			toggleButtonRight(true);
+		}, buttonRight->lifetime());
+
+		react->geometryValue(
+		) | rpl::on_next([=](const QRect &r) {
+			const auto rightSize = buttonRight->size();
+			buttonRight->moveToRight(
+				st::settingsButtonRightSkip,
+				r.y() + (r.height() - rightSize.height()) / 2);
+		}, buttonRight->lifetime());
+
+		buttonRight->setClickedCallback([=] {
+			controller->show(Box(ReactionsSettingsBox, controller));
+		});
+	}
+	ayu.addSectionDivider();
+}
 
 void BuildStickersAndEmoji(SectionBuilder &builder, AyuSectionBuilder &ayu) {
 	builder.addSubsectionTitle(tr::lng_settings_stickers_emoji());
@@ -561,6 +740,7 @@ const auto kMeta = BuildHelper({
 
 	builder.addSkip();
 	BuildChatBehavior(builder, ayu);
+	BuildQuickActions(builder, ayu);
 	BuildCloudDrafts(builder, ayu);
 	BuildSearch(builder, ayu);
 	BuildMarks(builder, ayu, previewState);
