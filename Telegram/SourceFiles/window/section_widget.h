@@ -116,6 +116,8 @@ public:
 		not_null<SessionController*> controller,
 		not_null<PeerData*> peerForBackground);
 
+	virtual std::optional<int> aggregateFolder() const { return std::nullopt; }
+
 	virtual Dialogs::RowDescriptor activeChat() const {
 		return {};
 	}

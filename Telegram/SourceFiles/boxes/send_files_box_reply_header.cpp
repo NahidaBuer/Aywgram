@@ -83,6 +83,10 @@ rpl::producer<> ReplyPillHeader::closeRequests() const {
 	return _closeRequests.events();
 }
 
+void ReplyPillHeader::setCancelAllowed(bool allowed) {
+	_cancel->setVisible(allowed);
+}
+
 rpl::producer<> ReplyPillHeader::hideFinished() const {
 	return _hideFinished.value()
 		| rpl::filter(rpl::mappers::_1)

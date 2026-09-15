@@ -887,9 +887,11 @@ void ForumThreadBar::init(
 				.session = &topic->session(),
 				.customEmojiLoopLimit = -1, // First frame only
 			}));
+	} else {
+		text.setText(st::semiboldTextStyle, parentChat->name());
 	}
 	const auto skip = st::monoforumBarUserpicSkip;
-	const auto userpic = sublist
+	const auto userpic = !thread->asTopic()
 		? (st::msgServicePadding.top()
 			+ st::msgServiceFont->height
 			+ st::msgServicePadding.bottom()
@@ -1024,7 +1026,7 @@ void ForumThreadBar::Paint(
 	}
 
 	const auto sublist = thread->asSublist();
-	const auto userpic = sublist
+	const auto userpic = !thread->asTopic()
 		? (st::msgServicePadding.top()
 			+ st::msgServiceFont->height
 			+ st::msgServicePadding.bottom()
@@ -1039,6 +1041,13 @@ void ForumThreadBar::Paint(
 
 	if (sublist) {
 		sublist->sublistPeer()->paintUserpic(
+			p,
+			view,
+			left + skip,
+			y + st::msgServiceMargin.top() + skip,
+			userpic);
+	} else if (!thread->asTopic()) {
+		thread->peer()->paintUserpic(
 			p,
 			view,
 			left + skip,
@@ -2636,6 +2645,32 @@ void Element::recountThreadBarInBlocks() {
 		RemoveComponents(ForumThreadBar::Bit());
 		setPendingResize();
 	}
+}
+
+void Element::refreshAggregateBar(
+		Data::Thread *thread,
+		const QString &title,
+		ClickHandlerPtr link) {
+	if (!thread || isHidden() || data()->isEmpty()) {
+		if (Has<ForumThreadBar>()) {
+			RemoveComponents(ForumThreadBar::Bit());
+			setPendingResize();
+		}
+		return;
+	}
+	AddComponents(ForumThreadBar::Bit());
+	const auto bar = Get<ForumThreadBar>();
+	if (bar->thread.get() == thread && bar->customTitle == title) {
+		bar->customLink = std::move(link);
+		return;
+	}
+	bar->init(thread->peer(), thread);
+	bar->customTitle = title;
+	const auto oldWidth = bar->text.maxWidth();
+	bar->text.setText(st::semiboldTextStyle, title);
+	bar->width += bar->text.maxWidth() - oldWidth;
+	bar->customLink = std::move(link);
+	setPendingResize();
 }
 
 void Element::refreshForumThreadBar(Element *previous, bool enabled) {

@@ -1220,6 +1220,7 @@ ComposeControls::ComposeControls(
 	? *descriptor.stOverride
 	: st::defaultComposeControls)
 , _features(descriptor.features)
+, _externalDraft(descriptor.externalDraft)
 , _parent(parent)
 , _panelsParent(descriptor.panelsParent
 	? descriptor.panelsParent
@@ -1570,8 +1571,10 @@ void ComposeControls::setHistory(SetHistoryArgs &&args) {
 			_wrap.get(),
 			peer->asChannel());
 	}
-	session().local().readDraftsWithCursors(_history);
-	applyDraft();
+	if (!_externalDraft) {
+		session().local().readDraftsWithCursors(_history);
+		applyDraft();
+	}
 	orderControls();
 	_field->setMode(args.videoStream
 		? Ui::InputField::Mode::NoNewlines
@@ -2588,9 +2591,9 @@ bool ComposeControls::hasEditDraft() const {
 }
 
 bool ComposeControls::bypassNormalDraftHandling() const {
-	return !isEditingMessage()
+	return _externalDraft || (!isEditingMessage()
 		&& !hasEditDraft()
-		&& isComposeBoxOpen();
+		&& isComposeBoxOpen());
 }
 
 bool ComposeControls::shouldShowRichDraftPreview() const {
@@ -3464,6 +3467,9 @@ void ComposeControls::saveDraftDelayed() {
 }
 
 Data::DraftKey ComposeControls::draftKey(DraftType type) const {
+	if (_externalDraft) {
+		return Data::DraftKey::None();
+	}
 	using Section = Dialogs::EntryState::Section;
 	using Key = Data::DraftKey;
 
@@ -3605,7 +3611,7 @@ void ComposeControls::untrackThreadFieldVisibility() {
 }
 
 void ComposeControls::trackThreadFieldVisibility() {
-	if (!_history || !hasRichDraftThreadScope()) {
+	if (_externalDraft || !_history || !hasRichDraftThreadScope()) {
 		_threadFieldVisible = false;
 		updateFieldVisibility();
 		return;
@@ -3889,6 +3895,9 @@ void ComposeControls::applyDraft(FieldHistoryAction fieldHistoryAction) {
 }
 
 void ComposeControls::cancelForward() {
+	if (_externalDraft) {
+		return;
+	}
 	_history->setForwardDraft(_topicRootId, _monoforumPeerId, {});
 	updateForwarding();
 }
@@ -6127,6 +6136,9 @@ void ComposeControls::cancelReplyMessageExternal() {
 }
 
 void ComposeControls::updateForwarding() {
+	if (_externalDraft) {
+		return;
+	}
 	const auto thread = (_history && (_topicRootId || _monoforumPeerId))
 		? _history->threadFor(_topicRootId, _monoforumPeerId)
 		: (Data::Thread*)_history;
@@ -6271,6 +6283,9 @@ void ComposeControls::initWebpageProcess() {
 }
 
 void ComposeControls::initForwardProcess() {
+	if (_externalDraft) {
+		return;
+	}
 	using EntryUpdateFlag = Data::EntryUpdate::Flag;
 	session().changes().entryUpdates(
 		EntryUpdateFlag::ForwardDraft

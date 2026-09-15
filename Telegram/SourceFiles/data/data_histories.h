@@ -54,6 +54,14 @@ public:
 	[[nodiscard]] not_null<History*> findOrCreate(PeerId peerId);
 	void enumerate(Fn<void(not_null<History*>)> action) const;
 
+	struct ConfirmedReply {
+		FullMsgId message;
+		FullMsgId target;
+	};
+	[[nodiscard]] rpl::producer<ConfirmedReply> confirmedReplies() const {
+		return _confirmedReplies.events();
+	}
+
 	void applyPeerDialogs(const MTPmessages_PeerDialogs &dialogs);
 
 	void unloadAll();
@@ -121,7 +129,8 @@ public:
 		uint64 randomId,
 		Fn<PreparedMessage(not_null<History*>, FullReplyTo)> message,
 		Fn<void(const MTPUpdates&, const MTP::Response&)> done,
-		Fn<void(const MTP::Error&, const MTP::Response&)> fail);
+		Fn<void(const MTP::Error&, const MTP::Response&)> fail,
+		std::optional<FullReplyTo> requiredReply = std::nullopt);
 
 	struct ReplyToPlaceholder {
 	};
@@ -143,6 +152,7 @@ public:
 		MsgId replyToId) const;
 
 private:
+	rpl::event_stream<ConfirmedReply> _confirmedReplies;
 	struct PostponedHistoryRequest {
 		Fn<mtpRequestId(Fn<void()> finish)> generator;
 	};

@@ -28,6 +28,15 @@ namespace View {
 
 class GroupThumbs : public base::has_weak_ptr {
 public:
+	struct MessageSlice {
+		FullMsgId context;
+		const std::vector<FullMsgId> *ids = nullptr;
+		int size() const { return int(ids->size()); }
+	};
+	static void Refresh(not_null<Main::Session*> session,
+		std::unique_ptr<GroupThumbs> &instance, const MessageSlice &slice,
+		int index, int availableWidth);
+
 	struct CollageKey {
 		int index = 0;
 

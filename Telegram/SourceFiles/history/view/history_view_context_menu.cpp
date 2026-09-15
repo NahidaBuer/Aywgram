@@ -2177,6 +2177,11 @@ base::unique_qptr<Ui::PopupMenu> FillContextMenu(
 		list,
 		st::popupMenuWithIcons);
 
+	if (request.originalMessageAction) {
+		result->addAction(tr::ayu_AggregateLocateOriginal(tr::now),
+			request.originalMessageAction, &st::menuIconShowInChat);
+	}
+
 	// Build the full message menu.
 	FillContextMenuItems(result, list, request, hasPollOption);
 

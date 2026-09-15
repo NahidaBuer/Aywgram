@@ -177,7 +177,7 @@ void SendSimpleMedia(SendAction action, MTPInputMedia inputMedia) {
 		), [=](const MTPUpdates &result, const MTP::Response &response) {
 	}, [=](const MTP::Error &error, const MTP::Response &response) {
 		api->sendMessageFail(error, peer, randomId);
-	});
+	}, action.options.requiredReply);
 
 	api->finishForwarding(action);
 }
@@ -377,7 +377,7 @@ void SendExistingMedia(
 					completion->finishRequest(false);
 				}
 			}
-		});
+		}, action.options.requiredReply);
 	};
 	performRequest(performRequest);
 	if (completion) {
@@ -666,7 +666,7 @@ void SendMusicSelectionBatch(
 				if (done) {
 					done();
 				}
-			}, retryOrFail);
+			}, retryOrFail, action.options.requiredReply);
 			return;
 		}
 
@@ -718,7 +718,7 @@ void SendMusicSelectionBatch(
 			if (done) {
 				done();
 			}
-		}, retryOrFail);
+		}, retryOrFail, action.options.requiredReply);
 	};
 	performRequest(performRequest, false);
 }
@@ -1004,7 +1004,7 @@ bool SendDice(MessageToSend &message) {
 		if (message.completion) {
 			message.completion->finishRequest(false);
 		}
-	});
+	}, action.options.requiredReply);
 	if (message.completion) {
 		message.completion->seal();
 	}

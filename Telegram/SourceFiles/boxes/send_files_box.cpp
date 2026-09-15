@@ -727,7 +727,11 @@ SendFilesBox::SendFilesBox(QWidget*, SendFilesBoxDescriptor &&descriptor)
 	enqueueNextPrepare();
 }
 
-void SendFilesBox::setReplyTo(FullReplyTo replyTo) {
+void SendFilesBox::setReplyTo(FullReplyTo replyTo, bool required) {
+	_replyRequired = required;
+	if (_replyHeader) {
+		_replyHeader->setCancelAllowed(!required);
+	}
 	if (_replyTo == replyTo) {
 		return;
 	} else if (!replyTo.messageId || !replyTo.messageId.peer) {
@@ -749,6 +753,7 @@ void SendFilesBox::setReplyTo(FullReplyTo replyTo) {
 	_replyHeader->setRoundedShapeBelow(
 		!_blocks.empty() && !_blocks.front().isSingleFile());
 	_replyHeader->show();
+	_replyHeader->setCancelAllowed(!required);
 	_replyHeader->desiredHeight(
 	) | rpl::on_next([=](int height) {
 		if (_replyHeaderHeight.current() != height) {
@@ -759,6 +764,9 @@ void SendFilesBox::setReplyTo(FullReplyTo replyTo) {
 	}, _replyHeader->lifetime());
 	_replyHeader->closeRequests(
 	) | rpl::on_next([=] {
+		if (_replyRequired) {
+			return;
+		}
 		_replyTo = {};
 		if (_replyHeader) {
 			_replyHeader->hideAnimated();

@@ -45,6 +45,7 @@ struct ContextMenuRequest {
 		not_null<Window::SessionNavigation*> navigation);
 
 	const not_null<Window::SessionNavigation*> navigation;
+	Fn<void()> originalMessageAction;
 	ClickHandlerPtr link;
 	Element *view = nullptr;
 	HistoryItem *item = nullptr;

@@ -41,6 +41,7 @@ struct SendOptions {
 	bool welcomeTemplate = false;
 	crl::time ttlSeconds = 0;
 	SuggestOptions suggest;
+	std::optional<FullReplyTo> requiredReply;
 
 	friend inline bool operator==(
 		const SendOptions &,

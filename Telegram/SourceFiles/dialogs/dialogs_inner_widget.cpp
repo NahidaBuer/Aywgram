@@ -705,8 +705,15 @@ int InnerWidget::skipTopHeight() const {
 		: 0;
 }
 
+void InnerWidget::setAggregateEntryHeight(int height) {
+	if (_aggregateEntryHeight != height) {
+		_aggregateEntryHeight = height;
+		refresh();
+	}
+}
+
 int InnerWidget::collapsedRowsOffset() const {
-	return 0;
+	return _aggregateEntryHeight;
 }
 
 int InnerWidget::dialogsOffset() const {
@@ -2284,9 +2291,10 @@ void InnerWidget::selectByMouse(QPoint globalPosition) {
 	}
 	if (_state == WidgetState::Default) {
 		const auto offset = dialogsOffset();
-		const auto collapsedSelected = (mouseY >= 0
-			&& mouseY < _collapsedRows.size() * st::dialogsImportantBarHeight)
-			? (mouseY / st::dialogsImportantBarHeight)
+		const auto collapsedY = mouseY - collapsedRowsOffset();
+		const auto collapsedSelected = (collapsedY >= 0
+			&& collapsedY < _collapsedRows.size() * st::dialogsImportantBarHeight)
+			? (collapsedY / st::dialogsImportantBarHeight)
 			: -1;
 		const auto selected = (collapsedSelected >= 0)
 			? nullptr
@@ -2556,8 +2564,8 @@ void InnerWidget::mousePressEvent(QMouseEvent *e) {
 
 	if (base::in_range(_collapsedSelected, 0, _collapsedRows.size())) {
 		auto row = &_collapsedRows[_collapsedSelected]->row;
-		row->addRipple(e->pos(), QSize(width(), st::dialogsImportantBarHeight), [this, index = _collapsedSelected] {
-			update(0, (index * st::dialogsImportantBarHeight), width(), st::dialogsImportantBarHeight);
+		row->addRipple(e->pos() - QPoint(0, collapsedRowsOffset() + _collapsedSelected * st::dialogsImportantBarHeight), QSize(width(), st::dialogsImportantBarHeight), [this, index = _collapsedSelected] {
+			update(0, collapsedRowsOffset() + index * st::dialogsImportantBarHeight, width(), st::dialogsImportantBarHeight);
 		});
 	} else if (_pressed) {
 		auto row = _pressed;
@@ -3536,7 +3544,7 @@ void InnerWidget::handleChatListEntryRefreshes() {
 void InnerWidget::repaintCollapsedFolderRow(not_null<Data::Folder*> folder) {
 	for (auto i = 0, l = int(_collapsedRows.size()); i != l; ++i) {
 		if (_collapsedRows[i]->folder == folder) {
-			update(0, i * st::dialogsImportantBarHeight, width(), st::dialogsImportantBarHeight);
+			update(0, collapsedRowsOffset() + i * st::dialogsImportantBarHeight, width(), st::dialogsImportantBarHeight);
 			return;
 		}
 	}
@@ -3895,7 +3903,7 @@ void InnerWidget::updateSelectedRow(Key key) {
 		} else if (_selected) {
 			update(0, dialogsOffset() + _selected->top(), width(), _selected->height());
 		} else if (_collapsedSelected >= 0) {
-			update(0, _collapsedSelected * st::dialogsImportantBarHeight, width(), st::dialogsImportantBarHeight);
+			update(0, collapsedRowsOffset() + _collapsedSelected * st::dialogsImportantBarHeight, width(), st::dialogsImportantBarHeight);
 		} else if (_communitySelected >= 0) {
 			if (const auto row = communityRowAt(_communitySelected)) {
 				update(
@@ -5011,7 +5019,7 @@ void InnerWidget::refresh(bool toTop) {
 				h = communitySectionsBottom();
 			}
 		} else if (_shownList->empty()) {
-			h = st::dialogsEmptyHeight;
+			h = _aggregateEntryHeight + st::dialogsEmptyHeight;
 		} else {
 			h = dialogsOffset() + _shownList->height();
 		}
@@ -5218,7 +5226,7 @@ void InnerWidget::resizeEmpty() {
 	if (_empty) {
 		const auto skip = st::dialogsEmptySkip;
 		_empty->resizeToWidth(width() - 2 * skip);
-		_empty->move(skip, (st::dialogsEmptyHeight - _empty->height()) / 2);
+		_empty->move(skip, _aggregateEntryHeight + (st::dialogsEmptyHeight - _empty->height()) / 2);
 	}
 	if (_emptyList) {
 		_emptyList->resizeToWidth(width());
@@ -5672,7 +5680,7 @@ void InnerWidget::scrollToDefaultSelected() {
 	Expects(_state == WidgetState::Default);
 
 	if (_collapsedSelected >= 0) {
-		const auto from = _collapsedSelected * st::dialogsImportantBarHeight;
+		const auto from = collapsedRowsOffset() + _collapsedSelected * st::dialogsImportantBarHeight;
 		scrollToItem(from, st::dialogsImportantBarHeight);
 	} else if (_selected) {
 		const auto from = dialogsOffset() + _selected->top();

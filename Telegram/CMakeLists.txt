@@ -237,6 +237,16 @@ set(ayugram_files
         ayu/libs/sqlite/sqlite3.c
         ayu/libs/sqlite/sqlite3.h
         ayu/libs/sqlite/sqlite_orm.h
+        ayu/features/aggregate/aggregate_model.cpp
+        ayu/features/aggregate/aggregate_model.h
+        ayu/features/aggregate/aggregate_settings.cpp
+        ayu/features/aggregate/aggregate_settings.h
+        ayu/features/aggregate/aggregate_controller.cpp
+        ayu/features/aggregate/aggregate_controller.h
+        ayu/features/aggregate/aggregate_reply.cpp
+        ayu/features/aggregate/aggregate_reply.h
+        ayu/features/aggregate/aggregate_section.cpp
+        ayu/features/aggregate/aggregate_section.h
         ayu/features/streamer_mode/platform/linux/streamer_mode_linux.cpp
         ayu/features/streamer_mode/platform/linux/streamer_mode_linux.h
         ayu/features/streamer_mode/platform/mac/streamer_mode_mac.mm

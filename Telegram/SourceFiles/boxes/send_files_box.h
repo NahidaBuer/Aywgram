@@ -143,7 +143,7 @@ public:
 	void setCancelledCallback(Fn<void()> callback) {
 		_cancelledCallback = std::move(callback);
 	}
-	void setReplyTo(FullReplyTo replyTo);
+	void setReplyTo(FullReplyTo replyTo, bool required = false);
 
 	[[nodiscard]] rpl::producer<TextWithTags> takeTextWithTagsRequests() const;
 
@@ -341,6 +341,7 @@ private:
 	std::unique_ptr<SendFiles::ReplyPillHeader> _replyHeader;
 	rpl::variable<int> _replyHeaderHeight = 0;
 	FullReplyTo _replyTo;
+	bool _replyRequired = false;
 
 	object_ptr<Ui::ScrollArea> _scroll;
 	QPointer<Ui::VerticalLayout> _inner;

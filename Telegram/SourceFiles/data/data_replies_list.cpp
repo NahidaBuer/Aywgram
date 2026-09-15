@@ -998,7 +998,7 @@ void RepliesList::readTill(
 		}
 	}
 	if (const auto topic = _history->peer->forumTopicFor(_rootId)) {
-		Core::App().notifications().clearIncomingFromTopic(topic);
+		Core::App().notifications().clearIncomingTill(topic, now);
 	}
 }
 

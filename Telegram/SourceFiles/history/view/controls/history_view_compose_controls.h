@@ -140,6 +140,7 @@ struct ComposeControlsDescriptor {
 	ChatHelpers::PauseReason panelsLevel = kDefaultPanelsLevel;
 	QString voiceCustomCancelText;
 	bool voiceLockFromBottom = false;
+	bool externalDraft = false;
 	ChatHelpers::ComposeFeatures features;
 	rpl::producer<bool> scheduledToggleValue;
 	Fn<SuggestOptions()> currentSuggest;
@@ -521,6 +522,7 @@ private:
 
 	const style::ComposeControls &_st;
 	ChatHelpers::ComposeFeatures _features;
+	const bool _externalDraft = false;
 	const not_null<Ui::RpWidget*> _parent;
 	const not_null<QWidget*> _panelsParent;
 	const std::shared_ptr<ChatHelpers::Show> _show;

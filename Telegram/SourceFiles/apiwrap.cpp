@@ -3952,7 +3952,8 @@ mtpRequestId ApiWrap::requestGlobalMedia(
 }
 
 void ApiWrap::sendAction(const SendAction &action) {
-	if (!action.options.scheduled
+	if (!action.options.requiredReply
+		&& !action.options.scheduled
 		&& !action.options.shortcutId
 		&& !action.replaceMediaOf) {
 		const auto topicRootId = action.replyTo.topicRootId;
@@ -3972,12 +3973,17 @@ void ApiWrap::sendAction(const SendAction &action) {
 		}
 		action.history->getReadyFor(ShowAtTheEndMsgId);
 	}
-	_sendActions.fire_copy(action);
+	if (!action.options.requiredReply) {
+		_sendActions.fire_copy(action);
+	}
 }
 
 ApiWrap::FinishForwardingResult ApiWrap::finishForwarding(
 		const SendAction &action,
 		FnMut<void(bool)> completion) {
+	if (action.options.requiredReply) {
+		return FinishForwardingResult::Normal;
+	}
 	const auto history = action.history;
 	const auto topicRootId = action.replyTo.topicRootId;
 	const auto monoforumPeerId = action.replyTo.monoforumPeerId;
@@ -4273,7 +4279,7 @@ void ApiWrap::forwardMessages(
 				if (completion) {
 					completion->finishRequest(false);
 				}
-			});
+			}, action.options.requiredReply);
 
 		ids.resize(0);
 		randomIds.resize(0);
@@ -4983,7 +4989,7 @@ void ApiWrap::sendRichMessage(
 				if (completion) {
 					completion->finishRequest(false);
 				}
-			});
+			}, action.options.requiredReply);
 	};
 	if (completion) {
 		completion->addRequest();
@@ -5252,7 +5258,8 @@ void ApiWrap::sendMessage(
 				lastMessage->destroy();
 			} else {
 				sendMessageFail(error, peer, randomId, newId);
-				if (!action.options.scheduled
+				if (!action.options.requiredReply
+					&& !action.options.scheduled
 					&& !action.options.shortcutId) {
 					const auto failed = _session->data().message(newId);
 					const auto local = history->localDraft(
@@ -5331,7 +5338,7 @@ void ApiWrap::sendMessage(
 					MTP_long(action.options.effectId),
 					MTP_long(starsPaid),
 					Api::SuggestToMTP(action.options.suggest)
-				), done, fail);
+				), done, fail, action.options.requiredReply);
 		} else {
 			histories.sendPreparedMessage(
 				history,
@@ -5353,7 +5360,7 @@ void ApiWrap::sendMessage(
 					MTP_long(starsPaid),
 					Api::SuggestToMTP(action.options.suggest),
 					MTPInputRichMessage()
-				), done, fail);
+				), done, fail, action.options.requiredReply);
 		}
 		isFirst = false;
 	}
@@ -5525,7 +5532,7 @@ void ApiWrap::sendInlineResult(
 		if (done) {
 			done(false);
 		}
-	});
+	}, action.options.requiredReply);
 	finishForwarding(action);
 }
 
@@ -5788,7 +5795,7 @@ void ApiWrap::sendMediaWithRandomId(
 		if (completion) {
 			completion->finishRequest(false);
 		}
-	});
+	}, options.requiredReply);
 	if (sealCompletion && completion) {
 		completion->seal();
 	}
@@ -5901,7 +5908,7 @@ void ApiWrap::sendMultiPaidMedia(
 		} else if (completion) {
 			completion->finishRequest(false);
 		}
-	});
+	}, options.requiredReply);
 	if (completion) {
 		completion->seal();
 	}
@@ -6097,7 +6104,7 @@ void ApiWrap::sendAlbumIfReady(not_null<SendingAlbum*> album) {
 		if (completion) {
 			completion->finishRequest(false);
 		}
-	});
+	}, album->options.requiredReply);
 	if (completion) {
 		completion->seal();
 	}

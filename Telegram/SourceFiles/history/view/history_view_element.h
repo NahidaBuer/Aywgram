@@ -327,6 +327,8 @@ struct ForumThreadBar : RuntimeComponent<ForumThreadBar, Element> {
 		bool chatWide);
 
 	base::weak_ptr<Data::Thread> thread;
+	ClickHandlerPtr customLink;
+	QString customTitle;
 	Ui::Text::String text;
 	mutable Ui::PeerUserpicView view;
 	int width = 0;
@@ -556,6 +558,10 @@ public:
 	[[nodiscard]] bool displayForumThreadBar() const;
 	[[nodiscard]] bool isInOneBunchWithPrevious() const;
 	void refreshForumThreadBar(Element *previous, bool enabled);
+	void refreshAggregateBar(
+		Data::Thread *thread,
+		const QString &title,
+		ClickHandlerPtr link);
 
 	virtual void draw(Painter &p, const PaintContext &context) const = 0;
 	[[nodiscard]] virtual PointState pointState(QPoint point) const = 0;

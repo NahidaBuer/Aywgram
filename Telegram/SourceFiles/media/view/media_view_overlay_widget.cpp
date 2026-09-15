@@ -81,6 +81,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/components/sponsored_messages.h"
 #include "data/data_group_call.h"
 #include "data/data_session.h"
+#include "data/data_saved_sublist.h"
 #include "data/data_changes.h"
 #include "data/data_channel.h"
 #include "data/data_chat.h"
@@ -1485,6 +1486,9 @@ void OverlayWidget::updateTtlBadgePosition() {
 }
 
 void OverlayWidget::markTimedMediaRead() {
+	if (_suppressRead) {
+		return;
+	}
 	const auto item = _message;
 	if (!item || !item->isTtlCoveredMedia()) {
 		return;
@@ -1749,6 +1753,9 @@ void OverlayWidget::refreshNavVisibility() {
 	if (_stories) {
 		_leftNavVisible = _stories->subjumpAvailable(-1);
 		_rightNavVisible = _stories->subjumpAvailable(1);
+	} else if (_navigation) {
+		_leftNavVisible = _index && (*_index > 0 || !_navigationData.skippedBefore);
+		_rightNavVisible = _index && (*_index + 1 < _navigationData.ids.size() || !_navigationData.skippedAfter);
 	} else if (_instantViewMediaData) {
 		_leftNavVisible = _index && (*_index > 0);
 		_rightNavVisible = _index
@@ -2376,6 +2383,10 @@ void OverlayWidget::fillContextMenuActions(
 			tr::lng_context_to_msg(tr::now),
 			[=] { toMessage(); },
 			&st::mediaMenuIconShowInChat);
+	}
+	if (_navigation && _message) {
+		addAction(tr::ayu_AggregateOriginalChat(tr::now),
+			[=] { toOriginalMessage(); }, &st::mediaMenuIconShowInChat);
 	}
 	if (currentPollAnswer()) {
 		const auto media = _message ? _message->media() : nullptr;
@@ -3417,7 +3428,47 @@ void OverlayWidget::subscribeToScreenGeometry() {
 	}, _screenGeometryLifetime);
 }
 
+void OverlayWidget::updateNavigation() {
+	if (!_navigation || !_message) {
+		return;
+	}
+	const auto previous = _index.value_or(0);
+	_navigationData = _navigation->slice();
+	findCurrent();
+	if (!_index) {
+		if (_navigationData.ids.empty()) {
+			close();
+			return;
+		}
+		moveToEntity(entityByIndex(std::min(previous, int(_navigationData.ids.size()) - 1)));
+	} else if (_navigationPending) {
+		const auto next = *_index + _navigationPending;
+		if (next >= 0 && next < _navigationData.ids.size()) {
+			const auto delta = base::take(_navigationPending);
+			moveToEntity(entityByIndex(next), delta);
+		} else if (!_navigation->loading()) {
+			const auto direction = base::take(_navigationPending);
+			const auto more = direction < 0 ? !_navigationData.skippedBefore : !_navigationData.skippedAfter;
+			uiShow()->showToast(_navigation->failed()
+				? tr::ayu_AggregatePartial(tr::now)
+				: more ? tr::ayu_AggregateLoadMore(tr::now) : tr::ayu_AggregateEnd(tr::now));
+		}
+	}
+	updateControls();
+}
+
 void OverlayWidget::toMessage() {
+	if (_navigation && _message) {
+		const auto id = _message->fullId();
+		const auto navigate = _navigation->showMessage;
+		close();
+		navigate(id);
+		return;
+	}
+	toOriginalMessage();
+}
+
+void OverlayWidget::toOriginalMessage() {
 	if (const auto item = _message) {
 		close();
 		if (const auto window = findWindow()) {
@@ -3821,6 +3872,12 @@ void OverlayWidget::deleteMedia() {
 }
 
 void OverlayWidget::showMediaOverview() {
+	if (_navigation && _navigation->showOverview) {
+		const auto navigate = _navigation->showOverview;
+		close();
+		navigate();
+		return;
+	}
 	if (_menu) {
 		_menu->hideMenu(true);
 	}
@@ -4317,6 +4374,20 @@ void OverlayWidget::validateCollage() {
 }
 
 void OverlayWidget::refreshMediaViewer() {
+	if (_navigation) {
+		_sharedMedia = nullptr;
+		_sharedMediaData = std::nullopt;
+		_userPhotos = nullptr;
+		_userPhotosData = std::nullopt;
+		_collage = nullptr;
+		_collageData = std::nullopt;
+		_instantViewMedia = nullptr;
+		_instantViewMediaData = std::nullopt;
+		_navigationData = _navigation->slice();
+		findCurrent();
+		updateControls();
+		return;
+	}
 	if (!validInstantViewMedia()) {
 		validateInstantViewMedia();
 	}
@@ -4507,7 +4578,11 @@ void OverlayWidget::refreshTimestampDividers(
 
 void OverlayWidget::refreshGroupThumbs() {
 	const auto existed = (_groupThumbs != nullptr);
-	if (_index && _instantViewMediaData) {
+	if (_index && _navigation && _message) {
+		View::GroupThumbs::Refresh(_session, _groupThumbs,
+			GroupThumbs::MessageSlice{ _navigationData.ids.front(), &_navigationData.ids },
+			*_index, _groupThumbsAvailableWidth);
+	} else if (_index && _instantViewMediaData) {
 		const auto messageId = _message ? _message->fullId() : FullMsgId();
 		View::GroupThumbs::Refresh(
 			_session,
@@ -4694,6 +4769,7 @@ void OverlayWidget::show(OpenRequest request) {
 	const auto contextTopicRootId = request.topicRootId();
 	const auto contextMonoforumPeerId = request.monoforumPeerId();
 	_drawButtonEnabled = request.showDrawButton();
+
 	if (!request.continueStreaming() && !request.startTime() && !_reShow) {
 		if (_message && (_message == contextItem)) {
 			return close();
@@ -4714,11 +4790,28 @@ void OverlayWidget::show(OpenRequest request) {
 			Ui::LayerOption::CloseOther,
 			anim::type::instant);
 	}
+	const auto installNavigation = [&] {
+		_navigationLifetime.destroy();
+		_navigation = request.navigation();
+		_navigationPending = 0;
+		_suppressRead = request.suppressRead() || bool(_navigation);
+		if (_navigation) {
+			const auto navigation = _navigation;
+			navigation->changes() | rpl::on_next([=] {
+				crl::on_main(_widget, [=] {
+					if (_navigation == navigation) {
+						updateNavigation();
+					}
+				});
+			}, _navigationLifetime);
+		}
+	};
 	if (photo) {
 		if (contextItem && contextPeer) {
 			return;
 		}
 		setSession(&photo->session());
+		installNavigation();
 
 		if (story) {
 			setContext(StoriesContext{
@@ -4751,6 +4844,7 @@ void OverlayWidget::show(OpenRequest request) {
 			: story
 			? &story->session()
 			: &call->session());
+		installNavigation();
 
 		if (story) {
 			setContext(StoriesContext{
@@ -6086,6 +6180,9 @@ void OverlayWidget::switchToPip() {
 	const auto messageId = _message ? _message->fullId() : FullMsgId();
 	const auto topicRootId = _topicRootId;
 	const auto monoforumPeerId = _monoforumPeerId;
+	const auto drawButtonEnabled = _drawButtonEnabled;
+	const auto suppressRead = _suppressRead;
+	const auto navigation = _navigation;
 	const auto closeAndContinue = [=] {
 		_showAsPip = false;
 		show(OpenRequest(
@@ -6094,7 +6191,11 @@ void OverlayWidget::switchToPip() {
 			document->owner().message(messageId),
 			topicRootId,
 			monoforumPeerId,
-			true));
+			true,
+			0,
+			drawButtonEnabled,
+			suppressRead,
+			navigation));
 	};
 	_showAsPip = true;
 	_pip = std::make_unique<PipWrap>(
@@ -7996,10 +8097,14 @@ OverlayWidget::Entity OverlayWidget::entityForItemId(const FullMsgId &itemId) co
 
 	if (const auto item = _session->data().message(itemId)) {
 		if (const auto media = item->media()) {
+			const auto topic = _navigation ? item->topicRootId() : _topicRootId;
+			const auto sublist = item->savedSublist();
+			const auto monoforum = _navigation
+				? (sublist && sublist->parentChat() ? sublist->sublistPeer()->id : PeerId()) : _monoforumPeerId;
 			if (const auto photo = media->photo()) {
-				return { photo, item, _topicRootId, _monoforumPeerId };
+				return { photo, item, topic, monoforum };
 			} else if (const auto document = media->document()) {
-				return { document, item, _topicRootId, _monoforumPeerId };
+				return { document, item, topic, monoforum };
 			}
 		}
 		return { v::null, item, _topicRootId, _monoforumPeerId };
@@ -8008,7 +8113,10 @@ OverlayWidget::Entity OverlayWidget::entityForItemId(const FullMsgId &itemId) co
 }
 
 OverlayWidget::Entity OverlayWidget::entityByIndex(int index) const {
-	if (_instantViewMediaData) {
+	if (_navigation) {
+		return (index >= 0 && index < _navigationData.ids.size())
+			? entityForItemId(_navigationData.ids[index]) : Entity{ v::null, nullptr };
+	} else if (_instantViewMediaData) {
 		return entityForInstantViewMedia(index);
 	} else if (_sharedMediaData) {
 		return entityForSharedMedia(index);
@@ -8187,6 +8295,16 @@ bool OverlayWidget::moveToNext(int delta) {
 		return false;
 	}
 	auto newIndex = *_index + delta;
+	if (_navigation && (newIndex < 0 || newIndex >= _navigationData.ids.size())) {
+		const auto more = delta < 0 ? !_navigationData.skippedBefore : !_navigationData.skippedAfter;
+		if (more && !_navigation->loading()) {
+			_navigationPending = delta;
+			_navigation->loadMore(delta);
+			uiShow()->showToast(tr::lng_contacts_loading(tr::now));
+		}
+		return more;
+	}
+	_navigationPending = 0;
 	return moveToEntity(entityByIndex(newIndex), delta);
 }
 
@@ -9124,6 +9242,10 @@ Window::SessionController *OverlayWidget::findWindow(bool switchTo) const {
 
 // #TODO unite and check
 void OverlayWidget::clearBeforeHide() {
+	_navigationLifetime.destroy();
+	_navigation = nullptr;
+	_navigationData = {};
+	_navigationPending = 0;
 	AyuState::disableGhostModeOnStoryClose(_storiesSession);
 	checkSingleViewMediaBurn();
 	_message = nullptr;
@@ -9219,7 +9341,12 @@ void OverlayWidget::updateSaveMsg() {
 
 void OverlayWidget::findCurrent() {
 	using namespace rpl::mappers;
-	if (_instantViewMediaData) {
+	if (_navigation) {
+		const auto i = _message ? ranges::find(_navigationData.ids, _message->fullId()) : end(_navigationData.ids);
+		_index = i == end(_navigationData.ids) ? std::nullopt : std::make_optional(int(i - begin(_navigationData.ids)));
+		_fullIndex = _navigationData.skippedBefore ? _index : std::nullopt;
+		_fullCount = _navigationData.fullCount;
+	} else if (_instantViewMediaData) {
 		const auto key = instantViewMediaKey();
 		const auto &items = *_instantViewMediaData;
 		const auto i = key

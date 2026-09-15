@@ -7,46 +7,50 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "window/window_filters_menu.h"
 
-#include "menu/menu_mark_as_read.h"
-#include "mainwindow.h"
-#include "window/window_session_controller.h"
-#include "window/window_controller.h"
-#include "window/window_main_menu.h"
-#include "window/window_peer_menu.h"
-#include "window/window_filters_favorite.h"
-#include "main/main_session.h"
+#include "ayu/features/aggregate/aggregate_settings.h"
+
+#include "api/api_chat_filters.h"
 #include "base/event_filter.h"
 #include "base/options.h"
-#include "core/application.h"
-#include "core/core_settings.h"
-#include "core/ui_integration.h"
-#include "data/data_session.h"
-#include "data/data_chat_filters.h"
-#include "data/data_user.h"
-#include "data/data_peer_values.h"
-#include "data/data_premium_limits.h"
-#include "data/data_unread_value.h"
-#include "lang/lang_keys.h"
-#include "ui/filter_icons.h"
-#include "ui/wrap/vertical_layout.h"
-#include "ui/wrap/vertical_layout_reorder.h"
-#include "ui/wrap/slide_wrap.h"
-#include "ui/widgets/menu/menu_add_action_callback_factory.h"
-#include "ui/widgets/popup_menu.h"
-#include "ui/boxes/confirm_box.h"
-#include "ui/power_saving.h"
-#include "ui/screen_reader_mode.h"
-#include "ui/ui_utility.h"
 #include "boxes/filters/edit_filter_box.h"
 #include "boxes/choose_filter_box.h"
 #include "boxes/premium_limits_box.h"
+#include "core/application.h"
+#include "core/core_settings.h"
+#include "core/ui_integration.h"
+#include "data/data_chat_filters.h"
+#include "data/data_peer_values.h"
+#include "data/data_premium_limits.h"
+#include "data/data_session.h"
+#include "data/data_unread_value.h"
+#include "data/data_user.h"
+#include "lang/lang_keys.h"
+#include "main/main_session.h"
+#include "menu/menu_mark_as_read.h"
 #include "settings/sections/settings_folders.h"
 #include "storage/storage_media_prepare.h"
-#include "api/api_chat_filters.h"
+#include "ui/boxes/confirm_box.h"
+#include "ui/widgets/menu/menu_add_action_callback_factory.h"
+#include "ui/widgets/popup_menu.h"
+#include "ui/wrap/slide_wrap.h"
+#include "ui/wrap/vertical_layout.h"
+#include "ui/wrap/vertical_layout_reorder.h"
+#include "ui/filter_icons.h"
+#include "ui/power_saving.h"
+#include "ui/screen_reader_mode.h"
+#include "ui/ui_utility.h"
+#include "window/window_controller.h"
+#include "window/window_filters_favorite.h"
+#include "window/window_main_menu.h"
+#include "window/window_peer_menu.h"
+#include "window/window_session_controller.h"
 #include "apiwrap.h"
+#include "mainwindow.h"
+
+#include "styles/style_dialogs.h"
+#include "styles/style_menu_icons.h"
 #include "styles/style_widgets.h"
 #include "styles/style_window.h"
-#include "styles/style_menu_icons.h"
 
 #include "ayu/ayu_settings.h"
 
@@ -775,9 +779,20 @@ void FiltersMenu::showMenu(QPoint position, FilterId id) {
 		return;
 	}
 	_popupMenu = base::make_unique_q<Ui::PopupMenu>(
-		i->second.get(),
+		(i != end(_filters)) ? i->second.get() : &_outer,
 		st::popupMenuWithIcons);
 	const auto addAction = Ui::Menu::CreateAddActionCallback(_popupMenu);
+	if (Ayu::Aggregate::ReadGlobal().enabled) {
+		const auto session = &_session->session();
+		const auto visible = Ayu::Aggregate::ReadFolder(session, id).visible;
+		const auto action = _popupMenu->addAction(tr::ayu_AggregateShowEntry(tr::now), [=] {
+			auto settings = Ayu::Aggregate::ReadFolder(session, id);
+			settings.visible = !settings.visible;
+			Ayu::Aggregate::WriteFolder(session, id, settings);
+		}, visible ? &st::dialogsSearchInCheck : nullptr);
+		action->setCheckable(true);
+		action->setChecked(visible);
+	}
 	if (id) {
 		addAction(
 			tr::lng_filters_context_edit(tr::now),

@@ -240,7 +240,9 @@ void ResolveDocument(
 		HistoryItem *item,
 		MsgId topicRootId,
 		PeerId monoforumPeerId,
-		bool showDrawButton) {
+		bool showDrawButton,
+		bool suppressRead,
+		std::shared_ptr<::Media::View::Navigation> navigation) {
 	if (document->isNull()) {
 		return;
 	}
@@ -251,7 +253,7 @@ void ResolveDocument(
 			controller->openDocument(
 				document,
 				true,
-				{ msgId, topicRootId, monoforumPeerId, showDrawButton });
+				{ msgId, topicRootId, monoforumPeerId, showDrawButton, suppressRead, navigation });
 		}
 	};
 
@@ -296,6 +298,7 @@ void ResolveDocument(
 				::Media::Player::PlaylistContext{
 					topicRootId,
 					monoforumPeerId,
+					suppressRead,
 				});
 			if (controller
 				&& item

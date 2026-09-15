@@ -7,9 +7,7 @@
 #include "ayu/ui/settings/settings_main.h"
 
 #include "settings/sections/settings_main.h"
-#include "lang_auto.h"
-#include "ayu/ayu_settings.h"
-#include "ayu/ui/ayu_logo.h"
+#include "ayu/features/aggregate/aggregate_settings.h"
 #include "ayu/ui/settings/settings_about.h"
 #include "ayu/ui/settings/settings_appearance.h"
 #include "ayu/ui/settings/settings_ayu.h"
@@ -18,18 +16,23 @@
 #include "ayu/ui/settings/settings_filters.h"
 #include "ayu/ui/settings/settings_general.h"
 #include "ayu/ui/settings/settings_other.h"
+#include "ayu/ui/ayu_logo.h"
+#include "ayu/ayu_settings.h"
 #include "core/version.h"
 #include "settings/settings_builder.h"
 #include "settings/settings_common.h"
+#include "ui/layers/generic_box.h"
+#include "ui/widgets/buttons.h"
+#include "ui/widgets/labels.h"
+#include "ui/wrap/vertical_layout.h"
+#include "ui/painter.h"
+#include "window/window_session_controller.h"
+#include "lang_auto.h"
+
 #include "styles/style_ayu_settings.h"
 #include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_settings.h"
-#include "ui/painter.h"
-#include "ui/widgets/buttons.h"
-#include "ui/widgets/labels.h"
-#include "ui/wrap/vertical_layout.h"
-#include "window/window_session_controller.h"
 
 #include <QDesktopServices>
 
@@ -98,6 +101,11 @@ void BuildCategories(SectionBuilder &builder) {
 	builder.addSkip();
 
 	builder.addSubsectionTitle(tr::ayu_CategoriesHeader());
+	builder.add([](const WidgetContext &ctx) -> SectionBuilder::WidgetToAdd {
+		auto button = CreateButtonWithIcon(ctx.container, tr::ayu_AggregateTitle(), st::settingsButton, { &st::menuIconShowInFolder });
+		button->setClickedCallback([=] { ctx.controller->show(Box(Ayu::Aggregate::SettingsBox)); });
+		return { .widget = std::move(button) };
+	});
 
 	builder.addSectionButton({
 		.title = rpl::single(QString("AywGram")),

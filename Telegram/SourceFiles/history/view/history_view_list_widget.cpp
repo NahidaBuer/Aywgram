@@ -867,7 +867,9 @@ void ListWidget::refreshRows(const Data::MessagesSlice &old) {
 
 	auto destroyingBarElement = _bar.element;
 	auto clearingOverElement = _overElement;
-	_itemsKnownTillEnd = (_slice.skippedAfter == 0);
+	_itemsKnownTillEnd = (_delegate->listCustomOrder() && _delegate->listNewestAtTop()
+		? (_slice.skippedBefore == 0)
+		: (_slice.skippedAfter == 0));
 	_resizePending = true;
 	_items.clear();
 	_items.reserve(_slice.ids.size());
@@ -1053,7 +1055,7 @@ std::optional<int> ListWidget::scrollTopForPosition(
 	if (_visibleTop >= _visibleBottom) {
 		return std::nullopt;
 	} else if (position == Data::MaxMessagePosition) {
-		if (_inverted) {
+		if (_delegate->listNewestAtTop()) {
 			if (loadedAtTop()) {
 				return 0;
 			}
@@ -1211,6 +1213,10 @@ bool ListWidget::isAbovePosition(Data::MessagePosition position) const {
 		return false;
 	}
 	const auto bottomPosition = _items.back()->data()->position();
+	if (_delegate->listCustomOrder()) {
+		return _delegate->listDisplayIndex(bottomPosition.fullId)
+			< _delegate->listDisplayIndex(position.fullId);
+	}
 	return _inverted
 		? (bottomPosition > position)
 		: (bottomPosition < position);
@@ -1221,6 +1227,10 @@ bool ListWidget::isBelowPosition(Data::MessagePosition position) const {
 		return false;
 	}
 	const auto topPosition = _items.front()->data()->position();
+	if (_delegate->listCustomOrder()) {
+		return _delegate->listDisplayIndex(topPosition.fullId)
+			> _delegate->listDisplayIndex(position.fullId);
+	}
 	return _inverted
 		? (topPosition < position)
 		: (topPosition > position);
@@ -1514,6 +1524,15 @@ int ListWidget::findNearestItem(Data::MessagePosition position) const {
 	if (_items.empty()) {
 		return -1;
 	}
+	if (_delegate->listCustomOrder()) {
+		const auto wanted = _delegate->listDisplayIndex(position.fullId);
+		for (auto i = 0; i != int(_items.size()); ++i) {
+			if (_delegate->listDisplayIndex(_items[i]->data()->fullId()) >= wanted) {
+				return i;
+			}
+		}
+		return int(_items.size()) - 1;
+	}
 	const auto after = ranges::find_if(
 		_items,
 		[&](not_null<Element*> view) {
@@ -1571,7 +1590,9 @@ void ListWidget::applyUpdatedScrollState() {
 }
 
 bool ListWidget::atNewestEdge() const {
-	return _inverted ? (_visibleTop == 0) : (_visibleBottom == height());
+	return _delegate->listNewestAtTop()
+		? (_visibleTop == 0)
+		: (_visibleBottom == height());
 }
 
 void ListWidget::updateVisibleTopItem() {
@@ -2909,7 +2930,7 @@ int ListWidget::resizeGetHeight(int newWidth) {
 void ListWidget::restoreScrollPosition() {
 	auto newVisibleTop = _visibleTopItem
 		? (itemTop(_visibleTopItem) + _visibleTopFromItem)
-		: _inverted
+		: _delegate->listNewestAtTop()
 		? 0
 		: ScrollMax;
 	_delegate->listScrollTo(newVisibleTop);
@@ -4158,6 +4179,9 @@ void ListWidget::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 	request.link = link;
 	request.view = _overElement;
 	request.item = overItem;
+	if (const auto exact = _overItemExact ? _overItemExact : overItem) {
+		request.originalMessageAction = _delegate->listOriginalMessageAction(exact->fullId());
+	}
 	request.pointState = _overState.pointState;
 	request.quote = (_overElement
 		&& _selectedTextItem == _overElement->data())
@@ -5226,6 +5250,12 @@ void ListWidget::mouseActionUpdate() {
 
 					if (point.x() >= barLeft && point.x() < barLeft + barWidth) {
 						const auto item = view->data();
+						const auto bar = view->Get<ForumThreadBar>();
+						if (bar && bar->customLink) {
+							dragState = TextState(nullptr, bar->customLink);
+							lnkhost = view;
+							return true;
+						}
 						if (!_forumThreadBarLink) {
 							_forumThreadBarLink = std::make_shared<Window::ForumThreadClickHandler>(item);
 						} else {
@@ -5660,20 +5690,25 @@ void ListWidget::refreshAttachmentsFromTill(int from, int till) {
 		return nullptr;
 	};
 	auto view = _items[from].get();
-	view->refreshForumThreadBar(previousShown(), showBars);
+	if (!_delegate->listRefreshItemHeader(view, previousShown())) {
+		view->refreshForumThreadBar(previousShown(), showBars);
+	}
 	for (auto i = from + 1; i != till; ++i) {
 		const auto next = _items[i].get();
 		if (next->isHidden()) {
 			next->refreshForumThreadBar(nullptr, showBars);
 			next->setDisplayDate(false);
 		} else {
-			next->refreshForumThreadBar(view, showBars);
+			if (!_delegate->listRefreshItemHeader(next, view)) {
+				next->refreshForumThreadBar(view, showBars);
+			}
 			const auto viewDate = view->dateTime();
 			const auto nextDate = next->dateTime();
 			next->setDisplayDate(!hidesDates
 				&& (nextDate.date() != viewDate.date()
 					|| view->data()->hideDisplayDate()));
-			auto attached = next->computeIsAttachToPrevious(view);
+			auto attached = !next->displayForumThreadBar()
+				&& next->computeIsAttachToPrevious(view);
 			next->setAttachToPrevious(attached, view);
 			view->setAttachToNext(attached, next);
 			view = next;
@@ -6031,7 +6066,7 @@ std::vector<HistoryView::Element*> ListWidget::accessibleElements() const {
 }
 
 int ListWidget::accessibilityNewestIndex(int count) const {
-	return _inverted ? 0 : (count - 1);
+	return _delegate->listNewestAtTop() ? 0 : (count - 1);
 }
 
 int ListWidget::accessibilityUnreadBarIndex() const {

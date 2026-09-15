@@ -1870,6 +1870,7 @@ void MainWidget::showSection(
 		if (params.activation != anim::activation::background) {
 			_controller->window().hideSettingsAndLayer();
 		}
+		_controller->setActiveAggregate(_mainSection->aggregateFolder());
 		if (const auto entry = _mainSection->activeChat(); entry.key) {
 			_controller->setActiveChatEntry(entry);
 		}
@@ -2099,6 +2100,7 @@ void MainWidget::showNewSection(
 		_history->finishAnimating();
 		_history->showHistory(PeerId(), MsgId());
 
+		_controller->setActiveAggregate(_mainSection->aggregateFolder());
 		if (const auto entry = _mainSection->activeChat(); entry.key) {
 			_controller->setActiveChatEntry(entry);
 		}
@@ -2397,7 +2399,7 @@ bool MainWidget::showBackFromStack(const SectionShow &params) {
 			SectionShow(
 				SectionShow::Way::ClearStack,
 				anim::type::instant,
-				anim::activation::background));
+				anim::activation::background).withThirdColumn());
 
 	}
 	return true;

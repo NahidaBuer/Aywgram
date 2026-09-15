@@ -76,9 +76,15 @@ class Provider final
 public:
 	using Type = Media::Type;
 	using BaseLayout = Media::BaseLayout;
+	using ExternalSource = Fn<rpl::producer<Data::MessagesSlice>(Data::MessagePosition, int)>;
 
-	explicit Provider(not_null<AbstractController*> controller);
+	explicit Provider(
+		not_null<AbstractController*> controller,
+		ExternalSource externalSource = nullptr,
+		Fn<std::shared_ptr<::Media::View::Navigation>(FullMsgId)> navigation = nullptr);
 	~Provider() override;
+	bool suppressReadReceipts() const override { return bool(_externalSource); }
+	std::shared_ptr<::Media::View::Navigation> mediaNavigation(FullMsgId id) override { return _navigation ? _navigation(id) : nullptr; }
 
 	Type type() override;
 	bool hasSelectRestriction() override;
@@ -233,6 +239,8 @@ private:
 	const not_null<Main::Session*> _session;
 	const Type _type = {};
 	const bool _onlyForwardable = false;
+	ExternalSource _externalSource;
+	Fn<std::shared_ptr<::Media::View::Navigation>(FullMsgId)> _navigation;
 
 	Data::MessagePosition _aroundId = Data::MaxMessagePosition;
 	int _idsLimit = kMinimalIdsLimit;

@@ -648,6 +648,55 @@ void System::clearFromItem(not_null<HistoryItem*> item) {
 	}
 }
 
+void System::clearIncomingTill(not_null<Data::Thread*> thread, MsgId till) {
+	const auto matches = [&](not_null<HistoryItem*> item) {
+		return !item->out() && item->id > 0 && item->id <= till
+			&& (!thread->topicRootId() || item->topicRootId() == thread->topicRootId())
+			&& (!thread->monoforumPeerId() || item->sublistPeerId() == thread->monoforumPeerId());
+	};
+	thread->owner().enumerateMessages(thread->peer()->id, [&](not_null<HistoryItem*> item) {
+		if (matches(item)) {
+			clearFromItem(item);
+			item->notificationThread()->removeNotification(item);
+		}
+	});
+	for (auto &[queuedThread, times] : _whenMaps) {
+		if (queuedThread->owningHistory() != thread->owningHistory()
+			|| (thread->asTopic() && queuedThread != thread)
+			|| (thread->asSublist() && queuedThread != thread)) {
+			continue;
+		}
+		auto clearedTimes = base::flat_set<crl::time>();
+		for (auto i = times.begin(); i != times.end();) {
+			const auto item = thread->owner().message(thread->peer()->id, i->first.messageId);
+			if (item && matches(item)) {
+				clearedTimes.emplace(i->second);
+				i = times.erase(i);
+			} else {
+				++i;
+			}
+		}
+		if (const auto alerts = _whenAlerts.find(queuedThread); alerts != _whenAlerts.end()) {
+			for (const auto when : clearedTimes) {
+				if (!ranges::any_of(times, [&](const auto &entry) { return entry.second == when; })) {
+					alerts->second.remove(when);
+				}
+			}
+		}
+	}
+	if (_lastHistorySessionId == thread->session().uniqueId()
+		&& _lastHistoryItemId.peer == thread->peer()->id) {
+		const auto item = thread->owner().message(_lastHistoryItemId);
+		if (item && matches(item)) {
+			_lastHistoryItemId = {};
+			_lastForwardedCount = 0;
+		}
+	}
+	if (_manager) {
+		checkDelayed();
+	}
+}
+
 void System::clearAllFast() {
 	if (_manager) {
 		_manager->clearAllFast();

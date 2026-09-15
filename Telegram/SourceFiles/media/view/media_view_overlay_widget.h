@@ -304,6 +304,8 @@ private:
 	void subscribeToScreenGeometry();
 
 	void toMessage();
+	void toOriginalMessage();
+	void updateNavigation();
 	void saveAs();
 	void saveLivePhotoVideo();
 	void downloadMedia();
@@ -688,6 +690,11 @@ private:
 	bool _shareVisible = false;
 	bool _rotateVisible = false;
 	bool _drawButtonEnabled = true;
+	bool _suppressRead = false;
+	std::shared_ptr<Navigation> _navigation;
+	Data::MessagesSlice _navigationData;
+	rpl::lifetime _navigationLifetime;
+	int _navigationPending = 0;
 	bool _drawVisible = false;
 	bool _recognizeVisible = false;
 	bool _headerHasLink = false;

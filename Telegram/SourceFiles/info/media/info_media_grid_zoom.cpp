@@ -34,6 +34,9 @@ ListZoom::ListZoom(not_null<ListWidget*> list)
 }
 
 bool ListZoom::isZoomable() const {
+	if (_list->_gridScale) {
+		return false;
+	}
 	switch (_list->_provider->type()) {
 	case Type::Photo:
 	case Type::Video:
@@ -66,7 +69,9 @@ int ListZoom::minGridSizeForStep(int step) const {
 }
 
 int ListZoom::minGridSize() const {
-	return minGridSizeForStep(_step);
+	return _list->_gridScale
+		? int(std::round(minGridSizeForStep(0) * *_list->_gridScale))
+		: minGridSizeForStep(_step);
 }
 
 int ListZoom::columnsForGridSize(int gridSize) const {

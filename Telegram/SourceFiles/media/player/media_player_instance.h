@@ -58,6 +58,7 @@ struct TrackState;
 struct PlaylistContext {
 	MsgId topicRootId = 0;
 	PeerId monoforumPeerId = 0;
+	bool suppressRead = false;
 };
 
 void start(not_null<Audio::Instance*> instance);
@@ -120,7 +121,7 @@ public:
 	[[nodiscard]] PlaylistContext playlistContext(
 		AudioMsgId::Type type) const {
 		if (const auto data = getData(type)) {
-			return { data->topicRootId, data->monoforumPeerId };
+			return { data->topicRootId, data->monoforumPeerId, data->suppressRead };
 		}
 		return {};
 	}
@@ -217,6 +218,7 @@ private:
 		History *history = nullptr;
 		MsgId topicRootId = 0;
 		PeerId monoforumPeerId = 0;
+		bool suppressRead = false;
 		History *migrated = nullptr;
 		Main::Session *session = nullptr;
 		bool isPlaying = false;

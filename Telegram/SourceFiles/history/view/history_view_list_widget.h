@@ -232,8 +232,15 @@ public:
 	virtual Ui::ElasticScroll *listScrollArea() const { return nullptr; }
 	virtual bool listThanosEffectEnabled() const { return true; }
 	virtual bool listShowForumThreadBars() const { return false; }
+	virtual Fn<void()> listOriginalMessageAction(FullMsgId id) { return nullptr; }
 	virtual AboutView *listAboutView() { return nullptr; }
 	virtual bool listInvertedOrder() { return false; }
+	virtual bool listCustomOrder() const { return false; }
+	virtual bool listNewestAtTop() { return listInvertedOrder(); }
+	virtual int listDisplayIndex(FullMsgId id) const { return -1; }
+	virtual bool listRefreshItemHeader(Element *view, Element *previous) {
+		return false;
+	}
 };
 
 class WindowListDelegate : public ListDelegate {

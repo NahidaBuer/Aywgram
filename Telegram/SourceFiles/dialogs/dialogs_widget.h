@@ -394,6 +394,7 @@ private:
 	rpl::event_stream<bool> _openedFolderOrForumChanges;
 
 	object_ptr<Ui::ElasticScroll> _scroll;
+	object_ptr<Ui::AbstractButton> _aggregateEntry = { nullptr };
 	Ui::VerticalLayout *_innerList = nullptr;
 	InnerWidget *_inner = nullptr;
 	std::unique_ptr<Suggestions> _suggestions;

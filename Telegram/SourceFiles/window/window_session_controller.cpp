@@ -2336,10 +2336,26 @@ const rpl::variable<Data::Forum*> &SessionController::shownForum() const {
 	return _shownForum;
 }
 
+void SessionController::setActiveAggregate(std::optional<int> folder) {
+	if (folder) {
+		setActiveChatEntry(Dialogs::RowDescriptor());
+	}
+	_activeAggregate = folder;
+}
+
+std::optional<int> SessionController::activeAggregateCurrent() const {
+	return _activeAggregate.current();
+}
+
+rpl::producer<std::optional<int>> SessionController::activeAggregateValue() const {
+	return _activeAggregate.value();
+}
+
 void SessionController::setActiveChatEntry(Dialogs::RowDescriptor row) {
 	if (windowId().type == SeparateType::SharedMedia) {
 		return;
 	}
+	_activeAggregate = std::nullopt;
 	const auto was = _activeChatEntry.current();
 	if (was.key && was.key != row.key) {
 		session().api().saveCurrentDraftToCloud();
@@ -3434,7 +3450,9 @@ void SessionController::openPhoto(
 		item,
 		message.topicRootId,
 		message.monoforumPeerId,
-		message.showDrawButton));
+		message.showDrawButton,
+		message.suppressRead,
+			message.navigation));
 }
 
 void SessionController::openPhoto(
@@ -3497,7 +3515,9 @@ void SessionController::openDocument(
 			message.monoforumPeerId,
 			false,
 			usedTimestamp,
-			message.showDrawButton));
+			message.showDrawButton,
+			message.suppressRead,
+			message.navigation));
 		return;
 	}
 	Data::ResolveDocument(
@@ -3506,7 +3526,9 @@ void SessionController::openDocument(
 		item,
 		message.topicRootId,
 		message.monoforumPeerId,
-		message.showDrawButton);
+		message.showDrawButton,
+		message.suppressRead,
+		message.navigation);
 }
 
 bool SessionController::openSharedStory(HistoryItem *item) {

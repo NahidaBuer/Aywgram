@@ -152,6 +152,7 @@ public:
 	void switchToFilter(FilterId filterId);
 
 	void clearSelection();
+	void setAggregateEntryHeight(int height);
 
 	void changeOpenedFolder(Data::Folder *folder);
 	void changeOpenedForum(Data::Forum *forum);
@@ -823,6 +824,7 @@ private:
 
 	rpl::variable<ChildListShown> _childListShown;
 	base::Timer _freezeTimer;
+	int _aggregateEntryHeight = 0;
 	float64 _narrowRatio = 0.;
 	bool _geometryInited = false;
 
