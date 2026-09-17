@@ -646,7 +646,7 @@ void Uploader::failed(FullMsgId itemId) {
 
 void Uploader::notifyFailed(const Entry &entry) {
 	const auto completion = entry.file->to.completion;
-	const auto album = entry.file->album;
+	const auto album = entry.file->album.lock();
 	const auto itemId = entry.itemId;
 	if (album || completion) {
 		crl::on_main(this, [=] {
@@ -1185,7 +1185,7 @@ void Uploader::finishFront() {
 			},
 			.options = options,
 			.completion = entry.file->to.completion,
-			.album = entry.file->album,
+			.album = entry.file->album.lock(),
 			.edit = edit,
 		};
 		const auto i = _videoWaitingCover.find(entry.itemId);
@@ -1247,7 +1247,7 @@ void Uploader::finishFront() {
 			},
 			.options = options,
 			.completion = entry.file->to.completion,
-			.album = entry.file->album,
+			.album = entry.file->album.lock(),
 			.edit = edit,
 		};
 		if (entry.file->videoCover) {

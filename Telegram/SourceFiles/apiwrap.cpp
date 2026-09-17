@@ -5904,7 +5904,8 @@ void ApiWrap::sendMultiPaidMedia(
 		sendMessageFail(error, peer, randomId, itemId);
 		const auto stored = _sendingAlbums.find(groupId);
 		if (stored != _sendingAlbums.end()) {
-			failSendingAlbum(stored->second);
+			const auto album = stored->second;
+			failSendingAlbum(album);
 		} else if (completion) {
 			completion->finishRequest(false);
 		}
@@ -5954,7 +5955,8 @@ void ApiWrap::sendAlbumIfReady(not_null<SendingAlbum*> album) {
 	if (album->failed) {
 		const auto stored = _sendingAlbums.find(groupId);
 		if (stored != _sendingAlbums.end()) {
-			failSendingAlbum(stored->second);
+			const auto album = stored->second;
+			failSendingAlbum(album);
 		} else if (album->completion) {
 			album->completion->fail();
 		}
@@ -5962,7 +5964,8 @@ void ApiWrap::sendAlbumIfReady(not_null<SendingAlbum*> album) {
 	} else if (album->items.empty()) {
 		const auto stored = _sendingAlbums.find(groupId);
 		if (stored != _sendingAlbums.end()) {
-			failSendingAlbum(stored->second);
+			const auto album = stored->second;
+			failSendingAlbum(album);
 		}
 		return;
 	}
@@ -5980,7 +5983,8 @@ void ApiWrap::sendAlbumIfReady(not_null<SendingAlbum*> album) {
 	if (!sample) {
 		const auto stored = _sendingAlbums.find(groupId);
 		if (stored != _sendingAlbums.end()) {
-			failSendingAlbum(stored->second);
+			const auto album = stored->second;
+			failSendingAlbum(album);
 		}
 		return;
 	}
@@ -6002,7 +6006,8 @@ void ApiWrap::sendAlbumIfReady(not_null<SendingAlbum*> album) {
 		if (parts.size() != album->items.size()) {
 			const auto stored = _sendingAlbums.find(groupId);
 			if (stored != _sendingAlbums.end()) {
-				failSendingAlbum(stored->second);
+				const auto album = stored->second;
+			failSendingAlbum(album);
 			}
 			return;
 		}
