@@ -305,7 +305,9 @@ private:
 	void finishRestore();
 
 	void showMedia(Category category);
-	std::shared_ptr<Media::View::Navigation> mediaNavigation(FullMsgId id, bool stream);
+	std::shared_ptr<::Media::View::Navigation> mediaNavigation(
+		FullMsgId id,
+		bool stream);
 	void closeMedia();
 	void open(FullMsgId id);
 	void chooseReply(FullReplyTo reply);
@@ -1371,7 +1373,9 @@ void Widget::open(FullMsgId id) {
 	}
 }
 
-std::shared_ptr<Media::View::Navigation> Widget::mediaNavigation(FullMsgId id, bool stream) {
+std::shared_ptr<::Media::View::Navigation> Widget::mediaNavigation(
+		FullMsgId id,
+		bool stream) {
 	const auto original = _data;
 	const auto data = original->fork(!stream);
 	const auto selection = _settings;
@@ -1386,7 +1390,7 @@ std::shared_ptr<Media::View::Navigation> Widget::mediaNavigation(FullMsgId id, b
 		: (described.categories & visual) ? visual : described.categories;
 	const auto folder = _folder;
 	const auto window = base::make_weak(controller());
-	auto result = std::make_shared<Media::View::Navigation>();
+	auto result = std::make_shared<::Media::View::Navigation>();
 	result->slice = [=] { return data->mediaNavigationSlice(categories, stream); };
 	result->changes = [=] { return data->changed(); };
 	result->loading = [=] { return data->loading(); };
