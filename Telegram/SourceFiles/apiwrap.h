@@ -324,6 +324,10 @@ public:
 		Dialogs::Key chat,
 		const QDate &date,
 		Fn<void(not_null<PeerData*>, MsgId)> callback);
+	void resolveJumpToTime(
+		Dialogs::Key chat,
+		TimeId when,
+		Fn<void(not_null<PeerData*>, MsgId)> callback);
 
 	using SliceType = Data::LoadDirection;
 	void requestHistory(
@@ -602,18 +606,18 @@ private:
 	void requestSavedGifs(TimeId now);
 	void readFeaturedSets();
 
-	void resolveJumpToHistoryDate(
+	void resolveJumpToHistoryTime(
 		not_null<PeerData*> peer,
 		MsgId topicRootId,
 		PeerId monoforumPeerId,
-		const QDate &date,
+		TimeId when,
 		Fn<void(not_null<PeerData*>, MsgId)> callback);
 	template <typename Callback>
-	void requestMessageAfterDate(
+	void requestMessageAfterTime(
 		not_null<PeerData*> peer,
 		MsgId topicRootId,
 		PeerId monoforumPeerId,
-		const QDate &date,
+		TimeId when,
 		Callback &&callback);
 
 	void sharedMediaDone(
@@ -744,6 +748,7 @@ private:
 
 	struct DraftSaveRequest {
 		mtpRequestId id = 0;
+		bool changedWhileSaving = false;
 		CloudDraftSavePurpose purpose = CloudDraftSavePurpose::PlainText;
 	};
 	base::flat_map<base::weak_ptr<Data::Thread>, DraftSaveRequest>

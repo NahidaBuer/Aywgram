@@ -402,7 +402,7 @@ void Controller::createWebview(const Webview::StorageId &storageId) {
 		}
 	}, _container->lifetime());
 
-	raw->setNavigationStartHandler([=](const QString &uri, bool newWindow) {
+	raw->setNavigationPolicyHandler([=](const QString &uri, bool newWindow) {
 		Q_UNUSED(newWindow);
 
 		if (_tlViewer) {

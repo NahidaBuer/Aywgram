@@ -366,6 +366,7 @@ QSize Photo::countCurrentSize(int newWidth) {
 	const auto showEnlarge = (_parent->media() != this)
 		&& _parent->data()->media()
 		&& !_parent->data()->isSponsored()
+		&& (_parent->context() != Context::MediaEditor)
 		&& _parent->data()->media()->webpage()
 		&& _parent->data()->media()->webpage()->suggestEnlargePhoto()
 		&& (newWidth >= enlargeOuter)
@@ -398,13 +399,14 @@ void Photo::draw(Painter &p, const PaintContext &context) const {
 	const auto preview = _data->extendedMediaPreview();
 	const auto loaded = preview || _dataMedia->loaded();
 	const auto displayLoading = !preview && _data->displayLoading();
+	const auto mediaEditor = (_parent->context() == Context::MediaEditor);
 
 	const auto hostedInstantView = IsHostedInstantViewMedia(_parent);
 	auto inWebPage = (_parent->media() != this);
 	auto paintx = 0, painty = 0, paintw = width(), painth = height();
 	auto bubble = _parent->hasBubble();
 
-	if (displayLoading) {
+	if (displayLoading && !mediaEditor) {
 		ensureAnimation();
 		if (!_animation->radial.animating()) {
 			_animation->radial.start(_dataMedia->progress());
@@ -423,16 +425,14 @@ void Photo::draw(Painter &p, const PaintContext &context) const {
 	if (_serviceWidth > 0) {
 		paintUserpicFrame(p, context, rthumb.topLeft());
 	} else {
-		const auto rounding = hostedInstantView
-			? std::optional<Ui::BubbleRounding>(Ui::BubbleRounding())
-			: inWebPage
+		const auto rounding = (inWebPage && !hostedInstantView)
 			? std::optional<Ui::BubbleRounding>()
-			: adjustedBubbleRounding();
+			: std::optional<Ui::BubbleRounding>(adjustedBubbleRounding());
 		if (!bubble && !hostedInstantView) {
 			Assert(rounding.has_value());
 			fillImageShadow(p, rthumb, *rounding, context);
 		}
-		const auto revealed = _spoiler
+		const auto revealed = (_spoiler && !mediaEditor)
 			? _spoiler->revealAnimation.value(_spoiler->revealed ? 1. : 0.)
 			: 1.;
 		if (revealed < 1.) {
@@ -458,6 +458,7 @@ void Photo::draw(Painter &p, const PaintContext &context) const {
 		&& _spoiler
 		&& !_spoiler->revealed;
 	const auto paintInCenter = !_sensitiveSpoiler
+		&& !mediaEditor
 		&& (radial || (!loaded && !_data->loading()) || ttlCovered);
 	if (paintInCenter || showEnlarge) {
 		p.setPen(Qt::NoPen);
@@ -509,12 +510,12 @@ void Photo::draw(Painter &p, const PaintContext &context) const {
 				sti->historyFileThumbRadialFg,
 				context.paused);
 		}
-	} else if (_sensitiveSpoiler || preview) {
+	} else if ((_sensitiveSpoiler || preview) && !mediaEditor) {
 		drawSpoilerTag(p, rthumb, context, [&] {
 			return spoilerTagBackground();
 		});
 	}
-	if (ttlCovered) {
+	if (ttlCovered && !mediaEditor) {
 		PaintTtlLabel(
 			p,
 			QPoint(paintx, painty),
@@ -914,8 +915,9 @@ void Photo::drawGrouped(
 	const auto preview = _data->extendedMediaPreview();
 	const auto loaded = preview || _dataMedia->loaded();
 	const auto displayLoading = !preview && _data->displayLoading();
+	const auto mediaEditor = (_parent->context() == Context::MediaEditor);
 
-	if (displayLoading) {
+	if (displayLoading && !mediaEditor) {
 		ensureAnimation();
 		if (!_animation->radial.animating()) {
 			_animation->radial.start(_dataMedia->progress());
@@ -930,7 +932,7 @@ void Photo::drawGrouped(
 		checkStreamedIsStarted();
 	}
 
-	const auto revealed = _spoiler
+	const auto revealed = (_spoiler && !mediaEditor)
 		? _spoiler->revealAnimation.value(_spoiler->revealed ? 1. : 0.)
 		: 1.;
 	if (revealed < 1.) {
@@ -963,6 +965,7 @@ void Photo::drawGrouped(
 		&& _spoiler
 		&& !_spoiler->revealed;
 	const auto paintInCenter = !_sensitiveSpoiler
+		&& !mediaEditor
 		&& (radial
 			|| (!loaded && !_data->loading())
 			|| _data->waitingForAlbum()
@@ -1033,7 +1036,7 @@ void Photo::drawGrouped(
 				context.paused);
 		}
 	}
-	if (ttlCovered) {
+	if (ttlCovered && !mediaEditor) {
 		PaintTtlLabel(
 			p,
 			geometry.topLeft(),
@@ -1376,8 +1379,7 @@ bool Photo::needsBubble() const {
 	}
 	const auto item = _parent->data();
 	return !item->isService()
-		&& (item->repliesAreComments()
-			|| item->externalReply()
+		&& (_parent->hasCommentsButton()
 			|| item->viaBot()
 			|| !item->emptyText()
 			|| _parent->displayReply()

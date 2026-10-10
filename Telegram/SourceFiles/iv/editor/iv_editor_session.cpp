@@ -4355,7 +4355,9 @@ void ArticleSession::applyInitialPaste() {
 			applied();
 		}
 	};
-	if (const auto structured = ClipboardDataFromMimeData(data.get())) {
+	if (const auto structured = ClipboardDataFromMimeData(
+			data.get(),
+			_session)) {
 		_editor->pasteStructuredClipboardData(*structured);
 		notifyApplied();
 		return;
@@ -4367,8 +4369,22 @@ void ArticleSession::applyInitialPaste() {
 		imported = BlocksFromMarkdown(data->text(), limits, used);
 	}
 	if (imported && !imported->blocks.empty()) {
-		_editor->insertPreparedBlocks(std::move(imported->blocks));
-		notifyApplied();
+		const auto editor = _editor.data();
+		if (imported->localMedia.empty()) {
+			editor->pasteImportedBlocks(std::move(*imported));
+			notifyApplied();
+		} else {
+			crl::on_main(editor, [
+				editor,
+				imported = std::move(*imported),
+				applied = base::take(_composeOptions.initialPasteApplied)
+			]() mutable {
+				editor->pasteImportedBlocks(std::move(imported));
+				if (applied) {
+					applied();
+				}
+			});
+		}
 		return;
 	} else if (!data->hasText()) {
 		return;
