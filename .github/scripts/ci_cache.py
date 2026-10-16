@@ -54,12 +54,12 @@ def write_json(name, value):
 
 def dependency_hash(root, platform):
     patterns = (["Telegram/build/docker/centos_env"] if platform == "linux" else
-        ["Telegram/build/prepare", "Telegram/build/qt_version.py"])
+        ["Telegram/build/prepare", "Telegram/build/qt_version.py", "Telegram/build/build_mac.py"])
     tracked = subprocess.check_output(
         ["git", "ls-files", "-z", "--", *patterns], cwd=root,
     ).decode().split("\0")
     required = (["Telegram/build/docker/centos_env/Dockerfile"] if platform == "linux" else
-        ["Telegram/build/prepare/prepare.py", "Telegram/build/qt_version.py"])
+        ["Telegram/build/prepare/prepare.py", "Telegram/build/qt_version.py", "Telegram/build/build_mac.py"])
     if not all(name in tracked for name in required):
         raise ValueError("Required dependency inputs are missing from the source checkout")
     digest = hashlib.sha256()

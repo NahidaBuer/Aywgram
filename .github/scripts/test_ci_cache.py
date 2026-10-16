@@ -24,6 +24,7 @@ class CacheKeyTests(unittest.TestCase):
             "Telegram/build/prepare/prepare.py": "recipe",
             "Telegram/build/prepare/mac.sh": "wrapper",
             "Telegram/build/qt_version.py": "6.11.2",
+            "Telegram/build/build_mac.py": "toolchain helper",
             "Telegram/build/docker/centos_env/Dockerfile": "FROM rockylinux:8",
             "Telegram/build/docker/centos_env/poetry.lock": "locked",
             "Telegram/SourceFiles/main.cpp": "application",
@@ -39,12 +40,21 @@ class CacheKeyTests(unittest.TestCase):
         (self.root / "Telegram/SourceFiles/main.cpp").write_text("new source")
         self.assertEqual(before, CACHE.dependency_hash(self.root, "windows"))
 
-    def test_qt_and_prepare_changes_invalidate_dependencies(self):
-        for name in list(self.files)[:3]:
-            with self.subTest(name=name):
-                before = CACHE.dependency_hash(self.root, "mac")
-                (self.root / name).write_text("modified " + name)
-                self.assertNotEqual(before, CACHE.dependency_hash(self.root, "mac"))
+    def test_prepare_inputs_invalidate_dependencies(self):
+        for platform in ("mac", "windows"):
+            for name in list(self.files)[:4]:
+                with self.subTest(platform=platform, name=name):
+                    before = CACHE.dependency_hash(self.root, platform)
+                    path = self.root / name
+                    path.write_text(path.read_text() + " modified")
+                    self.assertNotEqual(before, CACHE.dependency_hash(self.root, platform))
+
+    def test_missing_mac_helper_is_rejected(self):
+        subprocess.run(["git", "-C", str(self.root), "rm", "--cached", "-q", "-f",
+            "Telegram/build/build_mac.py"], check=True)
+        for platform in ("mac", "windows"):
+            with self.subTest(platform=platform), self.assertRaises(ValueError):
+                CACHE.dependency_hash(self.root, platform)
 
     def test_generated_dockerfile_is_hashed_after_generation(self):
         before = CACHE.dependency_hash(self.root, "linux")
