@@ -2742,7 +2742,10 @@ void ComposeControls::applyComposeStash(Data::ComposeStash &&stash) {
 			_topicRootId,
 			_monoforumPeerId);
 		if (cloud && thread) {
-			session().api().saveDraftToCloud(not_null{ thread }, *cloud);
+			session().api().saveDraftToCloud(
+				not_null{ thread },
+				*cloud,
+				CloudDraftSavePurpose::RichLifecycle);
 		}
 	} else {
 		const auto reply = stash.draft.reply;

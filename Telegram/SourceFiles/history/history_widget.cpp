@@ -3055,7 +3055,10 @@ void HistoryWidget::applyComposeStash(Data::ComposeStash &&stash) {
 			&stash.draft);
 		applyDraft();
 		if (cloud) {
-			session().api().saveDraftToCloud(not_null{ _history }, *cloud);
+			session().api().saveDraftToCloud(
+				not_null{ _history },
+				*cloud,
+				CloudDraftSavePurpose::RichLifecycle);
 		}
 	} else {
 		const auto reply = stash.draft.reply;
