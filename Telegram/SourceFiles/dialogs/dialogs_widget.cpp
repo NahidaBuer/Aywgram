@@ -4606,12 +4606,13 @@ bool Widget::applySearchState(SearchState state) {
 	if (inChatChanged && _searchState.inChat && _stories) {
 		storiesExplicitCollapse();
 	}
-	if (_chatFilters
-		&& (queryEmptyChanged || inChatChanged || communityChanged)) {
-		_chatFilters->setVisible(_searchState.query.isEmpty()
-			&& !_openedForum
-			&& !_searchState.community
-			&& !searchInPeer());
+	if (queryEmptyChanged || inChatChanged || communityChanged) {
+		if (_chatFilters) {
+			_chatFilters->setVisible(_searchState.query.isEmpty()
+				&& !_openedForum
+				&& !_searchState.community
+				&& !searchInPeer());
+		}
 		updateControlsGeometry();
 	}
 	if (queryEmptyChanged) {
