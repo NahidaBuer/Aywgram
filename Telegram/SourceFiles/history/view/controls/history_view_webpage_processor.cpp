@@ -170,12 +170,13 @@ void WebpageResolver::requestAttempt(
 			page->pendingTill = 0;
 			page->failed = true;
 		}
-		if (page->failed && fallbackToOriginal) {
+		const auto empty = (data.vwebpage().type() == mtpc_webPageEmpty);
+		if ((empty || page->failed) && fallbackToOriginal) {
 			requestAttempt(original, original, false);
 			return;
 		}
-		_cache[original] = page->failed ? nullptr : page.get();
-		_usedRewrite[original] = !page->failed && (candidate != original);
+		_cache[original] = (empty || page->failed) ? nullptr : page.get();
+		_usedRewrite[original] = !empty && !page->failed && (candidate != original);
 		_resolved.fire_copy(original);
 	};
 	const auto fail = [=] {

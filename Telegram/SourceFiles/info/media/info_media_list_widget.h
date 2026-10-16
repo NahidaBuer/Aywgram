@@ -76,7 +76,8 @@ class ListWidget final
 public:
 	ListWidget(
 		QWidget *parent,
-		not_null<AbstractController*> controller);
+		not_null<AbstractController*> controller,
+		std::unique_ptr<ListProvider> provider = nullptr);
 	~ListWidget();
 
 	Main::Session &session() const;
@@ -127,6 +128,7 @@ public:
 	bool processZoomWheel(not_null<QWheelEvent*> e);
 	void zoomIn();
 	void zoomOut();
+	void setGridScale(float64 scale);
 	[[nodiscard]] bool canZoomIn() const;
 	[[nodiscard]] bool canZoomOut() const;
 
@@ -151,6 +153,7 @@ public:
 
 private:
 	friend class ListZoom;
+	std::optional<float64> _gridScale;
 
 	struct DateBadge;
 	using Section = ListSection;

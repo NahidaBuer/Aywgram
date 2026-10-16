@@ -7,105 +7,109 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "dialogs/dialogs_widget.h"
 
-#include "base/call_delayed.h"
+#include "ayu/features/aggregate/aggregate_section.h"
+#include "ayu/features/aggregate/aggregate_settings.h"
+
+#include "api/api_authorizations.h"
+#include "api/api_chat_filters.h"
+#include "api/api_messages_search_intersection.h"
+#include "api/api_messages_search_merged.h"
+#include "base/qt/qt_common_adapters.h"
 #include "base/qt/qt_key_modifiers.h"
+#include "base/call_delayed.h"
 #include "base/options.h"
+#include "boxes/peers/community_box.h"
+#include "boxes/peers/community_pending_requests_box.h"
+#include "boxes/peers/edit_peer_requests_box.h"
+#include "boxes/choose_filter_box.h"
+#include "chat_helpers/message_field.h"
+#include "core/application.h"
+#include "core/shortcuts.h"
+#include "core/ui_integration.h"
+#include "core/update_checker.h"
+#include "data/components/recent_peers.h"
+#include "data/components/sponsored_messages.h"
+#include "data/stickers/data_custom_emoji.h"
+#include "data/data_changes.h"
+#include "data/data_channel.h"
+#include "data/data_chat.h"
+#include "data/data_chat_filters.h"
+#include "data/data_download_manager.h"
+#include "data/data_folder.h"
+#include "data/data_forum.h"
+#include "data/data_forum_topic.h"
+#include "data/data_histories.h"
+#include "data/data_saved_messages.h"
+#include "data/data_saved_sublist.h"
+#include "data/data_session.h"
+#include "data/data_stories.h"
+#include "data/data_user.h"
 #include "dialogs/ui/chat_search_in.h"
 #include "dialogs/ui/dialogs_stories_content.h"
 #include "dialogs/ui/dialogs_stories_list.h"
 #include "dialogs/ui/dialogs_suggestions.h"
 #include "dialogs/ui/dialogs_top_bar_suggestion_content.h"
 #include "dialogs/dialogs_inner_widget.h"
-#include "dialogs/dialogs_search_from_controllers.h"
-#include "dialogs/dialogs_search_filter.h"
-#include "dialogs/dialogs_top_bar_suggestion.h"
-#include "dialogs/dialogs_quick_action.h"
 #include "dialogs/dialogs_key.h"
-#include "history/history.h"
-#include "history/history_item.h"
+#include "dialogs/dialogs_quick_action.h"
+#include "dialogs/dialogs_search_filter.h"
+#include "dialogs/dialogs_search_from_controllers.h"
+#include "dialogs/dialogs_top_bar_suggestion.h"
 #include "history/view/history_view_chat_section.h"
 #include "history/view/history_view_contact_status.h"
 #include "history/view/history_view_group_call_bar.h"
 #include "history/view/history_view_requests_bar.h"
 #include "history/view/history_view_top_bar_widget.h"
-#include "boxes/peers/community_box.h"
-#include "boxes/peers/community_pending_requests_box.h"
-#include "boxes/peers/edit_peer_requests_box.h"
-#include "boxes/choose_filter_box.h"
-#include "ui/text/text_utilities.h"
-#include "ui/widgets/buttons.h"
-#include "ui/widgets/chat_filters_tabs_strip.h"
-#include "ui/widgets/elastic_scroll.h"
-#include "ui/widgets/fields/input_field.h"
-#include "ui/widgets/popup_menu.h"
-#include "ui/wrap/fade_wrap.h"
-#include "ui/wrap/slide_wrap.h"
-#include "ui/wrap/vertical_layout.h"
-#include "ui/effects/radial_animation.h"
-#include "ui/effects/ripple_animation.h"
-#include "ui/effects/slide_animation.h"
-#include "ui/chat/requests_bar.h"
-#include "ui/chat/group_call_bar.h"
-#include "ui/chat/more_chats_bar.h"
-#include "ui/controls/download_bar.h"
-#include "ui/controls/jump_down_button.h"
-#include "ui/controls/swipe_handler.h"
-#include "ui/painter.h"
-#include "ui/rect.h"
-#include "ui/screen_reader_mode.h"
-#include "ui/ui_utility.h"
-#include "lang/lang_keys.h"
-#include "mainwindow.h"
-#include "mainwidget.h"
-#include "main/main_domain.h"
-#include "main/main_session.h"
-#include "main/main_session_settings.h"
-#include "api/api_authorizations.h"
-#include "api/api_chat_filters.h"
-#include "api/api_messages_search_intersection.h"
-#include "api/api_messages_search_merged.h"
-#include "apiwrap.h"
-#include "chat_helpers/message_field.h"
-#include "core/application.h"
-#include "core/ui_integration.h"
-#include "core/update_checker.h"
-#include "core/shortcuts.h"
-#include "window/window_controller.h"
-#include "window/window_session_controller.h"
-#include "window/window_slide_animation.h"
-#include "window/window_connecting_widget.h"
-#include "window/window_main_menu.h"
-#include "storage/storage_media_prepare.h"
-#include "storage/storage_account.h"
-#include "storage/storage_domain.h"
-#include "data/components/recent_peers.h"
-#include "data/components/sponsored_messages.h"
-#include "data/data_session.h"
-#include "data/data_channel.h"
-#include "data/data_chat.h"
-#include "data/stickers/data_custom_emoji.h"
-#include "data/data_user.h"
-#include "data/data_folder.h"
-#include "data/data_forum.h"
-#include "data/data_forum_topic.h"
-#include "data/data_histories.h"
-#include "data/data_changes.h"
-#include "data/data_download_manager.h"
-#include "data/data_chat_filters.h"
-#include "data/data_saved_messages.h"
-#include "data/data_saved_sublist.h"
-#include "data/data_stories.h"
+#include "history/history.h"
+#include "history/history_item.h"
 #include "info/downloads/info_downloads_widget.h"
 #include "info/profile/info_profile_values.h"
 #include "info/info_memento.h"
 #include "inline_bots/bot_attach_web_view.h"
-#include "styles/style_dialogs.h"
+#include "lang/lang_keys.h"
+#include "main/main_domain.h"
+#include "main/main_session.h"
+#include "main/main_session_settings.h"
+#include "storage/storage_account.h"
+#include "storage/storage_domain.h"
+#include "storage/storage_media_prepare.h"
+#include "ui/chat/group_call_bar.h"
+#include "ui/chat/more_chats_bar.h"
+#include "ui/chat/requests_bar.h"
+#include "ui/controls/download_bar.h"
+#include "ui/controls/jump_down_button.h"
+#include "ui/controls/swipe_handler.h"
+#include "ui/effects/radial_animation.h"
+#include "ui/effects/ripple_animation.h"
+#include "ui/effects/slide_animation.h"
+#include "ui/text/text_utilities.h"
+#include "ui/widgets/fields/input_field.h"
+#include "ui/widgets/buttons.h"
+#include "ui/widgets/chat_filters_tabs_strip.h"
+#include "ui/widgets/elastic_scroll.h"
+#include "ui/widgets/popup_menu.h"
+#include "ui/wrap/fade_wrap.h"
+#include "ui/wrap/slide_wrap.h"
+#include "ui/wrap/vertical_layout.h"
+#include "ui/painter.h"
+#include "ui/rect.h"
+#include "ui/screen_reader_mode.h"
+#include "ui/ui_utility.h"
+#include "window/window_connecting_widget.h"
+#include "window/window_controller.h"
+#include "window/window_main_menu.h"
+#include "window/window_session_controller.h"
+#include "window/window_slide_animation.h"
+#include "apiwrap.h"
+#include "mainwidget.h"
+#include "mainwindow.h"
+
 #include "styles/style_chat.h"
 #include "styles/style_chat_helpers.h"
+#include "styles/style_dialogs.h"
 #include "styles/style_dialogs_widget.h"
 #include "styles/style_info.h"
 #include "styles/style_window.h"
-#include "base/qt/qt_common_adapters.h"
 
 #include <QtCore/QMimeData>
 #include <QtGui/QTextBlock>
@@ -113,8 +117,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtWidgets/QTextEdit>
 
 // AyuGram includes
-#include "ayu/ayu_settings.h"
 #include "ayu/utils/telegram_helpers.h"
+#include "ayu/ayu_settings.h"
 #include "base/platform/base_platform_haptic.h"
 
 
@@ -542,6 +546,14 @@ Widget::Widget(
 	controller->activeChatsFilter(
 	) | rpl::on_next([=](FilterId id) {
 		switchToChatsFilter(id);
+		updateControlsGeometry();
+	}, lifetime());
+	_aggregateEntry = Ayu::Aggregate::CreateEntry(_inner, controller);
+	_aggregateEntry->setClickedCallback([=] {
+		Ayu::Aggregate::Show(controller, controller->activeChatsFilterCurrent());
+	});
+	Ayu::Aggregate::SettingsChanged() | rpl::on_next([=] {
+		updateControlsGeometry();
 	}, lifetime());
 	rpl::combine(
 		_scroll->heightValue(),
@@ -971,8 +983,9 @@ void Widget::setupSwipeBack() {
 			_inner->clearQuickActions();
 			if (!isRightToLeft) {
 				if (const auto key = _inner->calcSwipeKey(top);
-						key && !isDisabled) {
-					_inner->prepareQuickAction(key, action);
+						key
+						&& !isDisabled
+						&& _inner->prepareQuickAction(key, action)) {
 					return Ui::Controls::SwipeHandlerFinishData{
 						.callback = [=, session = &session()] {
 							auto callback = [=, peerId = PeerId(key)] {
@@ -1101,7 +1114,7 @@ void Widget::chosenRow(const ChosenRow &row) {
 		&& (row.message.fullId.msg == ShowAtUnreadMsgId);
 	const auto userpicCommunity = [&]() -> ChannelData* {
 		if (!history
-			|| !row.userpicClick
+			|| !(row.userpicClick || row.communityBadgeClick)
 			|| (row.message.fullId.msg != ShowAtUnreadMsgId)
 			|| (communityOnlyFromBadge && !row.communityBadgeClick)) {
 			return nullptr;
@@ -1341,7 +1354,7 @@ void Widget::setupFrozenAccountBar() {
 }
 
 void Widget::setupTopBarSuggestions() {
-	if (_layout == Layout::Child) {
+	if (_layout == Layout::Child || !controller()->windowId().primary()) {
 		return;
 	}
 	using namespace rpl::mappers;
@@ -1357,7 +1370,7 @@ void Widget::setupTopBarSuggestions() {
 		) | rpl::filter(_1 == nullptr) | rpl::map([=] {
 			auto on = rpl::combine(
 				controller()->activeChatsFilter(),
-				_openedFolderOrForumChanges.events_starting_with(false),
+				_openedFolderOrForum.value(),
 				_searchStateForTopBarSuggestion.events_starting_with(
 					!_searchState.query.isEmpty()),
 				_jumpToDate->toggledValue()
@@ -1417,10 +1430,9 @@ void Widget::updateFrozenAccountBar() {
 }
 
 void Widget::updateTopBarSuggestions() {
-	if (_topBarSuggestion) {
-		_openedFolderOrForumChanges.fire(
-			_openedFolder || _openedForum || _openedCommunity);
-	}
+	_openedFolderOrForum = (_openedFolder
+		|| _openedForum
+		|| _openedCommunity);
 }
 
 bool Widget::communityOverlaysShown() const {
@@ -2459,6 +2471,7 @@ void Widget::changeOpenedForum(Data::Forum *forum, anim::type animated) {
 	if (_openedForum == forum) {
 		return;
 	}
+	_childListPostponed = false;
 	changeOpenedSubsection([&] {
 		cancelSearch({ .forceFullCancel = true });
 		closeChildList(anim::type::instant);
@@ -2656,7 +2669,7 @@ void Widget::switchToChatsFilter(FilterId id) {
 	const auto slideLeft = (indexOf(id) < indexOf(was));
 	const auto duration = _chatsFilterSwipeSwitch
 		? st::dialogsFilterSwipeSlideDuration
-		: st::slideDuration;
+		: st::dialogsFilterSlideDuration;
 	_chatsFilterSlideCanvas = nullptr;
 	auto wasCache = grabForChatsFilterSlide();
 	_inner->switchToFilter(id);
@@ -2849,7 +2862,8 @@ void Widget::scrollToDefault(bool verytop) {
 	startScrollUpButtonAnimation(false);
 
 	const auto scroll = [=] {
-		const auto animated = qRound(_scrollToAnimation.value(scrollTo));
+		const auto animated
+			= int(base::SafeRound(_scrollToAnimation.value(scrollTo)));
 		const auto animatedDelta = animated - scrollTo;
 		const auto realDelta = _scroll->scrollTop() - scrollTo;
 		if (base::OppositeSigns(realDelta, animatedDelta)) {
@@ -2961,6 +2975,7 @@ void Widget::updateStoriesVisibility() {
 
 	const auto widthAnimation = !_widthAnimationCache.isNull();
 	const auto suggestionsAnimation = widthAnimation
+		&& !_openedFolder
 		&& (!_suggestions || !_hidingSuggestions.empty());
 	const auto hiddenAnimated = _searchHasFocus
 		|| _searchSuggestionsLocked
@@ -3012,9 +3027,9 @@ void Widget::updateStoriesTitleShown() {
 	if (!_subsectionTopBar || !_openedFolder) {
 		return;
 	}
-	const auto shown = (!_stories
-		|| _stories->empty()
-		|| _stories->toggledHidden())
+	const auto shown = !_widthAnimationCache.isNull()
+		? 0.
+		: (!_stories || _stories->empty() || _stories->toggledHidden())
 		? 1.
 		: _stories->collapsedGeometryCurrent().expanded;
 	_subsectionTopBar->setTitleShownRatio(shown);
@@ -4296,10 +4311,13 @@ void Widget::showForum(
 	}
 	const auto nochat = !controller()->mainSectionShown();
 	if (!params.childColumn
-		|| (Core::App().settings().dialogsWidthRatio(nochat) == 0.)
 		|| (_layout != Layout::Main)
 		|| OptionForumHideChatsList.value()) {
 		changeOpenedForum(forum, params.animated);
+		return;
+	} else if (Core::App().settings().dialogsWidthRatio(nochat) == 0.) {
+		changeOpenedForum(forum, params.animated);
+		_childListPostponed = true;
 		return;
 	}
 	cancelSearch({ .forceFullCancel = true });
@@ -4588,15 +4606,16 @@ bool Widget::applySearchState(SearchState state) {
 	if (inChatChanged && _searchState.inChat && _stories) {
 		storiesExplicitCollapse();
 	}
-	if (_chatFilters
-		&& (queryEmptyChanged || inChatChanged || communityChanged)) {
-		_chatFilters->setVisible(_searchState.query.isEmpty()
-			&& !_openedForum
-			&& !_searchState.community
-			&& !searchInPeer());
+	if (queryEmptyChanged || inChatChanged || communityChanged) {
+		if (_chatFilters) {
+			_chatFilters->setVisible(_searchState.query.isEmpty()
+				&& !_openedForum
+				&& !_searchState.community
+				&& !searchInPeer());
+		}
 		updateControlsGeometry();
 	}
-	if (_topBarSuggestion && queryEmptyChanged) {
+	if (queryEmptyChanged) {
 		_searchStateForTopBarSuggestion.fire(!_searchState.query.isEmpty());
 	}
 	_searchWithPostsPreview = computeSearchWithPostsPreview();
@@ -4823,6 +4842,16 @@ void Widget::completeHashtag(QString tag) {
 
 void Widget::resizeEvent(QResizeEvent *e) {
 	updateControlsGeometry();
+	if (_childListPostponed) {
+		const auto nochat = !controller()->mainSectionShown();
+		if (Core::App().settings().dialogsWidthRatio(nochat) > 0.) {
+			const auto forum = not_null(_openedForum);
+			changeOpenedForum(nullptr, anim::type::instant);
+			showForum(
+				forum,
+				Window::SectionShow(anim::type::instant).withChildColumn());
+		}
+	}
 }
 
 void Widget::updateLockUnlockVisibility(anim::type animated) {
@@ -4832,6 +4861,7 @@ void Widget::updateLockUnlockVisibility(anim::type animated) {
 	const auto widthAnimation = !_widthAnimationCache.isNull();
 	const auto suggestionsAnimation = widthAnimation
 		&& (!_suggestions || !_hidingSuggestions.empty());
+	// Show verified locking; the layout path only reads the cache.
 	const auto hiddenInstant = _showAnimation
 		|| _openedForum
 		|| (widthAnimation && !suggestionsAnimation)
@@ -4959,7 +4989,9 @@ void Widget::updateControlsGeometry() {
 		+ st::dialogsFilterPadding.x();
 	const auto filterRight = st::dialogsFilterSkip
 		+ st::dialogsFilterPadding.x();
-	const auto filterWidth = qMax(ratiow, smallw) - filterLeft - filterRight;
+	const auto filterWidth = std::max(ratiow, smallw)
+		- filterLeft
+		- filterRight;
 	const auto filterAreaHeight = st::topBarHeight;
 	_searchControls->setGeometry(0, filterAreaTop, ratiow, filterAreaHeight);
 	if (_subsectionTopBar) {
@@ -5014,9 +5046,12 @@ void Widget::updateControlsGeometry() {
 	if (_stories) {
 		const auto inFolderTitle = _openedFolder && _subsectionTopBar;
 		const auto storiesLeft = inFolderTitle
-			? (_subsectionTopBar->titleLeft()
-				- st::dialogsStories.left
-				- st::dialogsStories.photoLeft)
+			? anim::interpolate(
+				(_subsectionTopBar->titleLeft()
+					- st::dialogsStories.left
+					- st::dialogsStories.photoLeft),
+				_narrowWidth,
+				narrowRatio)
 			: (filterLeft + filterWidth);
 		_stories->setLayoutConstraints(
 			{ storiesLeft, filterTop + added },
@@ -5110,7 +5145,7 @@ void Widget::updateControlsGeometry() {
 		if (_chatFilters) {
 			_chatFilters->move(0, chatFiltersTop);
 		}
-		const auto scrollTop = chatFiltersTop
+		auto scrollTop = chatFiltersTop
 			+ ((_chatFilters
 				&& _searchState.query.isEmpty()
 				&& !_openedForum
@@ -5118,6 +5153,20 @@ void Widget::updateControlsGeometry() {
 				&& !searchInPeer())
 				? (_chatFilters->height() * (1. - narrowRatio))
 				: 0);
+		if (_aggregateEntry) {
+			const auto visible = Ayu::Aggregate::ReadGlobal().enabled
+				&& Ayu::Aggregate::ReadFolder(&session(), controller()->activeChatsFilterCurrent()).visible
+				&& _layout != Layout::Child && !_openedFolder && !_openedForum
+				&& !_searchState.community && _searchState.query.isEmpty()
+				&& !searchInPeer() && !_childList;
+			_inner->setAggregateEntryHeight(visible ? _aggregateEntry->height() : 0);
+			_aggregateEntry->setVisible(visible);
+			if (visible) {
+				_aggregateEntry->resizeToWidth(scrollWidth);
+				_aggregateEntry->move(0, 0);
+				_aggregateEntry->raise();
+			}
+		}
 		const auto scrollHeight = height() - scrollTop - bottomSkip;
 		const auto wasScrollHeight = _scroll->height();
 		_scroll->setGeometry(0, scrollTop, scrollWidth, scrollHeight);

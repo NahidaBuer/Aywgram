@@ -103,7 +103,7 @@ pluginShowInFolder: IconButton(defaultIconButton) {
 }
 maxPluginDescriptionHeight: 400px;
 pluginVersionAuthorLabel: FlatLabel(boxLabel) {
-    align: align(center);
+	align: align(center);
 }
 pluginChipSkip: 6px;
 
@@ -124,3 +124,39 @@ ayuServiceTimeBadgeVerticalPadding: 2px;
 ayuServiceTimeBadgeGap: 8px;
 ayuServiceTimeBadgeTrailingInset: 3px;
 ayuServiceTimeBadgeLastLineWidthAdd: 9px;
+
+aggregateFolderIcon: icon {{ "menu/show_in_folder", activeButtonFg }};
+aggregateAvatarSize: 36px;
+aggregateHeaderPadding: 12px;
+aggregateHeaderNameTop: 8px;
+aggregateHeaderStatusTop: 29px;
+aggregateFilter: IconButton(topBarSearch) {
+	iconPosition: point(8px, 15px);
+	icon: icon {{ "menu/tag_filter", menuIconFg }};
+	iconOver: icon {{ "menu/tag_filter", menuIconFgOver }};
+}
+aggregateFilterMenu: Menu(menuWithIcons) {
+	itemIconPosition: point(47px, 5px);
+	itemPadding: margins(86px, 8px, 17px, 8px);
+}
+aggregateFilterPopup: PopupMenu(popupMenuWithIcons) {
+	menu: aggregateFilterMenu;
+}
+aggregateNumberField: InputField(defaultInputField) {
+	textMargins: margins(0px, 4px, 0px, 4px);
+	heightMin: 32px;
+	heightMax: 32px;
+}
+aggregateChatFilter: IconButton(topBarSearch) {
+	iconPosition: point(8px, 15px);
+	icon: icon {{ "menu/groups", menuIconFg }};
+	iconOver: icon {{ "menu/groups", menuIconFgOver }};
+}
+aggregateSourceButton: SettingsButton(settingsButton) {
+	height: 56px;
+}
+aggregateSourceNameTop: 8px;
+aggregateSourcePreviewTop: 30px;
+aggregateSourceAvatar: 36px;
+aggregateSourcePadding: 12px;
+aggregateSourceToggleSpace: 64px;

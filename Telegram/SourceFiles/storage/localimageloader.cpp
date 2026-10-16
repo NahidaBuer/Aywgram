@@ -763,15 +763,17 @@ void FileLoadTask::process(ProcessArgs &&args) {
 					Qt::IgnoreAspectRatio,
 					Qt::SmoothTransformation);
 			}
+			const auto gif = _animationAsGif && still->music.empty();
 			auto information = std::make_unique<
 				Ui::PreparedFileInformation>();
 			information->filemime = "video/mp4";
 			information->media = Ui::PreparedFileInformation::Video{
-				.isGifv = _animationAsGif,
+				.isGifv = gif,
 				.supportsStreaming = true,
+				.hasAudio = !still->music.empty(),
 				.duration = still->duration,
 				.thumbnail = std::move(preview),
-				.modifications = { .gif = _animationAsGif },
+				.modifications = { .gif = gif },
 			};
 			_information = std::move(information);
 			_content = QByteArray();
@@ -922,7 +924,7 @@ void FileLoadTask::process(ProcessArgs &&args) {
 			fullimagebytes = fullimageformat = QByteArray();
 		}
 	}
-	_result->filesize = qMin(filesize, qint64(UINT_MAX));
+	_result->filesize = std::min(filesize, qint64(UINT_MAX));
 
 	if (!filesize || filesize > kFileSizePremiumLimit) {
 		return;

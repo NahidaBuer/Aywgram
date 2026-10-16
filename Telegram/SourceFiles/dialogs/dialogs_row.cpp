@@ -849,6 +849,7 @@ void Row::paintUserpic(
 	const auto subscribed = Data::ChannelHasSubscriptionUntilDate(
 		badgeChannel);
 	const auto communityMember = IsCommunityBadgeShown(peer, insideCommunity);
+	_cornerBadgeUserpic->communityMember = communityMember ? 1 : 0;
 	// Only stories outline and online badge differ for active row.
 	const auto activeMatters = storiesCount
 		|| !(subscribed || communityMember);
@@ -939,6 +940,26 @@ bool Row::lookupIsInCommunityBadge(
 bool Row::lookupIsInTopicJump(int x, int y) const {
 	const auto history = this->history();
 	return history && history->lastItemDialogsView().isInTopicJump(x, y);
+}
+
+bool Row::lookupIsInCommunityBadge(
+		int x,
+		int y,
+		const style::DialogRow &st) const {
+	if (!_cornerBadgeUserpic
+		|| !_cornerBadgeUserpic->communityMember
+		|| !_cornerBadgeUserpic->layersManager.isSameLayer(kTopLayer)) {
+		return false;
+	}
+	const auto size = st::dialogsCommunityBadgeSize;
+	const auto &skip = st::dialogsCommunityBadgeSkip;
+	const auto stroke = st::dialogsCommunityBadgeStroke;
+	return QRect(
+		st.padding.left() + st.photoSize - skip.x() - size,
+		st.padding.top() + st.photoSize - skip.y() - size,
+		size,
+		size
+	).marginsAdded({ stroke, stroke, stroke, stroke }).contains(x, y);
 }
 
 void Row::stopLastRipple() {

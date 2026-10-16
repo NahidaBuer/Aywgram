@@ -12,7 +12,15 @@ Before configuring or building, inspect repository-root `out/CMakeCache.txt`: `C
 
 For an existing Visual Studio tree, an ordinary PowerShell session can invoke the cached absolute CMake executable. Missing `cmake` on PATH does not establish a compiler or source failure. Keep CMake and its modules from the same installation; inspect stale module paths before diagnosing regeneration failures.
 
-After the user authorizes a build and the configuration checks pass, use this Release example from the repository root. Use Debug only when explicitly requested or approved for diagnosis:
+### Sandbox Execution
+
+For the native Windows agent environment, run authorized CMake configuration and builds outside the sandbox from the first attempt. Sandbox execution is known to fail during generation or build-file writes; do not run a sandboxed build merely to obtain a permission error. Read-only cache inspection and source checks can remain sandboxed. See `AGENTS.override.md` for checkout-local evidence.
+
+When using `exec_command`, request `sandbox_permissions: "require_escalated"` for the build command and supply a justification describing the already-authorized configuration and target. Follow the tool's approval process; build authorization does not bypass execution approval. If escalation is rejected, report the rejection and stop the build rather than trying another shell or changing permissions. Do not ask the user to authorize the same build again when that authorization is already present.
+
+An accidentally sandboxed invocation may report `Permission denied` for `out/CMakeFiles/VerifyGlobs.cmake.tmp` or `cmake.check_cache`, sometimes alongside a `generate.stamp` timestamp error. These generation errors alone do not establish that the application or debugger holds a file open. Preserve the log and rerun the authorized command through the supported escalation mechanism. Do not delete `out/`, reset ACLs, or ask the user to close the application solely because of this known sandbox failure.
+
+After the user authorizes a build and the configuration checks pass, run this Release example outside the sandbox from the repository root. Use Debug only when explicitly requested or approved for diagnosis:
 
 ```powershell
 $ayuBuildTree = Join-Path (Get-Location).Path 'out'
@@ -93,6 +101,6 @@ The traditional dependency layout places the repository beneath a build root, wi
 
 ## Locked Build Files
 
-If the build reports C1041, LNK1104, an inaccessible PDB or executable, `access denied`, or `file in use`, stop immediately. Do not retry, delete the file, or attempt a workaround. Ask the user to close AywGram/Telegram and any debugger, then wait for confirmation before rebuilding.
+First distinguish the known sandbox generation failures described above from compiler or linker file-access failures. If compilation or linking reports C1041, LNK1104, an inaccessible PDB or executable, or an explicit sharing violation / `file in use`, stop immediately. Do not retry, delete the file, or attempt a workaround. Ask the user to close AywGram/Telegram and any debugger, then wait for confirmation before rebuilding. If CMake still cannot write its generation files outside the sandbox, stop and inspect the reported path and permissions; do not assume an application lock or repeatedly retry.
 
 After a build, report the command, configuration, architecture, artifact path, verification performed, source changes required, and remaining warnings. Existing artifacts and cache entries alone do not prove the current source builds.

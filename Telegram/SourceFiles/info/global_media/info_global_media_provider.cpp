@@ -110,11 +110,16 @@ const std::vector<GlobalMediaSlice::Value> &GlobalMediaSlice::items() const {
 	return _items;
 }
 
-Provider::Provider(not_null<AbstractController*> controller)
+Provider::Provider(
+	not_null<AbstractController*> controller,
+	ExternalSource externalSource,
+	Fn<std::shared_ptr<::Media::View::Navigation>(FullMsgId)> navigation)
 : _controller(controller)
 , _session(&controller->session())
 , _type(_controller->section().mediaType())
 , _onlyForwardable(_controller->key().globalMediaOnlyForwardable())
+, _externalSource(std::move(externalSource))
+, _navigation(std::move(navigation))
 , _slice(sliceKey(_aroundId)) {
 	_controller->session().data().itemRemoved(
 	) | rpl::on_next([this](auto item) {
@@ -183,6 +188,9 @@ bool Provider::isPossiblyMyItem(not_null<const HistoryItem*> item) {
 }
 
 std::optional<int> Provider::fullCount() {
+	if (_externalSource) {
+		return _slice.fullCount();
+	}
 	return _sliceSnapshot
 		? std::make_optional(_sliceSnapshot->fullCount)
 		: std::nullopt;
@@ -235,7 +243,7 @@ void Provider::checkPreload(
 				sliceKey(_aroundId),
 				sliceKey(aroundId));
 			Assert(delta != std::nullopt);
-			preloadRequired = (qAbs(*delta) >= minUniversalIdDelta);
+			preloadRequired = (std::abs(*delta) >= minUniversalIdDelta);
 		}
 		if (preloadRequired) {
 			const auto key = EdgeRequestKey{
@@ -481,6 +489,23 @@ std::optional<GlobalMediaSliceSnapshot> Provider::makeSnapshot(
 
 void Provider::refreshViewer() {
 	_viewerLifetime.destroy();
+	if (_externalSource) {
+		_externalSource(_aroundId, _idsLimit) | rpl::on_next([=](const Data::MessagesSlice &slice) {
+			auto positions = std::vector<Data::MessagePosition>();
+			for (const auto id : slice.ids) {
+				if (const auto item = _session->data().message(id)) {
+					positions.push_back(item->position());
+				}
+			}
+			ranges::sort(positions, std::greater<>());
+			_slice = GlobalMediaSlice(sliceKey(_aroundId), std::move(positions), slice.fullCount, slice.skippedBefore.value_or(0));
+			if (const auto nearest = _slice.nearest(_aroundId)) {
+				_aroundId = *nearest;
+			}
+			_refreshed.fire({});
+		}, _viewerLifetime);
+		return;
+	}
 	const auto generation = _generation;
 	_controller->searchQueryValue(
 	) | rpl::take(1
@@ -783,8 +808,8 @@ HistoryItem *Provider::scrollTopStateItem(Media::ListScrollTopState state) {
 void Provider::saveState(
 		not_null<Media::Memento*> memento,
 		Media::ListScrollTopState scrollState) {
-	if (_aroundId != Data::MaxMessagePosition && scrollState.item) {
-		memento->setAroundId(_aroundId.fullId);
+	if (scrollState.item) {
+		memento->setAroundId(scrollState.item->fullId());
 		memento->setIdsLimit(_idsLimit);
 		memento->setScrollTopItem(scrollState.item->globalId());
 		memento->setScrollTopItemPosition(scrollState.position);
@@ -797,7 +822,8 @@ void Provider::restoreState(
 		Fn<void(Media::ListScrollTopState)> restoreScrollState) {
 	if (const auto limit = memento->idsLimit()) {
 		_idsLimit = limit;
-		_aroundId = { memento->aroundId() };
+		const auto item = MessageByGlobalId(memento->scrollTopItem());
+		_aroundId = item ? item->position() : Data::MessagePosition{ memento->aroundId() };
 		restoreScrollState({
 			.position = memento->scrollTopItemPosition(),
 			.item = MessageByGlobalId(memento->scrollTopItem()),

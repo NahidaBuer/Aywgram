@@ -1462,9 +1462,12 @@ void SessionNavigation::showByInitialId(
 		clearSectionStack(instant);
 		const auto type = id.sharedMediaType;
 		const auto topic = id.thread->asTopic();
+		const auto sublist = id.thread->asSublist();
 		showSection(
 			(topic
 				? std::make_shared<Info::Memento>(topic, type)
+				: sublist
+				? std::make_shared<Info::Memento>(sublist, type)
 				: std::make_shared<Info::Memento>(id.thread->peer(), type)),
 			instant);
 		parent->widget()->setMaximumWidth(st::maxWidthSharedMediaWindow);
@@ -1523,14 +1526,14 @@ auto SessionNavigation::showToast(Ui::Toast::Config &&config)
 
 auto SessionNavigation::showToast(const QString &text, crl::time duration)
 -> base::weak_ptr<Ui::Toast::Instance> {
-	return uiShow()->showToast(text);
+	return uiShow()->showToast(text, duration);
 }
 
 auto SessionNavigation::showToast(
 	TextWithEntities &&text,
 	crl::time duration)
 -> base::weak_ptr<Ui::Toast::Instance> {
-	return uiShow()->showToast(std::move(text));
+	return uiShow()->showToast(std::move(text), duration);
 }
 
 std::shared_ptr<ChatHelpers::Show> SessionNavigation::uiShow() {
@@ -2193,6 +2196,9 @@ bool SessionController::showForumInDifferentWindow(
 		not_null<Data::Forum*> forum,
 		const SectionShow &params,
 		MsgId showAtMsgId) {
+	if (windowId().forum() == forum) {
+		return false;
+	}
 	const auto window = Core::App().windowForShowingForum(forum);
 	if (window == _window) {
 		return false;
@@ -2336,10 +2342,26 @@ const rpl::variable<Data::Forum*> &SessionController::shownForum() const {
 	return _shownForum;
 }
 
+void SessionController::setActiveAggregate(std::optional<int> folder) {
+	if (folder) {
+		setActiveChatEntry(Dialogs::RowDescriptor());
+	}
+	_activeAggregate = folder;
+}
+
+std::optional<int> SessionController::activeAggregateCurrent() const {
+	return _activeAggregate.current();
+}
+
+rpl::producer<std::optional<int>> SessionController::activeAggregateValue() const {
+	return _activeAggregate.value();
+}
+
 void SessionController::setActiveChatEntry(Dialogs::RowDescriptor row) {
 	if (windowId().type == SeparateType::SharedMedia) {
 		return;
 	}
+	_activeAggregate = std::nullopt;
 	const auto was = _activeChatEntry.current();
 	if (was.key && was.key != row.key) {
 		session().api().saveCurrentDraftToCloud();
@@ -2685,7 +2707,7 @@ int SessionController::countDialogsWidthFromRatio(int bodyWidth) const {
 	const auto nochat = !mainSectionShown();
 	const auto width = bodyWidth
 		* Core::App().settings().dialogsWidthRatio(nochat);
-	auto result = qRound(width);
+	auto result = int(base::SafeRound(width));
 	accumulate_max(result, st::columnMinimalWidthLeft);
 //	accumulate_min(result, st::columnMaximalWidthLeft);
 	return result;
@@ -3434,7 +3456,9 @@ void SessionController::openPhoto(
 		item,
 		message.topicRootId,
 		message.monoforumPeerId,
-		message.showDrawButton));
+		message.showDrawButton,
+		message.suppressRead,
+			message.navigation));
 }
 
 void SessionController::openPhoto(
@@ -3497,7 +3521,9 @@ void SessionController::openDocument(
 			message.monoforumPeerId,
 			false,
 			usedTimestamp,
-			message.showDrawButton));
+			message.showDrawButton,
+			message.suppressRead,
+			message.navigation));
 		return;
 	}
 	Data::ResolveDocument(
@@ -3506,7 +3532,9 @@ void SessionController::openDocument(
 		item,
 		message.topicRootId,
 		message.monoforumPeerId,
-		message.showDrawButton);
+		message.showDrawButton,
+		message.suppressRead,
+		message.navigation);
 }
 
 bool SessionController::openSharedStory(HistoryItem *item) {

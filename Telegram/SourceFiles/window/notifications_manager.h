@@ -112,6 +112,7 @@ public:
 	void clearIncomingFromTopic(not_null<Data::ForumTopic*> topic);
 	void clearIncomingFromSublist(not_null<Data::SavedSublist*> sublist);
 	void clearIncomingFromHistory(not_null<History*> history);
+	void clearIncomingTill(not_null<Data::Thread*> thread, MsgId till);
 	void clearFromSession(not_null<Main::Session*> session);
 	void clearFromItem(not_null<HistoryItem*> item);
 	void clearAll();

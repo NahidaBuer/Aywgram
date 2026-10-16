@@ -109,3 +109,6 @@
 [submodule "Telegram/Resources/ayw_langpacks"]
 	path = Telegram/Resources/ayw_langpacks
 	url = https://github.com/AywGram/LanguagePacks.git
+[submodule "Telegram/ThirdParty/zxcvbn"]
+	path = Telegram/ThirdParty/zxcvbn
+	url = https://github.com/tsyrogit/zxcvbn-c.git

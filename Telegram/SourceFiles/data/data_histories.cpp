@@ -40,7 +40,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ayu/data/messages_storage.h"
 #include "ayu/utils/telegram_helpers.h"
 
-
 namespace Data {
 namespace {
 
@@ -222,6 +221,7 @@ void Histories::readInbox(not_null<History*> history) {
 }
 
 void Histories::readInboxTill(not_null<HistoryItem*> item) {
+	const auto shown = item;
 	const auto history = item->history();
 	if (!item->isRegular()) {
 		readClientSideMessage(item);
@@ -256,7 +256,7 @@ void Histories::readInboxTill(not_null<HistoryItem*> item) {
 			return;
 		}
 	}
-	readInboxTill(history, item->id);
+	readShownTill(shown, item->id, false);
 }
 
 void Histories::readInboxTill(not_null<History*> history, MsgId tillId) {
@@ -290,7 +290,7 @@ void Histories::readInboxTill(
 		}
 	});
 
-	Core::App().notifications().clearIncomingFromHistory(history);
+	Core::App().notifications().clearIncomingTill(history, tillId);
 
 	const auto needsRequest = history->readInboxTillNeedsRequest(tillId);
 	if (!needsRequest && !force) {
@@ -361,8 +361,29 @@ void Histories::readInboxOnNewMessage(not_null<HistoryItem*> item) {
 	if (!item->isRegular()) {
 		readClientSideMessage(item);
 	} else {
-		readInboxTill(item->history(), item->id, true);
+		readShownTill(item, item->id, true);
 	}
+}
+
+void Histories::readShownTill(
+		not_null<HistoryItem*> shown,
+		MsgId tillId,
+		bool force) {
+	const auto history = shown->history();
+	const auto wasReadTill = history->inboxReadTillId();
+	readInboxTill(history, tillId, force);
+	const auto readTill = history->inboxReadTillId();
+	if (readTill > wasReadTill) {
+		_shownReads.fire({
+			.shown = shown,
+			.wasReadTill = wasReadTill,
+			.readTill = readTill,
+		});
+	}
+}
+
+rpl::producer<Histories::ShownRead> Histories::shownReads() const {
+	return _shownReads.events();
 }
 
 void Histories::readClientSideMessage(not_null<HistoryItem*> item) {
@@ -1151,8 +1172,21 @@ int Histories::sendPreparedMessage(
 		uint64 randomId,
 		Fn<PreparedMessage(not_null<History*>, FullReplyTo)> message,
 		Fn<void(const MTPUpdates&, const MTP::Response&)> done,
-		Fn<void(const MTP::Error&, const MTP::Response&)> fail) {
-	markReadAfterAction(history);
+		Fn<void(const MTP::Error&, const MTP::Response&)> fail,
+		std::optional<FullReplyTo> requiredReply) {
+	if (requiredReply) {
+		const auto target = _owner->message(requiredReply->messageId);
+		if (!target || target->history() != history
+			|| requiredReply->messageId.msg <= 0
+			|| (history->peer->isForum() ? target->topicRootId() : MsgId()) != requiredReply->topicRootId
+			|| (history->peer->isMonoforum() ? target->sublistPeerId() : PeerId()) != requiredReply->monoforumPeerId) {
+			fail(MTP::Error::Local("REPLY_MESSAGE_INVALID", "Reply target is unavailable"), {});
+			return 0;
+		}
+		replyTo = *requiredReply;
+	} else {
+		markReadAfterAction(history);
+	}
 	if (isCreatingTopic(history, replyTo.topicRootId)) {
 		const auto id = ++_requestAutoincrement;
 		const auto creatingId = FullMsgId(
@@ -1190,7 +1224,25 @@ int Histories::sendPreparedMessage(
 			).done([=](
 					const MTPUpdates &result,
 					const MTP::Response &response) {
+				auto confirmed = std::vector<FullMsgId>();
+				auto tracking = rpl::lifetime();
+				if (requiredReply) {
+					session->data().itemIdChanged() | rpl::on_next([&](const Session::IdChange &change) {
+						if (change.newId.peer == requiredReply->messageId.peer && change.newId.msg > 0) {
+							confirmed.push_back(change.newId);
+						}
+					}, tracking);
+				}
 				api->applyUpdates(result, randomId);
+				tracking.destroy();
+				if (requiredReply) {
+					for (const auto id : confirmed) {
+						const auto item = _owner->message(id);
+						if (item && item->replyToId() == requiredReply->messageId.msg) {
+							_confirmedReplies.fire({ id, requiredReply->messageId });
+						}
+					}
+				}
 				AyuWorker::markAsOnline(&history->owner().session());
 				done(result, response);
 				finish();

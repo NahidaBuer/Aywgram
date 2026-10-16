@@ -360,8 +360,8 @@ QByteArray Settings::serialize() const {
 			<< themesAccentColors
 			<< qint32(_adaptiveForWide.current() ? 1 : 0)
 			<< qint32(_moderateModeEnabled ? 1 : 0)
-			<< qint32(qRound(_songVolume.current() * 1e6))
-			<< qint32(qRound(_videoVolume.current() * 1e6))
+			<< qint32(base::SafeRound(_songVolume.current() * 1e6))
+			<< qint32(base::SafeRound(_videoVolume.current() * 1e6))
 			<< qint32(_askDownloadPath ? 1 : 0)
 			<< _downloadPath.current()
 			<< _downloadPathBookmark
@@ -411,7 +411,8 @@ QByteArray Settings::serialize() const {
 			<< qint32(_floatPlayerCorner)
 			<< qint32(_thirdSectionInfoEnabled ? 1 : 0)
 			<< qint32(std::clamp(
-				qRound(_dialogsWithChatWidthRatio.current() * 1000000),
+				int(base::SafeRound(
+					_dialogsWithChatWidthRatio.current() * 1000000)),
 				0,
 				1000000))
 			<< qint32(_thirdColumnWidth.current())
@@ -498,7 +499,8 @@ QByteArray Settings::serialize() const {
 			<< noWarningExtensions
 			<< _customFontFamily
 			<< qint32(std::clamp(
-				qRound(_dialogsNoChatWidthRatio.current() * 1000000),
+				int(base::SafeRound(
+					_dialogsNoChatWidthRatio.current() * 1000000)),
 				0,
 				1000000))
 			<< qint32(_systemUnlockEnabled ? 1 : 0)
@@ -546,8 +548,8 @@ void Settings::addFromSerialized(const QByteArray &serialized) {
 	QByteArray themesAccentColors;
 	qint32 adaptiveForWide = _adaptiveForWide.current() ? 1 : 0;
 	qint32 moderateModeEnabled = _moderateModeEnabled ? 1 : 0;
-	qint32 songVolume = qint32(qRound(_songVolume.current() * 1e6));
-	qint32 videoVolume = qint32(qRound(_videoVolume.current() * 1e6));
+	qint32 songVolume = qint32(base::SafeRound(_songVolume.current() * 1e6));
+	qint32 videoVolume = qint32(base::SafeRound(_videoVolume.current() * 1e6));
 	qint32 askDownloadPath = _askDownloadPath ? 1 : 0;
 	QString downloadPath = _downloadPath.current();
 	QByteArray downloadPathBookmark = _downloadPathBookmark;
@@ -702,6 +704,9 @@ void Settings::addFromSerialized(const QByteArray &serialized) {
 			for (auto i = 0; i != soundOverridesCount; ++i) {
 				QString key, value;
 				stream >> key >> value;
+				if (stream.status() != QDataStream::Ok) {
+					break;
+				}
 				soundOverrides.emplace(key, value);
 			}
 		}
@@ -725,6 +730,9 @@ void Settings::addFromSerialized(const QByteArray &serialized) {
 			for (auto i = 0; i != dictionariesEnabledCount; ++i) {
 				qint64 langId;
 				stream >> langId;
+				if (stream.status() != QDataStream::Ok) {
+					break;
+				}
 				dictionariesEnabled.emplace_back(langId);
 			}
 		}
@@ -849,6 +857,9 @@ void Settings::addFromSerialized(const QByteArray &serialized) {
 			for (auto i = 0; i != accountsOrderCount; ++i) {
 				quint64 sessionUniqueId;
 				stream >> sessionUniqueId;
+				if (stream.status() != QDataStream::Ok) {
+					break;
+				}
 				accountsOrder.emplace_back(sessionUniqueId);
 			}
 		}
@@ -878,6 +889,9 @@ void Settings::addFromSerialized(const QByteArray &serialized) {
 			for (auto i = 0; i != skipTranslationLanguagesCount; ++i) {
 				quint64 language;
 				stream >> language;
+				if (stream.status() != QDataStream::Ok) {
+					break;
+				}
 				skipTranslationLanguages.push_back({
 					QLocale::Language(language)
 				});
@@ -917,9 +931,10 @@ void Settings::addFromSerialized(const QByteArray &serialized) {
 			for (auto i = 0; i != count; ++i) {
 				auto id = QString();
 				stream >> id;
-				if (stream.status() == QDataStream::Ok) {
-					recentEmojiSkip.emplace(id);
+				if (stream.status() != QDataStream::Ok) {
+					break;
 				}
+				recentEmojiSkip.emplace(id);
 			}
 		}
 	}
@@ -1027,11 +1042,13 @@ void Settings::addFromSerialized(const QByteArray &serialized) {
 		auto prefsCount = quint32();
 		stream >> prefsCount;
 		auto prefs = base::flat_map<QByteArray, QByteArray>();
-		prefs.reserve(prefsCount);
 		for (auto i = quint32(); i != prefsCount; ++i) {
 			auto key = QByteArray();
 			auto value = QByteArray();
 			stream >> key >> value;
+			if (stream.status() != QDataStream::Ok) {
+				break;
+			}
 			prefs.emplace(std::move(key), std::move(value));
 		}
 		if (stream.status() == QDataStream::Ok) {

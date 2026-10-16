@@ -29,6 +29,7 @@ struct LanguageId;
 
 namespace Data {
 struct Draft;
+struct ComposeStash;
 class CommunityInfo;
 class Forum;
 class Session;
@@ -413,6 +414,13 @@ public:
 		PeerId monoforumPeerId,
 		Data::ForwardDraft &&draft);
 
+	[[nodiscard]] Data::ComposeStash *composeStash(Data::DraftKey key) const;
+	void setComposeStash(
+		Data::DraftKey key,
+		std::unique_ptr<Data::ComposeStash> stash);
+	[[nodiscard]] std::unique_ptr<Data::ComposeStash> takeComposeStash(
+		Data::DraftKey key);
+
 	History *migrateSibling() const;
 	[[nodiscard]] bool useTopPromotion() const;
 	int fixedOnTopIndex() const override;
@@ -572,6 +580,8 @@ private:
 	not_null<HistoryItem*> addNewToBack(
 		not_null<HistoryItem*> item,
 		bool unread);
+	void applyReplyKeyboard(not_null<HistoryItem*> item);
+	void applyStreamedDraftFinish(not_null<HistoryItem*> item);
 
 	friend class Data::SponsoredMessages;
 	not_null<HistoryItem*> addNewInTheMiddle(
@@ -726,6 +736,9 @@ private:
 	base::flat_map<Data::DraftKey, int> _savingCloudDraftRequests;
 	base::flat_set<Data::DraftKey> _ignoredRemotePlainDrafts;
 	base::flat_map<Data::DraftKey, Data::ForwardDraft> _forwardDrafts;
+	base::flat_map<
+		Data::DraftKey,
+		std::unique_ptr<Data::ComposeStash>> _composeStashes;
 
 	base::flat_map<MsgId, TimeId> _unknownDeletedMessages;
 

@@ -41,6 +41,7 @@ public:
 	[[nodiscard]] rpl::producer<int> desiredHeight() const;
 
 	void setRoundedShapeBelow(bool value);
+	void setCancelAllowed(bool allowed);
 	void hideAnimated();
 
 protected:

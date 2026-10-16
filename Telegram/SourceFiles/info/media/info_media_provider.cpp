@@ -249,7 +249,7 @@ void Provider::checkPreload(
 				sliceKey(_universalAroundId),
 				sliceKey(universalId));
 			Assert(delta != std::nullopt);
-			preloadRequired = (qAbs(*delta) >= minUniversalIdDelta);
+			preloadRequired = (std::abs(*delta) >= minUniversalIdDelta);
 		}
 		if (preloadRequired) {
 			_idsLimit = preloadIdsLimit;
@@ -373,13 +373,17 @@ void Provider::jumpToMessage(
 
 	const auto peer = _controller->session().data().peer(messageId.peer);
 	const auto migrated = (_migrated == peer);
-	const auto topicRootId = migrated ? MsgId() : _topicRootId;
-	const auto monoforumPeerId = migrated ? PeerId() : _monoforumPeerId;
+	const auto key = SharedMediaLoadableKey(Storage::SharedMediaKey(
+		peer->id,
+		migrated ? MsgId() : _topicRootId,
+		migrated ? PeerId() : _monoforumPeerId,
+		_type,
+		messageId.msg));
 	const auto request = Api::PrepareSearchRequest(
 		peer,
-		topicRootId,
-		monoforumPeerId,
-		_type,
+		key.topicRootId,
+		key.monoforumPeerId,
+		key.type,
 		QString(),
 		messageId.msg,
 		Data::LoadDirection::Around);
@@ -399,10 +403,10 @@ void Provider::jumpToMessage(
 
 	_controller->session().api().request(
 		std::move(*request)
-	).done([=](const Api::SearchRequestResult &result) {
+	).done(crl::guard(this, [=](const Api::SearchRequestResult &result) {
 		auto parsed = Api::ParseSearchResult(
 			peer,
-			_type,
+			key.type,
 			messageId.msg,
 			Data::LoadDirection::Around,
 			result);
@@ -410,17 +414,17 @@ void Provider::jumpToMessage(
 		if (!parsed.messageIds.empty()) {
 			peer->session().storage().add(Storage::SharedMediaAddSlice(
 				peer->id,
-				topicRootId,
-				monoforumPeerId,
-				_type,
+				key.topicRootId,
+				key.monoforumPeerId,
+				key.type,
 				std::move(parsed.messageIds),
 				parsed.noSkipRange,
 				parsed.fullCount));
 		}
 		finish();
-	}).fail([=] {
+	})).fail(crl::guard(this, [=] {
 		finish();
-	}).send();
+	})).send();
 }
 
 bool Provider::anchorWhileAtTop() {

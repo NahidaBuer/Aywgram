@@ -106,6 +106,19 @@ Data::FileOrigin ComputeFileOrigin(const Key &key, const Context &context) {
 	});
 }
 
+Context ComputeContext(not_null<Main::Session*> session,
+		const GroupThumbs::MessageSlice &slice, int index) {
+	return slice.context;
+}
+
+Key ComputeKey(const GroupThumbs::MessageSlice &slice, int index) {
+	return (*slice.ids)[index];
+}
+
+const GroupThumbs::InstantViewItems *ComputeInstantViewItems(const GroupThumbs::MessageSlice &) {
+	return nullptr;
+}
+
 Context ComputeContext(
 		not_null<Main::Session*> session,
 		const SharedMediaWithLastSlice &slice,
@@ -868,6 +881,12 @@ void GroupThumbs::markCacheStale() {
 		const auto &thumb = cacheItem.second;
 		thumb->setState(Thumb::State::Unknown);
 	}
+}
+
+void GroupThumbs::Refresh(not_null<Main::Session*> session,
+		std::unique_ptr<GroupThumbs> &instance, const MessageSlice &slice,
+		int index, int availableWidth) {
+	RefreshFromSlice(session, instance, slice, index, availableWidth);
 }
 
 void GroupThumbs::Refresh(

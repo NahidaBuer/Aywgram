@@ -13,6 +13,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include <optional>
 
+namespace Media::View {
+struct Navigation;
+} // namespace Media::View
+
 class DocumentData;
 class HistoryItem;
 
@@ -66,6 +70,8 @@ void ResolveDocument(
 	HistoryItem *item,
 	MsgId topicRootId,
 	PeerId monoforumPeerId,
-	bool showDrawButton);
+	bool showDrawButton,
+	bool suppressRead = false,
+	std::shared_ptr<::Media::View::Navigation> navigation = nullptr);
 
 } // namespace Data

@@ -1869,7 +1869,7 @@ int EmojiListWidget::countDesiredHeight(int newWidth) {
 	const auto countResult = [this](int minimalLastHeight) {
 		const auto info = sectionInfo(sectionsCount() - 1);
 		return info.top
-			+ qMax(info.rowsBottom - info.top, minimalLastHeight);
+			+ std::max(info.rowsBottom - info.top, minimalLastHeight);
 	};
 	const auto minimalHeight = this->minimalHeight();
 	const auto minimalLastHeight = std::max(
@@ -1877,7 +1877,7 @@ int EmojiListWidget::countDesiredHeight(int newWidth) {
 		0);
 	const auto result = countResult(minimalLastHeight);
 	return result
-		? qMax(minimalHeight, result + padding.bottom())
+		? std::max(minimalHeight, result + padding.bottom())
 		: 0;
 }
 
@@ -2374,18 +2374,13 @@ void EmojiListWidget::paint(
 
 	_paintAsPremium = session().premium();
 
-	auto fromColumn = floorclamp(
+	auto [fromColumn, toColumn] = Ui::RowsInRange(
 		clip.x() - _rowsLeft,
-		_singleSize.width(),
-		0,
-		_columnCount);
-	auto toColumn = ceilclamp(
 		clip.x() + clip.width() - _rowsLeft,
 		_singleSize.width(),
-		0,
 		_columnCount);
 	if (rtl()) {
-		qSwap(fromColumn, toColumn);
+		std::swap(fromColumn, toColumn);
 		fromColumn = _columnCount - fromColumn;
 		toColumn = _columnCount - toColumn;
 	}
@@ -2505,15 +2500,10 @@ void EmojiListWidget::paint(
 		}
 		if (clip.top() + clip.height() > info.rowsTop) {
 			ensureLoaded(info.section);
-			auto fromRow = floorclamp(
+			const auto [fromRow, toRow] = Ui::RowsInRange(
 				clip.y() - info.rowsTop,
-				_singleSize.height(),
-				0,
-				info.rowsCount);
-			auto toRow = ceilclamp(
 				clip.y() + clip.height() - info.rowsTop,
 				_singleSize.height(),
-				0,
 				info.rowsCount);
 			for (auto i = fromRow; i < toRow; ++i) {
 				for (auto j = fromColumn; j < toColumn; ++j) {
@@ -3105,7 +3095,7 @@ void EmojiListWidget::showPicker() {
 		}
 		auto xmax = width() - _picker->width();
 		if (rtl()) xCoef = 1. - xCoef;
-		_picker->move(qRound(xmax * xCoef), y);
+		_picker->move(int(base::SafeRound(xmax * xCoef)), y);
 
 		disableScroll(true);
 	};
@@ -4028,7 +4018,11 @@ void EmojiListWidget::updateSelected() {
 	} else if (p.y() >= info.rowsTop && p.y() < info.rowsBottom) {
 		auto sx = (rtl() ? width() - p.x() : p.x()) - _rowsLeft;
 		if (sx >= 0 && sx < _columnCount * _singleSize.width()) {
-			const auto index = qFloor((p.y() - info.rowsTop) / _singleSize.height()) * _columnCount + qFloor(sx / _singleSize.width());
+			const auto rowIndex = int(std::floor(
+				(p.y() - info.rowsTop) / _singleSize.height()));
+			const auto columnIndex
+				= int(std::floor(sx / _singleSize.width()));
+			const auto index = rowIndex * _columnCount + columnIndex;
 			if (index < info.count) {
 				newSelected = OverEmoji{ .section = section, .index = index };
 			}
@@ -4046,10 +4040,17 @@ void EmojiListWidget::setSelected(OverState newSelected) {
 		: style::cur_default);
 
 	const auto updateSelected = [&] {
+		// _selected may be stale here: applyNextSearchQuery() and the
+		// shortcut-set refresh clear _searchSets before resetting it.
+		const auto sections = sectionsCount();
 		if (const auto sticker = std::get_if<OverEmoji>(&_selected)) {
-			rtlupdate(emojiRect(sticker->section, sticker->index));
+			if (sticker->section < sections) {
+				rtlupdate(emojiRect(sticker->section, sticker->index));
+			}
 		} else if (const auto button = std::get_if<OverButton>(&_selected)) {
-			rtlupdate(buttonRect(button->section));
+			if (button->section < sections) {
+				rtlupdate(buttonRect(button->section));
+			}
 		} else if (const auto shortcut
 				= std::get_if<OverSearchShortcut>(&_selected)) {
 			if (shortcut->index >= 0

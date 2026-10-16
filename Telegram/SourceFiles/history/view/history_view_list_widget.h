@@ -232,8 +232,15 @@ public:
 	virtual Ui::ElasticScroll *listScrollArea() const { return nullptr; }
 	virtual bool listThanosEffectEnabled() const { return true; }
 	virtual bool listShowForumThreadBars() const { return false; }
+	virtual Fn<void()> listOriginalMessageAction(FullMsgId id) { return nullptr; }
 	virtual AboutView *listAboutView() { return nullptr; }
 	virtual bool listInvertedOrder() { return false; }
+	virtual bool listCustomOrder() const { return false; }
+	virtual bool listNewestAtTop() { return listInvertedOrder(); }
+	virtual int listDisplayIndex(FullMsgId id) const { return -1; }
+	virtual bool listRefreshItemHeader(Element *view, Element *previous) {
+		return false;
+	}
 };
 
 class WindowListDelegate : public ListDelegate {
@@ -542,6 +549,7 @@ public:
 		Element *replacing) override;
 	QString elementAuthorRank(not_null<const Element*> view) override;
 	bool elementHideTopicButton(not_null<const Element*> view) override;
+	GramReadLine *elementGramReadLine() override;
 
 	void collapseGapsUpdated();
 	[[nodiscard]] auto collapseGaps() const
@@ -565,6 +573,7 @@ public:
 	QString accessibilityChildName(int index) const override;
 	QAccessible::State accessibilityChildState(int index) const override;
 	QAccessible::Role accessibilityChildRole() const override;
+	QAccessible::Role accessibilityChildRoleAt(int index) const override;
 	QRect accessibilityChildRect(int index) const override;
 	int accessibilityChildColumnCount(int row) const override;
 	QAccessible::Role accessibilityChildSubItemRole() const override;
@@ -968,6 +977,7 @@ private:
 		std::unique_ptr<VideoUserpic>> _videoUserpics;
 
 	const std::unique_ptr<Ui::PathShiftGradient> _pathGradient;
+	std::unique_ptr<GramReadLine> _gramReadLine;
 	QPainterPath _highlightPathCache;
 
 	base::unique_qptr<Ui::RpWidget> _emptyInfo = nullptr;

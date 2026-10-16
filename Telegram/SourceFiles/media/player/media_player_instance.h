@@ -58,6 +58,7 @@ struct TrackState;
 struct PlaylistContext {
 	MsgId topicRootId = 0;
 	PeerId monoforumPeerId = 0;
+	bool suppressRead = false;
 };
 
 void start(not_null<Audio::Instance*> instance);
@@ -120,7 +121,7 @@ public:
 	[[nodiscard]] PlaylistContext playlistContext(
 		AudioMsgId::Type type) const {
 		if (const auto data = getData(type)) {
-			return { data->topicRootId, data->monoforumPeerId };
+			return { data->topicRootId, data->monoforumPeerId, data->suppressRead };
 		}
 		return {};
 	}
@@ -204,6 +205,7 @@ private:
 		Storage::SharedMediaType overview;
 		AudioMsgId current;
 		AudioMsgId seeking;
+		std::vector<not_null<DocumentData*>> currentTracks;
 		std::optional<SparseIdsMergedSlice> playlistSlice;
 		std::optional<SliceKey> playlistSliceKey;
 		std::optional<SliceKey> playlistRequestedKey;
@@ -217,6 +219,7 @@ private:
 		History *history = nullptr;
 		MsgId topicRootId = 0;
 		PeerId monoforumPeerId = 0;
+		bool suppressRead = false;
 		History *migrated = nullptr;
 		Main::Session *session = nullptr;
 		bool isPlaying = false;
@@ -269,6 +272,10 @@ private:
 	bool validOtherPlaylist(not_null<const Data*> data) const;
 	void validateOtherPlaylist(not_null<Data*> data);
 	void playlistUpdated(not_null<Data*> data);
+	[[nodiscard]] AudioMsgId trackInItem(
+		not_null<const Data*> data,
+		int delta) const;
+	bool moveInItem(not_null<Data*> data, int delta, bool autonext);
 	bool moveInPlaylist(not_null<Data*> data, int delta, bool autonext);
 	void updatePowerSaveBlocker(
 		not_null<Data*> data,

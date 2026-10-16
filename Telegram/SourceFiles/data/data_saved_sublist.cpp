@@ -693,7 +693,7 @@ void SavedSublist::readTill(
 			_readRequestTimer.callOnce(0);
 		}
 	}
-	Core::App().notifications().clearIncomingFromSublist(this);
+	Core::App().notifications().clearIncomingTill(this, now);
 }
 
 void SavedSublist::sendReadTillRequest() {

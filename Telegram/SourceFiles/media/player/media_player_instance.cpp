@@ -24,6 +24,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "calls/calls_instance.h"
 #include "history/history.h"
 #include "history/history_item.h"
+#include "history/history_item_helpers.h"
 #include "data/data_media_types.h"
 #include "data/data_file_origin.h"
 #include "core/shortcuts.h"
@@ -149,6 +150,18 @@ bool IsRealPlaybackContext(not_null<const HistoryItem*> item) {
 		|| item->isSavedMusicItem();
 }
 
+[[nodiscard]] std::vector<not_null<DocumentData*>> ItemPlaylistTracks(
+		not_null<HistoryItem*> item,
+		AudioMsgId::Type type) {
+	auto result = std::vector<not_null<DocumentData*>>();
+	for (const auto &document : ItemRichPageAudio(item)) {
+		if (AudioMsgId(document, FullMsgId()).type() == type) {
+			result.push_back(document);
+		}
+	}
+	return result;
+}
+
 Instance::Streamed::Streamed(
 	AudioMsgId id,
 	std::shared_ptr<Streaming::Document> document)
@@ -253,6 +266,9 @@ void Instance::setCurrent(const AudioMsgId &audioId) {
 		const auto item = (audioId.audio() && audioId.contextId())
 			? audioId.audio()->owner().message(audioId.contextId())
 			: nullptr;
+		data->currentTracks = item
+			? ItemPlaylistTracks(item, data->type)
+			: std::vector<not_null<DocumentData*>>();
 		const auto samePending = (_pendingContextFor.audio() == audioId.audio())
 			&& (_pendingContextFor.contextId() == audioId.contextId());
 		const auto context = samePending
@@ -277,6 +293,7 @@ void Instance::setHistory(
 		Main::Session *sessionFallback,
 		HistoryItem *item,
 		std::optional<PlaylistContext> context) {
+	data->suppressRead = context && context->suppressRead;
 	if (history) {
 		data->history = history->migrateToOrMe();
 		const auto peer = data->history->peer;
@@ -558,11 +575,47 @@ HistoryItem *Instance::itemByIndex(not_null<Data*> data, int index) {
 	return data->history->owner().message(fullId);
 }
 
+AudioMsgId Instance::trackInItem(
+		not_null<const Data*> data,
+		int delta) const {
+	const auto &tracks = data->currentTracks;
+	const auto playing = data->current.audio();
+	const auto i = ranges::find_if(tracks, [&](
+			not_null<DocumentData*> track) {
+		return (track.get() == playing);
+	});
+	if (i == end(tracks)) {
+		return AudioMsgId();
+	}
+	const auto index = int(i - begin(tracks))
+		+ ((order(data) == OrderMode::Reverse) ? -delta : delta);
+	return (index >= 0 && index < int(tracks.size()))
+		? AudioMsgId(tracks[index], data->current.contextId())
+		: AudioMsgId();
+}
+
+bool Instance::moveInItem(not_null<Data*> data, int delta, bool autonext) {
+	const auto audioId = trackInItem(data, delta);
+	if (!audioId) {
+		return false;
+	}
+	if (autonext) {
+		_switchToNext.fire({ data->current, audioId.contextId() });
+	}
+	play(audioId, PlaylistContext{
+		data->topicRootId,
+		data->monoforumPeerId,
+	});
+	return true;
+}
+
 bool Instance::moveInPlaylist(
 		not_null<Data*> data,
 		int delta,
 		bool autonext) {
-	if (!data->playlistIndex) {
+	if (moveInItem(data, delta, autonext)) {
+		return true;
+	} else if (!data->playlistIndex) {
 		return false;
 	}
 	const auto jumpByItem = [&](not_null<HistoryItem*> item) {
@@ -585,6 +638,7 @@ bool Instance::moveInPlaylist(
 						PlaylistContext{
 							data->topicRootId,
 							data->monoforumPeerId,
+							data->suppressRead,
 						});
 				}
 				return true;
@@ -754,7 +808,9 @@ bool Instance::previousAvailable(AudioMsgId::Type type) const {
 	const auto data = getData(type);
 	Assert(data != nullptr);
 
-	if (!data->playlistIndex || !data->playlistSlice) {
+	if (trackInItem(data, -1)) {
+		return true;
+	} else if (!data->playlistIndex || !data->playlistSlice) {
 		return false;
 	} else if (repeat(data) == RepeatMode::All) {
 		return true;
@@ -771,7 +827,9 @@ bool Instance::nextAvailable(AudioMsgId::Type type) const {
 	const auto data = getData(type);
 	Assert(data != nullptr);
 
-	if (!data->playlistIndex || !data->playlistSlice) {
+	if (trackInItem(data, 1)) {
+		return true;
+	} else if (!data->playlistIndex || !data->playlistSlice) {
 		return false;
 	} else if (repeat(data) == RepeatMode::All) {
 		return true;
@@ -834,7 +892,7 @@ not_null<Instance*> instance() {
 void Instance::play(AudioMsgId::Type type) {
 	if (const auto data = getData(type)) {
 		if (!data->streamed || IsStopped(getState(type).state)) {
-			play(data->current);
+			play(data->current, PlaylistContext{ data->topicRootId, data->monoforumPeerId, data->suppressRead });
 		} else {
 			if (data->streamed->instance.active()) {
 				data->streamed->instance.resume();
@@ -865,7 +923,8 @@ void Instance::play(
 		}
 		playStreamed(audioId, std::move(shared));
 	}
-	if (document->isVoiceMessage() || document->isVideoMessage()) {
+	if ((!context || !context->suppressRead)
+		&& (document->isVoiceMessage() || document->isVideoMessage())) {
 		document->owner().markMediaRead(document);
 	}
 	_playerStartedPlay.fire_copy({audioId.type()});
@@ -877,6 +936,9 @@ void Instance::playPause(
 	const auto now = current(audioId.type());
 	if (now.audio() == audioId.audio()
 		&& now.contextId() == audioId.contextId()) {
+		if (const auto data = getData(audioId.type())) {
+			data->suppressRead = context && context->suppressRead;
+		}
 		playPause(audioId.type());
 	} else {
 		play(audioId, context);
@@ -1113,9 +1175,15 @@ void Instance::setupShuffleData(not_null<Data*> data) {
 void Instance::playPause(AudioMsgId::Type type) {
 	if (const auto data = getData(type)) {
 		if (!data->streamed) {
-			play(data->current);
+			play(data->current, PlaylistContext{ data->topicRootId, data->monoforumPeerId, data->suppressRead });
 		} else {
 			auto &streamed = data->streamed->instance;
+			const auto starting = !streamed.active() || streamed.paused();
+			const auto document = data->current.audio();
+			if (starting && !data->suppressRead && document
+				&& (document->isVoiceMessage() || document->isVideoMessage())) {
+				document->owner().markMediaRead(document);
+			}
 			if (!streamed.active()) {
 				streamed.play(streamingOptions(data->streamed->id));
 			} else if (streamed.paused()) {
@@ -1376,7 +1444,7 @@ void Instance::emitUpdate(AudioMsgId::Type type, CheckCallback check) {
 		_updatedNotifier.fire_copy({state});
 		if (data->isPlaying && state.state == State::StoppedAtEnd) {
 			if (repeat(data) == RepeatMode::One) {
-				play(data->current);
+				play(data->current, PlaylistContext{ data->topicRootId, data->monoforumPeerId, data->suppressRead });
 			} else if (OptionDisableAutoplayNext.value()) {
 				finished = true;
 			} else if (!moveInPlaylist(data, 1, true)) {

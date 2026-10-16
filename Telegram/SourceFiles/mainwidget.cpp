@@ -96,7 +96,6 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session_settings.h"
 #include "main/main_app_config.h"
 #include "settings/sections/settings_premium.h"
-#include "support/support_helper.h"
 #include "storage/storage_user_photos.h"
 #include "styles/style_dialogs.h"
 #include "styles/style_chat.h"
@@ -358,6 +357,13 @@ MainWidget::MainWidget(
 		) | rpl::to_empty
 	) | rpl::on_next([=] {
 		updateControlsGeometry();
+	}, lifetime());
+
+	Core::App().settings().thirdSectionInfoEnabledValue(
+	) | rpl::skip(1) | rpl::on_next([=] {
+		crl::on_main(this, [=] {
+			updateColumnLayout();
+		});
 	}, lifetime());
 
 	session().changes().historyUpdates(
@@ -1870,6 +1876,7 @@ void MainWidget::showSection(
 		if (params.activation != anim::activation::background) {
 			_controller->window().hideSettingsAndLayer();
 		}
+		_controller->setActiveAggregate(_mainSection->aggregateFolder());
 		if (const auto entry = _mainSection->activeChat(); entry.key) {
 			_controller->setActiveChatEntry(entry);
 		}
@@ -2099,6 +2106,7 @@ void MainWidget::showNewSection(
 		_history->finishAnimating();
 		_history->showHistory(PeerId(), MsgId());
 
+		_controller->setActiveAggregate(_mainSection->aggregateFolder());
 		if (const auto entry = _mainSection->activeChat(); entry.key) {
 			_controller->setActiveChatEntry(entry);
 		}
@@ -2397,7 +2405,7 @@ bool MainWidget::showBackFromStack(const SectionShow &params) {
 			SectionShow(
 				SectionShow::Way::ClearStack,
 				anim::type::instant,
-				anim::activation::background));
+				anim::activation::background).withThirdColumn());
 
 	}
 	return true;
@@ -2712,7 +2720,7 @@ void MainWidget::updateControlsGeometry() {
 	}
 	const auto mainSectionTop = getMainSectionTop();
 	auto dialogsWidth = _dialogs
-		? qRound(_a_dialogsWidth.value(_dialogsWidth))
+		? int(base::SafeRound(_a_dialogsWidth.value(_dialogsWidth)))
 		: isOneColumn()
 		? width()
 		: 0;
@@ -3249,17 +3257,7 @@ void MainWidget::activate() {
 	_controller->widget()->fixOrder();
 }
 
-void MainWidget::handleStartFiles(
-		QStringList interprets,
-		QStringList paths) {
-	for (const auto &interpret : interprets) {
-		const auto error = Support::InterpretSendPath(
-			_controller,
-			interpret);
-		if (!error.isEmpty()) {
-			_controller->show(Ui::MakeInformBox(error));
-		}
-	}
+void MainWidget::handleStartFiles(QStringList paths) {
 	if (!paths.isEmpty()) {
 		const auto chosen = [=](not_null<Data::Thread*> thread) {
 			return sendPaths(thread, paths);

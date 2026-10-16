@@ -45,6 +45,7 @@ struct ContextMenuRequest {
 		not_null<Window::SessionNavigation*> navigation);
 
 	const not_null<Window::SessionNavigation*> navigation;
+	Fn<void()> originalMessageAction;
 	ClickHandlerPtr link;
 	Element *view = nullptr;
 	HistoryItem *item = nullptr;
@@ -101,6 +102,10 @@ void AddPollActions(
 	not_null<Window::SessionController*> controller,
 	bool skipRetractVote = false,
 	bool skipViewStats = false);
+void AddGiftMessageAction(
+	not_null<Ui::PopupMenu*> menu,
+	not_null<HistoryItem*> item,
+	not_null<Window::SessionController*> controller);
 void AddSaveSoundForNotifications(
 	not_null<Ui::PopupMenu*> menu,
 	not_null<HistoryItem*> item,

@@ -278,7 +278,7 @@ void _logsWrite(LogDataType type, const QString &msg) {
 		if (!LogsInMemory) {
 			LogsInMemory = new LogsInMemoryList;
 		}
-		LogsInMemory->push_back(qMakePair(type, msg));
+		LogsInMemory->push_back({ type, msg });
 	} else if (!LogsBeforeSingleInstanceChecked.isEmpty() && type == LogDataMain) {
 		LogsBeforeSingleInstanceChecked += msg;
 	}
@@ -494,6 +494,10 @@ void writeMtp(int32 dc, const QString &v) {
 			return base + "_download_update";
 		} else if (shift == MTP::kGroupCallStreamDcShift) {
 			return base + "_stream";
+		} else if (shift == MTP::kToncenterDcShift) {
+			return base + "_toncenter";
+		} else if (shift == MTP::kWalletShareDcShift) {
+			return base + "_wallet_share";
 		} else if (MTP::isDownloadDcId(dc)) {
 			const auto index = shift - MTP::kBaseDownloadDcShift;
 			return base + "_download" + QString::number(index);

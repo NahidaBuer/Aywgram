@@ -43,7 +43,7 @@ Treat submodule pointers, generated sources, API schemas, settings serialization
 5. Do not bulk-merge a supplemental branch, `origin/dev`, or an upstream workflow branch merely for parity. Port or merge only reviewed changes authorized by the request.
 6. Ignore workflow skills, agent pipelines, and unrelated CI introduced by upstream. Preserve this repository's `.agents` workflows, local maintenance instructions, release policy, branding, and updater behavior; do not introduce other Harness workflows as application-source integration.
 7. Resolve conflicts by inspecting the base, ours, and theirs. Preserve distribution-specific and Ayu behavior while adapting it to the final Telegram API and structure. Never resolve a product file by blindly taking one side.
-8. Treat submodules as independent integrations. Create and push compatibility commits when histories diverge, then verify the final hash is reachable from the `.gitmodules` URL before staging the superproject gitlink.
+8. Treat submodules as independent integrations. An authorized upstream integration includes necessary compatibility edits, commits, and pushes to this distribution's existing submodule forks under the standing authorization in [integration-policy.md](references/integration-policy.md#submodule-authorization). Use compatibility branches and verify the final hash is reachable from the `.gitmodules` URL before staging the superproject gitlink; do not request repeated permission for actions within that scope.
 9. Commit each checkpoint with a concise repository-style subject. Do not push the main branch unless requested.
 
 ## Validate

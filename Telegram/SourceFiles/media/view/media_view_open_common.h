@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 #include "data/data_cloud_themes.h"
+#include "data/data_messages.h"
 #include "data/data_stories.h"
 
 class DocumentData;
@@ -21,6 +22,16 @@ class SessionController;
 
 namespace Media::View {
 
+struct Navigation {
+	Fn<Data::MessagesSlice()> slice;
+	Fn<rpl::producer<>()> changes;
+	Fn<void(int)> loadMore;
+	Fn<bool()> loading;
+	Fn<bool()> failed;
+	Fn<void(FullMsgId)> showMessage;
+	Fn<void()> showOverview;
+};
+
 struct OpenRequest {
 public:
 	OpenRequest() {
@@ -32,13 +43,17 @@ public:
 		HistoryItem *item,
 		MsgId topicRootId,
 		PeerId monoforumPeerId,
-		bool showDrawButton = false)
+		bool showDrawButton = false,
+		bool suppressRead = false,
+		std::shared_ptr<Navigation> navigation = nullptr)
 	: _controller(controller)
 	, _photo(photo)
 	, _item(item)
 	, _topicRootId(topicRootId)
 	, _monoforumPeerId(monoforumPeerId)
-	, _showDrawButton(showDrawButton) {
+	, _showDrawButton(showDrawButton)
+	, _suppressRead(suppressRead)
+	, _navigation(std::move(navigation)) {
 	}
 	OpenRequest(
 		Window::SessionController *controller,
@@ -57,7 +72,9 @@ public:
 		PeerId monoforumPeerId,
 		bool continueStreaming = false,
 		crl::time startTime = 0,
-		bool showDrawButton = false)
+		bool showDrawButton = false,
+		bool suppressRead = false,
+		std::shared_ptr<Navigation> navigation = nullptr)
 	: _controller(controller)
 	, _document(document)
 	, _item(item)
@@ -65,7 +82,9 @@ public:
 	, _monoforumPeerId(monoforumPeerId)
 	, _continueStreaming(continueStreaming)
 	, _startTime(startTime)
-	, _showDrawButton(showDrawButton) {
+	, _showDrawButton(showDrawButton)
+	, _suppressRead(suppressRead)
+	, _navigation(std::move(navigation)) {
 	}
 	OpenRequest(
 		Window::SessionController *controller,
@@ -156,6 +175,12 @@ public:
 		return _showDrawButton;
 	}
 
+	[[nodiscard]] std::shared_ptr<Navigation> navigation() const { return _navigation; }
+
+	[[nodiscard]] bool suppressRead() const {
+		return _suppressRead;
+	}
+
 private:
 	Window::SessionController *_controller = nullptr;
 	DocumentData *_document = nullptr;
@@ -170,6 +195,8 @@ private:
 	bool _continueStreaming = false;
 	crl::time _startTime = 0;
 	bool _showDrawButton = false;
+	bool _suppressRead = false;
+	std::shared_ptr<Navigation> _navigation;
 
 	std::shared_ptr<Data::GroupCall> _call;
 	QString _callLinkSlug;

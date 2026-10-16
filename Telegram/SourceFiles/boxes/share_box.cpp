@@ -377,6 +377,7 @@ void ShareBox::prepare() {
 			_descriptor.session,
 			[this](FilterId id) {
 				_inner->applyChatFilter(id);
+				searchByUsername(true);
 				scrollToY(0);
 			},
 			Window::GifPauseReason::Layer,
@@ -894,6 +895,20 @@ ShareBox::Inner::Inner(
 			update.oldFirstLetters);
 	}, lifetime());
 
+	_descriptor.session->data().dialogsRowReplacements(
+	) | rpl::on_next([=](Data::Session::DialogsRowReplacement r) {
+		for (auto i = begin(_filtered); i != end(_filtered);) {
+			if (*i != r.old) {
+				++i;
+			} else if (r.now) {
+				*i = r.now;
+				++i;
+			} else {
+				i = _filtered.erase(i);
+			}
+		}
+	}, lifetime());
+
 	_descriptor.session->downloaderTaskFinished(
 	) | rpl::on_next([=] {
 		update();
@@ -1027,7 +1042,12 @@ void ShareBox::Inner::repaintChatAtIndex(int index) {
 
 	auto row = index / _columnCount;
 	auto column = index % _columnCount;
-	update(style::rtlrect(_rowsLeft + qFloor(column * _rowWidthReal), row * _rowHeight, _rowWidth, _rowHeight, width()));
+	update(style::rtlrect(
+		_rowsLeft + int(std::floor(column * _rowWidthReal)),
+		row * _rowHeight,
+		_rowWidth,
+		_rowHeight,
+		width()));
 }
 
 ShareBox::Inner::Chat *ShareBox::Inner::getChatAtIndex(int index) {
@@ -1200,7 +1220,8 @@ void ShareBox::Inner::paintChat(
 		Painter &p,
 		not_null<Chat*> chat,
 		int index) {
-	auto x = _rowsLeft + qFloor((index % _columnCount) * _rowWidthReal);
+	auto x = _rowsLeft
+		+ int(std::floor((index % _columnCount) * _rowWidthReal));
 	auto y = _rowsTop + (index / _columnCount) * _rowHeight;
 
 	auto outerWidth = width();
@@ -1337,14 +1358,16 @@ void ShareBox::Inner::mouseMoveEvent(QMouseEvent *e) {
 void ShareBox::Inner::updateUpon(const QPoint &pos) {
 	auto x = pos.x(), y = pos.y();
 	auto row = (y - _rowsTop) / _rowHeight;
-	auto column = qFloor((x - _rowsLeft) / _rowWidthReal);
+	auto column = int(std::floor((x - _rowsLeft) / _rowWidthReal));
 
 	if (column < 0 || column >= _columnCount) {
 		_upon = -1;
 		return;
 	}
 
-	auto left = _rowsLeft + qFloor(column * _rowWidthReal) + st::shareColumnSkip / 2;
+	auto left = _rowsLeft
+		+ int(std::floor(column * _rowWidthReal))
+		+ st::shareColumnSkip / 2;
 	auto top = _rowsTop + row * _rowHeight + st::sharePhotoTop;
 	auto xupon = (x >= left) && (x < left + (_rowWidth - st::shareColumnSkip));
 	auto yupon = (y >= top) && (y < top + _st.item.checkbox.imageRadius * 2 + st::shareNameTop + _st.item.nameStyle.font->height * 2);
@@ -1369,8 +1392,8 @@ void ShareBox::Inner::selectActive() {
 void ShareBox::Inner::resizeEvent(QResizeEvent *e) {
 	_columnSkip = (width() - _columnCount * _st.item.checkbox.imageRadius * 2) / float64(_columnCount + 1);
 	_rowWidthReal = _st.item.checkbox.imageRadius * 2 + _columnSkip;
-	_rowsLeft = qFloor(_columnSkip / 2);
-	_rowWidth = qFloor(_rowWidthReal);
+	_rowsLeft = int(std::floor(_columnSkip / 2));
+	_rowWidth = int(std::floor(_rowWidthReal));
 	update();
 }
 
@@ -1666,6 +1689,17 @@ void ShareBox::Inner::applyChatFilter(FilterId id) {
 		};
 		const auto &data = _descriptor.session->data();
 		addList(data.chatsFilters().chatsList(id)->indexed());
+	}
+	if (!_filter.isEmpty()) {
+		// Rows in _filtered may belong to the just destroyed list.
+		_filtered = _chatsIndexed->filtered(
+			_filter.split(' ', Qt::SkipEmptyParts));
+
+		// Global results are deduplicated against the list, refill them.
+		_byUsernameFiltered.clear();
+		d_byUsernameFiltered.clear();
+		setActive(-1);
+		refresh();
 	}
 	update();
 }

@@ -2244,9 +2244,15 @@ void ApiWrap::saveDraftToCloudDelayed(
 		_session->local().writeDraftCursors(history);
 		return;
 	}
-	_draftsSaveRequestIds.emplace(
+	const auto [i, inserted] = _draftsSaveRequestIds.emplace(
 		base::make_weak(thread),
 		DraftSaveRequest{ .purpose = purpose });
+	if (!inserted) {
+		i->second.purpose = purpose;
+		if (i->second.id) {
+			i->second.changedWhileSaving = true;
+		}
+	}
 	if (!_draftsSaveTimer.isActive()) {
 		_draftsSaveTimer.callOnce(kSaveCloudDraftTimeout);
 	}
@@ -2646,7 +2652,14 @@ mtpRequestId ApiWrap::savePreparedDraftToCloud(
 		const auto i = _draftsSaveRequestIds.find(weak);
 		if (i != _draftsSaveRequestIds.cend()
 			&& i->second.id == requestId) {
+			const auto changed = i->second.changedWhileSaving;
+			const auto pendingPurpose = i->second.purpose;
 			_draftsSaveRequestIds.erase(i);
+			if (changed) {
+				if (const auto strong = weak.get()) {
+					saveDraftToCloudDelayed(strong, pendingPurpose);
+				}
+			}
 			checkQuitPreventFinished();
 		}
 		if (callbacks && callbacks->fail) {
@@ -2696,7 +2709,14 @@ mtpRequestId ApiWrap::savePreparedDraftToCloud(
 			const auto i = _draftsSaveRequestIds.find(weak);
 			if (i != _draftsSaveRequestIds.cend()
 				&& i->second.id == requestId) {
+				const auto changed = i->second.changedWhileSaving;
+				const auto pendingPurpose = i->second.purpose;
 				_draftsSaveRequestIds.erase(i);
+				if (changed) {
+					if (const auto strong = weak.get()) {
+						saveDraftToCloudDelayed(strong, pendingPurpose);
+					}
+				}
 				checkQuitPreventFinished();
 			}
 			if (callbacks && callbacks->done) {
@@ -2795,6 +2815,7 @@ void ApiWrap::saveDraftsToCloud() {
 			i = _draftsSaveRequestIds.erase(i);
 			continue;
 		}
+		i->second.changedWhileSaving = false;
 		++i;
 	}
 }
@@ -3626,6 +3647,16 @@ void ApiWrap::resolveJumpToDate(
 		Dialogs::Key chat,
 		const QDate &date,
 		Fn<void(not_null<PeerData*>, MsgId)> callback) {
+	resolveJumpToTime(
+		chat,
+		TimeId(date.startOfDay().toSecsSinceEpoch()),
+		std::move(callback));
+}
+
+void ApiWrap::resolveJumpToTime(
+		Dialogs::Key chat,
+		TimeId when,
+		Fn<void(not_null<PeerData*>, MsgId)> callback) {
 	if (const auto peer = chat.peer()) {
 		const auto topic = chat.topic();
 		const auto sublist = chat.sublist();
@@ -3633,27 +3664,27 @@ void ApiWrap::resolveJumpToDate(
 		const auto monoforumPeerId = sublist
 			? sublist->sublistPeer()->id
 			: PeerId();
-		resolveJumpToHistoryDate(
+		resolveJumpToHistoryTime(
 			peer,
 			rootId,
 			monoforumPeerId,
-			date,
+			when,
 			std::move(callback));
 	}
 }
 
 template <typename Callback>
-void ApiWrap::requestMessageAfterDate(
+void ApiWrap::requestMessageAfterTime(
 	not_null<PeerData*> peer,
 	MsgId topicRootId,
 	PeerId monoforumPeerId,
-	const QDate &date,
+	TimeId when,
 	Callback &&callback) {
 	// API returns a message with date <= offset_date.
 	// So we request a message with offset_date = desired_date - 1 and add_offset = -1.
 	// This should give us the first message with date >= desired_date.
 	const auto offsetId = 0;
-	const auto offsetDate = static_cast<int>(date.startOfDay().toSecsSinceEpoch()) - 1;
+	const auto offsetDate = when - 1;
 	const auto addOffset = -1;
 	const auto limit = 1;
 	const auto maxId = 0;
@@ -3741,37 +3772,37 @@ void ApiWrap::requestMessageAfterDate(
 	}
 }
 
-void ApiWrap::resolveJumpToHistoryDate(
+void ApiWrap::resolveJumpToHistoryTime(
 		not_null<PeerData*> peer,
 		MsgId topicRootId,
 		PeerId monoforumPeerId,
-		const QDate &date,
+		TimeId when,
 		Fn<void(not_null<PeerData*>, MsgId)> callback) {
 	if (const auto channel = peer->migrateTo()) {
-		return resolveJumpToHistoryDate(
+		return resolveJumpToHistoryTime(
 			channel,
 			topicRootId,
 			monoforumPeerId,
-			date,
+			when,
 			std::move(callback));
 	}
 	const auto jumpToDateInPeer = [=] {
-		requestMessageAfterDate(
+		requestMessageAfterTime(
 			peer,
 			topicRootId,
 			monoforumPeerId,
-			date,
+			when,
 			[=](MsgId itemId) { callback(peer, itemId); });
 	};
 	const auto migrated = (topicRootId || monoforumPeerId)
 		? nullptr
 		: peer->migrateFrom();
 	if (migrated) {
-		requestMessageAfterDate(
+		requestMessageAfterTime(
 			migrated,
 			MsgId(),
 			PeerId(),
-			date,
+			when,
 			[=](MsgId itemId) {
 				if (itemId) {
 					callback(migrated, itemId);
@@ -3893,6 +3924,45 @@ void ApiWrap::requestSharedMedia(
 	_sharedMediaRequests.emplace(key);
 }
 
+void ApiWrap::requestPinnedMessagesIfNeeded(
+		not_null<PeerData*> peer,
+		MsgId messageId,
+		MsgId topicRootId,
+		PeerId monoforumPeerId) {
+	if (!IsServerMsgId(messageId)) {
+		return;
+	}
+	const auto requestOne = [&](MsgId topic, PeerId mono) {
+		const auto snapshot = _session->storage().snapshot(
+			Storage::SharedMediaQuery(
+				Storage::SharedMediaKey(
+					peer->id,
+					topic,
+					mono,
+					SharedMediaType::Pinned,
+					messageId),
+				0,
+				0));
+		if (!snapshot.count || snapshot.messageIds.contains(messageId)) {
+			return;
+		}
+		requestSharedMedia(
+			peer,
+			topic,
+			mono,
+			SharedMediaType::Pinned,
+			messageId,
+			SliceType::Around);
+	};
+	requestOne(MsgId(0), PeerId(0));
+	if (topicRootId && peer->forumTopicFor(topicRootId)) {
+		requestOne(topicRootId, PeerId(0));
+	}
+	if (monoforumPeerId && peer->monoforumSublistFor(monoforumPeerId)) {
+		requestOne(MsgId(0), monoforumPeerId);
+	}
+}
+
 void ApiWrap::sharedMediaDone(
 		not_null<PeerData*> peer,
 		MsgId topicRootId,
@@ -3952,7 +4022,8 @@ mtpRequestId ApiWrap::requestGlobalMedia(
 }
 
 void ApiWrap::sendAction(const SendAction &action) {
-	if (!action.options.scheduled
+	if (!action.options.requiredReply
+		&& !action.options.scheduled
 		&& !action.options.shortcutId
 		&& !action.replaceMediaOf) {
 		const auto topicRootId = action.replyTo.topicRootId;
@@ -3965,19 +4036,24 @@ void ApiWrap::sendAction(const SendAction &action) {
 			: nullptr;
 		if (topic) {
 			topic->readTillEnd();
-		} else if (sublist) {
+		} else if (sublist && sublist->parentChat()) {
 			sublist->readTillEnd();
 		} else {
 			_session->data().histories().readInbox(action.history);
 		}
 		action.history->getReadyFor(ShowAtTheEndMsgId);
 	}
-	_sendActions.fire_copy(action);
+	if (!action.options.requiredReply) {
+		_sendActions.fire_copy(action);
+	}
 }
 
 ApiWrap::FinishForwardingResult ApiWrap::finishForwarding(
 		const SendAction &action,
 		FnMut<void(bool)> completion) {
+	if (action.options.requiredReply) {
+		return FinishForwardingResult::Normal;
+	}
 	const auto history = action.history;
 	const auto topicRootId = action.replyTo.topicRootId;
 	const auto monoforumPeerId = action.replyTo.monoforumPeerId;
@@ -4273,7 +4349,7 @@ void ApiWrap::forwardMessages(
 				if (completion) {
 					completion->finishRequest(false);
 				}
-			});
+			}, action.options.requiredReply);
 
 		ids.resize(0);
 		randomIds.resize(0);
@@ -4983,7 +5059,7 @@ void ApiWrap::sendRichMessage(
 				if (completion) {
 					completion->finishRequest(false);
 				}
-			});
+			}, action.options.requiredReply);
 	};
 	if (completion) {
 		completion->addRequest();
@@ -5252,7 +5328,8 @@ void ApiWrap::sendMessage(
 				lastMessage->destroy();
 			} else {
 				sendMessageFail(error, peer, randomId, newId);
-				if (!action.options.scheduled
+				if (!action.options.requiredReply
+					&& !action.options.scheduled
 					&& !action.options.shortcutId) {
 					const auto failed = _session->data().message(newId);
 					const auto local = history->localDraft(
@@ -5331,7 +5408,7 @@ void ApiWrap::sendMessage(
 					MTP_long(action.options.effectId),
 					MTP_long(starsPaid),
 					Api::SuggestToMTP(action.options.suggest)
-				), done, fail);
+				), done, fail, action.options.requiredReply);
 		} else {
 			histories.sendPreparedMessage(
 				history,
@@ -5353,7 +5430,7 @@ void ApiWrap::sendMessage(
 					MTP_long(starsPaid),
 					Api::SuggestToMTP(action.options.suggest),
 					MTPInputRichMessage()
-				), done, fail);
+				), done, fail, action.options.requiredReply);
 		}
 		isFirst = false;
 	}
@@ -5525,7 +5602,7 @@ void ApiWrap::sendInlineResult(
 		if (done) {
 			done(false);
 		}
-	});
+	}, action.options.requiredReply);
 	finishForwarding(action);
 }
 
@@ -5788,7 +5865,7 @@ void ApiWrap::sendMediaWithRandomId(
 		if (completion) {
 			completion->finishRequest(false);
 		}
-	});
+	}, options.requiredReply);
 	if (sealCompletion && completion) {
 		completion->seal();
 	}
@@ -5897,11 +5974,12 @@ void ApiWrap::sendMultiPaidMedia(
 		sendMessageFail(error, peer, randomId, itemId);
 		const auto stored = _sendingAlbums.find(groupId);
 		if (stored != _sendingAlbums.end()) {
-			failSendingAlbum(stored->second);
+			const auto album = stored->second;
+			failSendingAlbum(album);
 		} else if (completion) {
 			completion->finishRequest(false);
 		}
-	});
+	}, options.requiredReply);
 	if (completion) {
 		completion->seal();
 	}
@@ -5947,7 +6025,8 @@ void ApiWrap::sendAlbumIfReady(not_null<SendingAlbum*> album) {
 	if (album->failed) {
 		const auto stored = _sendingAlbums.find(groupId);
 		if (stored != _sendingAlbums.end()) {
-			failSendingAlbum(stored->second);
+			const auto album = stored->second;
+			failSendingAlbum(album);
 		} else if (album->completion) {
 			album->completion->fail();
 		}
@@ -5955,7 +6034,8 @@ void ApiWrap::sendAlbumIfReady(not_null<SendingAlbum*> album) {
 	} else if (album->items.empty()) {
 		const auto stored = _sendingAlbums.find(groupId);
 		if (stored != _sendingAlbums.end()) {
-			failSendingAlbum(stored->second);
+			const auto album = stored->second;
+			failSendingAlbum(album);
 		}
 		return;
 	}
@@ -5973,7 +6053,8 @@ void ApiWrap::sendAlbumIfReady(not_null<SendingAlbum*> album) {
 	if (!sample) {
 		const auto stored = _sendingAlbums.find(groupId);
 		if (stored != _sendingAlbums.end()) {
-			failSendingAlbum(stored->second);
+			const auto album = stored->second;
+			failSendingAlbum(album);
 		}
 		return;
 	}
@@ -5995,7 +6076,8 @@ void ApiWrap::sendAlbumIfReady(not_null<SendingAlbum*> album) {
 		if (parts.size() != album->items.size()) {
 			const auto stored = _sendingAlbums.find(groupId);
 			if (stored != _sendingAlbums.end()) {
-				failSendingAlbum(stored->second);
+				const auto album = stored->second;
+			failSendingAlbum(album);
 			}
 			return;
 		}
@@ -6097,7 +6179,7 @@ void ApiWrap::sendAlbumIfReady(not_null<SendingAlbum*> album) {
 		if (completion) {
 			completion->finishRequest(false);
 		}
-	});
+	}, album->options.requiredReply);
 	if (completion) {
 		completion->seal();
 	}

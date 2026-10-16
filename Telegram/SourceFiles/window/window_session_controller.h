@@ -19,6 +19,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtCore/QDate>
 #include <QtCore/QPointer>
 
+namespace Media::View {
+struct Navigation;
+} // namespace Media::View
+
 class PhotoData;
 class MainWidget;
 class MainWindow;
@@ -474,6 +478,9 @@ public:
 	void setActiveChatEntry(Dialogs::RowDescriptor row);
 	void setActiveChatEntry(Dialogs::Key key);
 	Dialogs::RowDescriptor activeChatEntryCurrent() const;
+	void setActiveAggregate(std::optional<int> folder);
+	std::optional<int> activeAggregateCurrent() const;
+	rpl::producer<std::optional<int>> activeAggregateValue() const;
 	Dialogs::Key activeChatCurrent() const;
 	rpl::producer<Dialogs::RowDescriptor> activeChatEntryChanges() const;
 	rpl::producer<Dialogs::Key> activeChatChanges() const;
@@ -589,6 +596,8 @@ public:
 		MsgId topicRootId;
 		PeerId monoforumPeerId;
 		bool showDrawButton = false;
+		bool suppressRead = false;
+		std::shared_ptr<Media::View::Navigation> navigation;
 	};
 	void openPhoto(
 		not_null<PhotoData*> photo,
@@ -851,6 +860,7 @@ private:
 
 	rpl::variable<Dialogs::Key> _searchInChat;
 	rpl::variable<Dialogs::RowDescriptor> _activeChatEntry;
+	rpl::variable<std::optional<int>> _activeAggregate;
 	rpl::lifetime _activeHistoryLifetime;
 	rpl::variable<bool> _mainSectionShown = false;
 	rpl::variable<bool> _chatsForceDisplayWide = false;

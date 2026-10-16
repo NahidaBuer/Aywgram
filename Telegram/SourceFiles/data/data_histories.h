@@ -54,6 +54,14 @@ public:
 	[[nodiscard]] not_null<History*> findOrCreate(PeerId peerId);
 	void enumerate(Fn<void(not_null<History*>)> action) const;
 
+	struct ConfirmedReply {
+		FullMsgId message;
+		FullMsgId target;
+	};
+	[[nodiscard]] rpl::producer<ConfirmedReply> confirmedReplies() const {
+		return _confirmedReplies.events();
+	}
+
 	void applyPeerDialogs(const MTPmessages_PeerDialogs &dialogs);
 
 	void unloadAll();
@@ -66,6 +74,13 @@ public:
 	void readClientSideMessage(not_null<HistoryItem*> item);
 	void sendPendingReadInbox(not_null<History*> history);
 	void reportDelivery(not_null<HistoryItem*> item);
+
+	struct ShownRead {
+		not_null<HistoryItem*> shown;
+		MsgId wasReadTill = 0;
+		MsgId readTill = 0;
+	};
+	[[nodiscard]] rpl::producer<ShownRead> shownReads() const;
 
 	void requestDialogEntry(not_null<Data::Folder*> folder);
 	void requestDialogEntry(
@@ -121,7 +136,8 @@ public:
 		uint64 randomId,
 		Fn<PreparedMessage(not_null<History*>, FullReplyTo)> message,
 		Fn<void(const MTPUpdates&, const MTP::Response&)> done,
-		Fn<void(const MTP::Error&, const MTP::Response&)> fail);
+		Fn<void(const MTP::Error&, const MTP::Response&)> fail,
+		std::optional<FullReplyTo> requiredReply = std::nullopt);
 
 	struct ReplyToPlaceholder {
 	};
@@ -143,6 +159,7 @@ public:
 		MsgId replyToId) const;
 
 private:
+	rpl::event_stream<ConfirmedReply> _confirmedReplies;
 	struct PostponedHistoryRequest {
 		Fn<mtpRequestId(Fn<void()> finish)> generator;
 	};
@@ -194,6 +211,10 @@ private:
 	}
 
 	void readInboxTill(not_null<History*> history, MsgId tillId, bool force);
+	void readShownTill(
+		not_null<HistoryItem*> shown,
+		MsgId tillId,
+		bool force);
 	void sendReadRequests();
 	void sendReadRequest(not_null<History*> history, State &state);
 	[[nodiscard]] State *lookup(not_null<History*> history);
@@ -217,6 +238,7 @@ private:
 	void cancelDelayedByTopicRequest(int id);
 
 	const not_null<Session*> _owner;
+	rpl::event_stream<ShownRead> _shownReads;
 
 	std::unordered_map<PeerId, std::unique_ptr<History>> _map;
 	base::flat_map<not_null<History*>, State> _states;

@@ -160,10 +160,11 @@ ListWidget::DateBadge::DateBadge(
 
 ListWidget::ListWidget(
 	QWidget *parent,
-	not_null<AbstractController*> controller)
+	not_null<AbstractController*> controller,
+	std::unique_ptr<ListProvider> provider)
 : RpWidget(parent)
 , _controller(controller)
-, _provider(MakeProvider(_controller))
+, _provider(provider ? std::move(provider) : MakeProvider(_controller))
 , _sectionsSortedById(!controller->isDownloads()
 	&& !controller->isGlobalMedia())
 , _checkMoveToOtherViewer([=] { checkMoveToOtherViewer(); })
@@ -801,7 +802,7 @@ void ListWidget::openPhoto(not_null<PhotoData*> photo, FullMsgId id) {
 	};
 	_controller->parentController()->openPhoto(
 		photo,
-		{ id, topicRootId(), monoforumPeerId(), showDrawButton() },
+		{ id, topicRootId(), monoforumPeerId(), showDrawButton(), _provider->suppressReadReceipts(), _provider->mediaNavigation(id) },
 		_controller->storiesPeer() ? &context : nullptr);
 }
 
@@ -816,7 +817,7 @@ void ListWidget::openDocument(
 	_controller->parentController()->openDocument(
 		document,
 		showInMediaView,
-		{ id, topicRootId(), monoforumPeerId(), showDrawButton() },
+		{ id, topicRootId(), monoforumPeerId(), showDrawButton(), _provider->suppressReadReceipts(), _provider->mediaNavigation(id) },
 		_controller->storiesPeer() ? &context : nullptr);
 }
 
@@ -993,9 +994,24 @@ void ListWidget::restoreState(not_null<Memento*> memento) {
 	});
 }
 
+void ListWidget::setGridScale(float64 scale) {
+	scale = std::clamp(scale, 1., 5.);
+	if (_gridScale == scale) {
+		return;
+	}
+	_scrollTopState = countScrollState(QPoint(width() / 2, _visibleTop));
+	_gridScale = scale;
+	resizeToWidth(width());
+	restoreScrollState();
+	update();
+}
+
 int ListWidget::resizeGetHeight(int newWidth) {
 	if (newWidth > 0) {
-		const auto gridSize = _zoom->minGridSize();
+		const auto requested = _zoom->minGridSize();
+		const auto gridSize = _gridScale
+			? std::min(requested, std::max(1, newWidth - 2 * st::infoMediaLeft - 2 * st::infoMediaSkip))
+			: requested;
 		for (auto &section : _sections) {
 			section.setCanReorder(canReorder());
 			section.setMinGridSize(gridSize);
@@ -2139,7 +2155,7 @@ void ListWidget::leaveEventHook(QEvent *e) {
 
 QPoint ListWidget::clampMousePosition(QPoint position) const {
 	return {
-		std::clamp(position.x(), 0, qMax(0, width() - 1)),
+		std::clamp(position.x(), 0, std::max(0, width() - 1)),
 		std::clamp(position.y(), _visibleTop, _visibleBottom - 1)
 	};
 }
@@ -2243,8 +2259,8 @@ void ListWidget::mouseActionUpdate(const QPoint &globalPosition) {
 				++second;
 			}
 			auto selState = TextSelection {
-				qMin(second, _mouseTextSymbol),
-				qMax(second, _mouseTextSymbol)
+				std::min(second, _mouseTextSymbol),
+				std::max(second, _mouseTextSymbol)
 			};
 			if (_mouseSelectType != TextSelectType::Letters) {
 				selState = _overLayout->adjustSelection(selState, _mouseSelectType);

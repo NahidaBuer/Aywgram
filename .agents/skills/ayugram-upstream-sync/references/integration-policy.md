@@ -28,6 +28,14 @@ Defer broad behavior changes, packaging/CI policy, branding replacement, agent w
 - Preserve repository-owned `.agents` workflows. Do not accept other upstream Harness workflows, GitHub workflow, Snap, or release-policy changes as application-source conflict resolutions.
 - Preserve newer compatible submodule descendants when an official tag points backward. Merge diverged histories only inside the submodule.
 
+## Submodule authorization
+
+The repository owner grants standing authorization, when requesting upstream integration, to make necessary compatibility edits, merge and commit changes, and push compatibility branches to the distribution's existing submodule forks. This includes publishing the resulting submodule source needed to make the Desktop gitlinks remotely reachable; no separate confirmation is required for each such edit or push. Audit-only and planning requests do not authorize publication.
+
+Verify each destination against the tracked `.gitmodules` configuration at the start of the integration and the submodule's remote configuration. Existing distribution forks include those owned by NahidaBuer or AywGram, such as codegen, lib_ui, lib_tl, lib_icu, and LanguagePacks; ownership alone does not authorize a repository absent from that baseline. Keep changes necessary to the requested synchronization and preserve fork behavior. Use dated `compat/` branches, creating a new branch or fast-forwarding an existing compatibility branch without rewriting published history. Record pushed branches and hashes in the maintenance report.
+
+This authorization does not cover creating new remote forks, changing publishing destinations, pushing to official upstream repositories, force-pushing, deleting remote branches, publishing releases, or pushing the Desktop repository. Those actions require separate authorization. Runtime approval controls still apply; if a push is rejected, report the rejected action and reason, preserve the prepared work, and do not bypass the rejection.
+
 ## Submodule contract
 
 1. Compare the base, current, and incoming gitlinks.

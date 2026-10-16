@@ -9,6 +9,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "overview/overview_layout.h"
 
+namespace Media::View {
+struct Navigation;
+} // namespace Media::View
+
 namespace Storage {
 enum class SharedMediaType : signed char;
 } // namespace Storage
@@ -126,6 +130,8 @@ public:
 
 class ListProvider {
 public:
+	[[nodiscard]] virtual bool suppressReadReceipts() const { return false; }
+	virtual std::shared_ptr<::Media::View::Navigation> mediaNavigation(FullMsgId id) { return nullptr; }
 	[[nodiscard]] virtual Type type() = 0;
 	[[nodiscard]] virtual bool hasSelectRestriction() = 0;
 	[[nodiscard]] virtual auto hasSelectRestrictionChanges()
