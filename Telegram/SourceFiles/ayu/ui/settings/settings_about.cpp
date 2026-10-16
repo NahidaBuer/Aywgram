@@ -114,11 +114,12 @@ void BuildReferences(SectionBuilder &builder) {
 		u"https://github.com/NextAlone/Nagram"_q);
 	AddExternalLink(
 		builder,
-		u"ayu/about/reference/nagram-ios-mithka"_q,
-		u"Nagram-iOS / Mithka PR #53"_q,
-		tr::ayu_AboutReferencePullRequest(),
+		u"ayu/about/reference/mithka"_q,
+		u"Mithka"_q,
+		tr::ayu_AboutReferenceClient(),
 		&st::menuIconLink,
-		u"https://github.com/NextAlone/Nagram-iOS/pull/53"_q);
+		u"https://github.com/iebb/mithka"_q,
+		{ u"ayu/about/reference/nagram-ios-mithka"_q });
 	AddExternalLink(
 		builder,
 		u"ayu/about/reference/64gram"_q,
