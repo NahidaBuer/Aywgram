@@ -1,6 +1,6 @@
 # AyuGram 修复独立适配与 7.3.1-2 验证
 
-状态：active。
+状态：completed。
 
 目标：按 2026-10-11 AyuGram 审查结论，在 Telegram 7.3.1 基线上独立适配合适的正确性、安全及兼容修复，保持原子提交，通过 macOS ARM64 Release 编译并打包 7.3.1-2 后推送集成分支。
 
@@ -22,4 +22,14 @@
 
 静态检查：无冲突、diff --check 通过，i18n 完整审计通过，626 键/24 locale 契约一致；未修改语言键。历史翻译缺口保留为专门维护范围。修复了前一提交意外纳入、但 .gitmodules 已无配置且构建不再使用的 rlottie gitlink；原本地目录保留，以 .git/info/exclude 隐藏。递归子模块状态恢复正常，其余 gitlink 未变。
 
-构建环境确认：Xcode 26.5（17F42）、Qt 6.11.2、ARM64，使用新 out/build/mac-arm64/Release/default，不复用已清理的旧工作树。必须显式选择 Xcode 的 macOS 26.5 SDK；系统默认 xcrun 的 SDK 路径指向不兼容的 CommandLineTools 27.0 SDK。链接保留本机 libheif 的 libde265 静态依赖。完整应用 Release 编译与 7.3.1-2 打包尚待完成。
+构建环境确认：Xcode 26.5（17F42）、Qt 6.11.2、ARM64，使用新 out/build/mac-arm64/Release/default，不复用已清理的旧工作树。必须显式选择 Xcode 的 macOS 26.5 SDK；系统默认 xcrun 的 SDK 路径指向不兼容的 CommandLineTools 27.0 SDK。链接保留本机 libheif 的 libde265 静态依赖。完整应用 Release 编译与 7.3.1-2 打包验证均已完成；CMake 公共缓存的部署目标为 10.13，实际 ARM64 Mach-O 的最低系统为 11.0。
+
+## 交付结论
+
+完整 macOS ARM64 Release 编译通过；构建暴露并修复了 GIF 视图缺少 AyuSettings 头文件、TTLButton 包装类缺少 isHidden 接口两处兼容问题。最终链接规则审查还补齐了自定义协议使用受信任域名时的确认要求。
+
+7.3.1-2 打包探针通过，主程序、Updater 与 Swift Concurrency 三个 Mach-O 均为单一 ARM64；去除只含 x86_64 且 ARM64 加载路径不使用的 Swift Core，再对完整副本 ad hoc 重签名。应用副本与 ZIP 解压副本的深度严格签名验证、架构扫描和 metadata fragment 校验全部通过。原生未处理 bundle、首次失败的打包副本和全部日志保留在 out/。打包工具按目标架构检查 dylib 依赖，避免把通用库中其他架构的依赖误判为 ARM64 需求。
+
+整理未推送历史，将两处编译修复和链接确认修复合入各自功能提交，并将发布准备合为一个最终提交。最终标签身份的构建、保留程序、ZIP、摘要和远端分支核对以本地 `out/logs/build/20261019-091000-ayugram-7.3.1-2/report.md` 与 `out/upstream-sync/20261019/report.md` 为准；它们记录确定的最终提交与校验结果。源代码保留 revision 0，构建期间注入 revision 2，退出时仅恢复此临时差异。原有本地 rlottie 目录与所有其他用户内容保留。
+
+验证边界：没有运行应用、登录账户或执行真实消息/UI 回归；没有验证 Windows/Linux 编译。本次仅推送集成分支，不发布 GitHub Release、远端版本标签或线上更新元数据。后续应覆盖多账户 Ghost、网络失败、限时媒体查看/销毁、异步转发取消与 rich File/ButtonRow、外部翻译及链接交互。
