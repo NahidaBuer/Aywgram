@@ -40,46 +40,114 @@
 #include <QRegularExpression>
 #include <QUrl>
 
+#include <optional>
+
 
 namespace Ui {
 namespace {
 
+void SkipPluginWhitespace(const QString &text, qsizetype &position) {
+	while (position < text.size() && text[position].isSpace()) {
+		++position;
+	}
+}
+
+[[nodiscard]] std::optional<QString> ParsePluginString(
+		const QString &text,
+		qsizetype &position) {
+	if (position >= text.size()) {
+		return std::nullopt;
+	}
+	const auto quote = text[position];
+	if (quote != '\'' && quote != '"') {
+		return std::nullopt;
+	}
+	const auto delimiter = QString(3, quote);
+	const auto triple = text.mid(position, 3) == delimiter;
+	position += triple ? 3 : 1;
+	auto result = QString();
+	while (position < text.size()) {
+		const auto ch = text[position++];
+		if (ch == quote) {
+			if (!triple) {
+				return result;
+			} else if (text.mid(position - 1, 3) == delimiter) {
+				position += 2;
+				return result;
+			}
+		} else if (ch == '\\') {
+			if (position >= text.size()) {
+				return std::nullopt;
+			}
+			const auto escaped = text[position++];
+			switch (escaped.unicode()) {
+			case 'n': result += '\n'; break;
+			case 'r': result += '\r'; break;
+			case 't': result += '\t'; break;
+			case '\\': result += '\\'; break;
+			case '\'': result += '\''; break;
+			case '"': result += '"'; break;
+			case '\n': break;
+			case '\r':
+				if (position < text.size() && text[position] == '\n') {
+					++position;
+				}
+				break;
+			default:
+				result += '\\';
+				result += escaped;
+				break;
+			}
+			continue;
+		} else if (!triple && (ch == '\r' || ch == '\n')) {
+			return std::nullopt;
+		}
+		result += ch;
+	}
+	return std::nullopt;
+}
+
 QString ExtractField(const QByteArray &data, const QString &key) {
-	// supports probably all kinds of weird python syntax + both " and '
-	// "description"
-	// """description"""
-	// (
-	// 	"description\n\n"
-	// 	"description\n"
-	// )
-	static const auto quotedValue = QRegularExpression(
-		uR"field((?:"""((?:\\[\s\S]|(?!""")[^\\])*)"""|'''((?:\\[\s\S]|(?!''')[^\\])*)'''|(?!""")"((?:\\.|[^\r\n"\\])*)"|(?!''')'((?:\\.|[^\r\n'\\])*)'))field"_q);
-	const auto re = QRegularExpression(
-		uR"(__%1__\s*=\s*(?:%2|\((?:\s*%2)+\s*\)))"_q.arg(
-			key,
-			quotedValue.pattern()));
-	const auto match = re.match(QString::fromUtf8(data));
+	const auto text = QString::fromUtf8(data);
+	const auto assignment = QRegularExpression(
+		uR"((?:^|\n)[\t ]*__%1__[\t ]*=[\t ]*)"_q.arg(
+			QRegularExpression::escape(key)));
+	const auto match = assignment.match(text);
 	if (!match.hasMatch()) {
 		return {};
 	}
-	auto result = QString();
-	auto parts = quotedValue.globalMatch(match.captured());
-	while (parts.hasNext()) {
-		const auto partMatch = parts.next();
-		auto part = partMatch.captured(1);
-		for (auto i = 2
-			; part.isNull() && i <= quotedValue.captureCount()
-			; ++i) {
-			part = partMatch.captured(i);
-		}
-		part.replace(u"\\n"_q, u"\n"_q);
-		part.replace(u"\\t"_q, u"\t"_q);
-		part.replace(u"\\\""_q, u"\""_q);
-		part.replace(u"\\'"_q, u"'"_q);
-		part.replace(u"\\\\"_q, u"\\"_q);
-		result += part;
+	auto position = match.capturedEnd();
+	const auto parenthesized = position < text.size() && text[position] == '(';
+	if (parenthesized) {
+		++position;
+		SkipPluginWhitespace(text, position);
 	}
-	return result;
+	auto result = QString();
+	while (true) {
+		const auto part = ParsePluginString(text, position);
+		if (!part) {
+			return {};
+		}
+		result += *part;
+		if (!parenthesized) {
+			break;
+		}
+		SkipPluginWhitespace(text, position);
+		if (position < text.size() && text[position] == ')') {
+			++position;
+			break;
+		}
+	}
+	while (position < text.size()
+		&& (text[position] == ' ' || text[position] == '\t')) {
+		++position;
+	}
+	return (position == text.size()
+		|| text[position] == '\r'
+		|| text[position] == '\n'
+		|| text[position] == '#')
+		? result
+		: QString();
 }
 
 TextWithEntities ParsePluginDescriptionPlain(const QString &text) {
