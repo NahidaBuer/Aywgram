@@ -390,7 +390,9 @@ Document::Document(
 	const auto media = _parent->data()->media();
 	if ((_data->isVoiceMessage() || isRound)
 		&& media
-		&& media->ttlSeconds()) {
+		&& media->ttlSeconds()
+		&& !(_parent->data()->isBurnt()
+			&& AyuSettings::getInstance().saveDeletedMessages())) {
 		const auto fullId = _realParent->fullId();
 		if (_parent->delegate()->elementContext() == Context::TTLViewer) {
 			auto lifetime = std::make_shared<rpl::lifetime>();

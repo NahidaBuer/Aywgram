@@ -1454,6 +1454,10 @@ void OverlayWidget::refreshTtlBadge(TimeId destroyAt) {
 						_message->history()->peer->shortName()
 					) | rpl::map(tr::rich),
 					tr::rich)
+			: AyuSettings::getInstance().saveDeletedMessages()
+			? (isVideo
+				? tr::ayu_OnceVideoMessageNote
+				: tr::ayu_OncePhotoMessageNote)(tr::rich)
 			: (isVideo
 				? tr::lng_ttl_video_tooltip_in
 				: tr::lng_ttl_photo_tooltip_in)(tr::rich);

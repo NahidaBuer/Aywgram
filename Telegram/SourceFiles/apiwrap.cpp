@@ -1536,7 +1536,11 @@ void ApiWrap::markContentsRead(
 	for (const auto &item : items) {
 		const auto passthrough = (item->isUnreadMention() || item->hasUnreadReaction()) && !item->isUnreadMedia();
 
-		if (!item->markContentsRead(true) || !item->isRegular()) {
+		const auto keepUnread = AyuSettings::getInstance().saveDeletedMessages()
+			&& item->isIncomingUnreadMedia()
+			&& item->media()->ttlSeconds();
+		if ((!keepUnread && !item->markContentsRead(true))
+			|| !item->isRegular()) {
 			continue;
 		}
 
@@ -1568,7 +1572,11 @@ void ApiWrap::markContentsRead(
 void ApiWrap::markContentsRead(not_null<HistoryItem*> item) {
 	const auto passthrough = (item->isUnreadMention() || item->hasUnreadReaction()) && !item->isUnreadMedia();
 
-	if (!item->markContentsRead(true) || !item->isRegular()) {
+	const auto keepUnread = AyuSettings::getInstance().saveDeletedMessages()
+		&& item->isIncomingUnreadMedia()
+		&& item->media()->ttlSeconds();
+	if ((!keepUnread && !item->markContentsRead(true))
+		|| !item->isRegular()) {
 		return;
 	}
 

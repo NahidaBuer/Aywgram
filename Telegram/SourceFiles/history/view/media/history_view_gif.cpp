@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/media/history_view_gif.h"
 
 #include "apiwrap.h"
+#include "ayu/ayu_settings.h"
 #include "api/api_transcribes.h"
 #include "lang/lang_keys.h"
 #include "mainwindow.h"
@@ -184,7 +185,9 @@ Gif::Streamed::Streamed(
 [[nodiscard]] bool IsHiddenRoundMessage(not_null<Element*> parent) {
 	return parent->delegate()->elementContext() != Context::TTLViewer
 		&& parent->data()->media()
-		&& parent->data()->media()->ttlSeconds();
+		&& parent->data()->media()->ttlSeconds()
+		&& !(parent->data()->isBurnt()
+			&& AyuSettings::getInstance().saveDeletedMessages());
 }
 
 Gif::Gif(
@@ -209,7 +212,11 @@ Gif::Gif(
 , _ttlCover(realParent->isTtlCoveredMedia())
 , _hasVideoCover(realParent->media() && realParent->media()->videoCover()) {
 	const auto media = _parent->data()->media();
-	if (_data->isVideoMessage() && media && media->ttlSeconds()) {
+	if (_data->isVideoMessage()
+		&& media
+		&& media->ttlSeconds()
+		&& !(_parent->data()->isBurnt()
+			&& AyuSettings::getInstance().saveDeletedMessages())) {
 		if (_spoiler) {
 			_drawTtl = CreateTtlPaintCallback([=] { repaint(); });
 		}
