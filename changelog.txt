@@ -5,3 +5,24 @@ Only AywGram changes are recorded here, starting with the next release.
 
 Telegram Desktop: https://github.com/telegramdesktop/tdesktop/blob/dev/changelog.txt
 AyuGram: https://github.com/AyuGram/AyuGramDesktop/releases
+
+7.3.1-2 (19.10.26)
+
+AywGram
+
+简体中文
+
+- 更新 macOS 应用图标与品牌资源，修复钱包绑定源码在 CI 依赖裁剪中丢失的问题。
+- 在 Telegram 7.3.1 基线上独立适配下述 AyuGram 修复，保留 AywGram 更新器、防截图、语言包和异步发送流程；插件元数据转义和不完整输入处理进一步加固。
+- 本地验证目标为 macOS ARM64 Release。未进行登录账户、真实消息或界面回归测试。
+
+English
+
+- Update macOS icons and branding, and preserve generated wallet bindings during CI dependency pruning.
+- Independently adapt the AyuGram fixes below to Telegram 7.3.1 while preserving the AywGram updater, screenshot protection, language packs, and asynchronous sending. Further harden plugin metadata escapes and incomplete inputs.
+- Local validation targets macOS ARM64 Release. Account, real-message, and UI regression testing has not been performed.
+
+Contributors / 贡献者
+
+- AlexeyZavar (https://github.com/AyuGram/AyuGramDesktop/commit/105b6c21a69703a5c103d1615e4fbba12b519c3b)：上游正确性与链接安全修复的设计依据 / upstream correctness and link-safety fixes informing these adaptations。
+- NahidaBuer (https://github.com/NahidaBuer/AywGram/commit/d1f76145d0)：macOS 品牌资源和发行维护 / macOS branding and distribution maintenance。
