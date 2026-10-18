@@ -7,6 +7,7 @@
 #include "ayu/ui/boxes/plugin_info_box.h"
 
 #include "apiwrap.h"
+#include "ayu/ayu_url_handlers.h"
 #include "core/file_utilities.h"
 #include "core/ui_integration.h"
 #include "data/data_document.h"
@@ -37,6 +38,7 @@
 
 #include <QPainterPath>
 #include <QRegularExpression>
+#include <QUrl>
 
 
 namespace Ui {
@@ -97,7 +99,11 @@ TextWithEntities ParsePluginDescriptionLinks(const QString &text) {
 	while (matches.hasNext()) {
 		const auto match = matches.next();
 		const auto url = match.capturedView(2);
-		if (!Ui::InputField::IsValidMarkdownLink(url)) {
+		const auto parsed = QUrl(url.toString());
+		const auto allowed = AyuUrlHandlers::IsWebUrl(parsed)
+			|| (parsed.isValid()
+				&& parsed.scheme().compare(u"tg"_q, Qt::CaseInsensitive) == 0);
+		if (!allowed || !Ui::InputField::IsValidMarkdownLink(url)) {
 			continue;
 		}
 		result.append(ParsePluginDescriptionPlain(

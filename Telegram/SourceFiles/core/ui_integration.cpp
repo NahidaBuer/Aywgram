@@ -424,7 +424,15 @@ bool UiIntegration::handleUrlClick(
 	const auto url = context.value<ClickHandlerContext>().keepWebAuthTokens
 		? original
 		: UrlWithoutWebAuthTokens(original);
+	const auto email = QUrl(url).scheme().isEmpty()
+		&& UrlClickHandler::IsEmail(url);
+	if (!email && AyuUrlHandlers::IsUnsafeExternalUrl(url)) {
+		return true;
+	}
 	const auto local = Core::TryConvertUrlToLocal(url);
+	if (!email && AyuUrlHandlers::IsUnsafeExternalUrl(local)) {
+		return true;
+	}
 	if (Core::InternalPassportOrOAuthLink(local)) {
 		return true;
 	}

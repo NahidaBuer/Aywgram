@@ -9,6 +9,8 @@
 #include "base/qthelp_regex.h"
 #include "window/window_session_controller.h"
 
+class QUrl;
+
 namespace AyuUrlHandlers {
 
 using Match = qthelp::RegularExpressionMatch;
@@ -39,5 +41,8 @@ bool HandleAyuSettings(
 	const QVariant &context);
 
 bool TryHandleSpotify(const QString &url);
+
+[[nodiscard]] bool IsWebUrl(const QUrl &url);
+[[nodiscard]] bool IsUnsafeExternalUrl(const QString &url);
 
 }

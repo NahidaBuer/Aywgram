@@ -49,6 +49,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 // AyuGram includes
 #include "ayu/ayu_settings.h"
+#include "ayu/ayu_url_handlers.h"
 #include <ada.h>
 
 namespace {
@@ -131,7 +132,9 @@ constexpr auto kReminderSetToastDuration = 4 * crl::time(1000);
 }
 
 [[nodiscard]] bool HiddenUrlRequiresConfirmation(const QUrl &url) {
-	return UrlRequiresConfirmation(url) || IsTelegramShortLinkHost(url);
+	return !AyuUrlHandlers::IsWebUrl(url)
+		|| UrlRequiresConfirmation(url)
+		|| IsTelegramShortLinkHost(url);
 }
 
 [[nodiscard]] bool IsWebAuthTokenPart(QStringView part) {
@@ -453,7 +456,8 @@ void HiddenUrlClickHandler::Open(QString url, QVariant context) {
 			UrlClickHandler::Open(url, openContext);
 		};
 		const auto confirmationDisabled
-			= AyuSettings::getInstance().disableOpenLinkWarning();
+			= AyuSettings::getInstance().disableOpenLinkWarning()
+			&& AyuUrlHandlers::IsWebUrl(parsedUrl);
 		if (!confirmationDisabled
 			&& (forceConfirmation
 				|| (confirmAfterIvFallback && !canTryIv)
