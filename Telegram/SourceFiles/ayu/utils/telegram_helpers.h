@@ -134,3 +134,8 @@ void applyGhostScheduling(
 	not_null<Main::Session*> session,
 	Api::SendOptions &options,
 	int delaySeconds = 12);
+
+void applyGhostScheduling(
+	Api::SendAction &action,
+	const QString &text,
+	int delaySeconds = 12);

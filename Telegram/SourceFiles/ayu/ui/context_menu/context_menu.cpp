@@ -889,7 +889,7 @@ void AddRepeatMessageAction(not_null<Ui::PopupMenu*> menu, HistoryItem *item, Hi
 			}
 			action.clearDraft = false;
 
-			applyGhostScheduling(session, action.options);
+			applyGhostScheduling(action, QString());
 
 			if (currentItem->topic()) {
 				action.replyTo.topicRootId = currentItem->topicRootId();

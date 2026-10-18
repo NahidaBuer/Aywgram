@@ -68,6 +68,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_user.h"
 #include "data/data_peer_values.h" // Data::AmPremiumValue.
 #include "data/data_premium_limits.h"
+#include "data/data_session.h"
+#include "history/history.h"
 #include "data/stickers/data_stickers.h"
 #include "data/stickers/data_custom_emoji.h"
 #include "window/window_session_controller.h"
@@ -2664,7 +2666,15 @@ void SendFilesBox::send(
 	const auto sumSize = ranges::accumulate(
 		_list.files, int64(0),
 		[](int64 sum, const auto &file) { return sum + file.size; });
-	applyGhostScheduling(&_show->session(), options, getScheduleTime(sumSize));
+	auto action = Api::SendAction(
+		_toPeer->owner().history(_toPeer),
+		options);
+	action.replyTo = _replyTo;
+	applyGhostScheduling(
+		action,
+		fieldText().text,
+		getScheduleTime(sumSize));
+	options = action.options;
 
 	if (options.scheduled
 		&& ranges::any_of(_list.files, &Ui::PreparedFile::ttlSeconds)) {

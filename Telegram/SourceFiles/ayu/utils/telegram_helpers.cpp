@@ -21,6 +21,7 @@
 #include "core/application.h"
 #include "base/unixtime.h"
 #include "core/mime_type.h"
+#include "data/components/ephemeral_messages.h"
 #include "data/data_channel.h"
 #include "data/data_chat.h"
 #include "data/data_document.h"
@@ -1594,10 +1595,27 @@ void applyGhostScheduling(
 		Api::SendOptions &options,
 		int delaySeconds) {
 	const auto &ghost = AyuSettings::ghost(session);
-	if (ghost.isUseScheduledMessages() && !options.scheduled) {
+	if (ghost.isUseScheduledMessages()
+		&& !options.scheduled
+		&& !options.shortcutId
+		&& !options.welcomeTemplate) {
 		const auto delay = Core::App().settings().proxy().isEnabled()
 			? (delaySeconds * 6 + 4) / 5 //ceil(delaySeconds * 1.2)
 			: delaySeconds;
 		options.scheduled = base::unixtime::now() + delay;
 	}
+}
+
+void applyGhostScheduling(
+		Api::SendAction &action,
+		const QString &text,
+		int delaySeconds) {
+	const auto session = &action.history->session();
+	if (session->ephemeralMessages().wouldSendMedia(
+			action.history->peer,
+			action.replyTo,
+			text)) {
+		return;
+	}
+	applyGhostScheduling(session, action.options, delaySeconds);
 }

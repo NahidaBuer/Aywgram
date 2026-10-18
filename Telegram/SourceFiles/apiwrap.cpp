@@ -4104,7 +4104,7 @@ void ApiWrap::forwardMessages(
 		FnMut<void(bool)> done) {
 	Expects(!draft.items.empty());
 
-	applyGhostScheduling(_session, action.options);
+	applyGhostScheduling(action, QString());
 
 	const auto completion = Api::MakeSendCompletion(std::move(done));
 	if (draft.options == Data::ForwardOptions::PreserveInfo) {
@@ -4511,7 +4511,7 @@ void ApiWrap::sendVoiceMessage(
 		Api::SendCompletionPtr completion,
 		TextWithTags caption) {
 	auto scheduledAction = action;
-	applyGhostScheduling(_session, scheduledAction.options, 17);
+	applyGhostScheduling(scheduledAction, QString(), 17);
 	auto to = FileLoadTaskOptions(scheduledAction);
 	to.completion = std::move(completion);
 	_fileLoader->addTask(
@@ -4800,12 +4800,14 @@ void ApiWrap::sendRichMessage(
 
 	const auto history = action.history;
 	const auto peer = history->peer;
+	const auto summary = Iv::FlattenRichPageSummary(page).text;
+	applyGhostScheduling(action, summary);
 	const auto ephemeral = !action.options.scheduled
 		&& !action.options.shortcutId
 		&& _session->ephemeralMessages().wouldSendMedia(
 			peer,
 			action.replyTo,
-			Iv::FlattenRichPageSummary(page).text);
+			summary);
 	if (!ephemeral) {
 		StripEphemeralReply(_session, action.replyTo);
 	}
@@ -5074,7 +5076,7 @@ void ApiWrap::sendRichMessage(
 void ApiWrap::sendMessage(
 		MessageToSend &&message,
 		std::optional<MsgId> localMessageId) {
-	applyGhostScheduling(_session, message.action.options);
+	applyGhostScheduling(message.action, message.textWithTags.text);
 	if (AyuSettings::getInstance().sendForwardFirst()) {
 		const auto pending = std::make_shared<MessageToSend>(
 			std::move(message));
@@ -5757,7 +5759,10 @@ void ApiWrap::sendMediaWithRandomId(
 		Fn<void(bool)> done,
 		Api::SendCompletionPtr completion,
 		bool sealCompletion) {
-	applyGhostScheduling(_session, options);
+	auto action = SendAction(item->history(), options);
+	action.replyTo = item->replyTo();
+	applyGhostScheduling(action, item->originalText().text);
+	options = action.options;
 	if (options.welcomeTemplate) {
 		const auto owned = _session->welcomeMessages().owns(item);
 		if (owned) {
