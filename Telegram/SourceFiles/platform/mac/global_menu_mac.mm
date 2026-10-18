@@ -55,6 +55,10 @@ struct ComputedState {
 	bool newChannelDisabled = false;
 	bool showTelegramDisabled = false;
 	Ui::MarkdownEnabledState markdown;
+	bool ghostDisabled = false;
+	bool ghostModeActive = false;
+	bool readOnInteract = false;
+	bool scheduleMessages = false;
 
 	friend inline bool operator==(
 		const ComputedState &,
@@ -336,6 +340,7 @@ void Manager::recomputeState() {
 	const auto inactive = !logged || window->locked();
 	const auto support = logged && controller->session().supportMode();
 
+	const auto ghost = resolveGhostSettings();
 	auto next = ComputedState{
 		.logoutDisabled = !logged && !Core::App().passcodeLocked(),
 		.undoDisabled = !canUndo,
@@ -351,6 +356,10 @@ void Manager::recomputeState() {
 		.newChannelDisabled = inactive || support,
 		.showTelegramDisabled = widget->isActive(),
 		.markdown = markdownState,
+		.ghostDisabled = (ghost == nullptr),
+		.ghostModeActive = ghost && ghost->isGhostModeActive(),
+		.readOnInteract = ghost && ghost->markReadAfterAction(),
+		.scheduleMessages = ghost && ghost->useScheduledMessages(),
 	};
 	if (_lastState && *_lastState == next) {
 		return;
@@ -387,27 +396,19 @@ void Manager::recomputeState() {
 		disabled(Field::kTagPre) || disabled(Field::kTagCode));
 	ForceDisabled(_clearFormat, markdownState.disabled());
 
-	const auto ghost = resolveGhostSettings();
-	const auto ghostInactive = (ghost == nullptr);
-	ForceDisabled(_ghostMode, ghostInactive);
-	ForceDisabled(_readOnInteract, ghostInactive);
-	ForceDisabled(_scheduleMessages, ghostInactive);
+	ForceDisabled(_ghostMode, next.ghostDisabled);
+	ForceDisabled(_readOnInteract, next.ghostDisabled);
+	ForceDisabled(_scheduleMessages, next.ghostDisabled);
 	const auto setChecked = [](QAction *action, bool checked) {
 		const auto wasBlocked = action->blockSignals(true);
 		action->setChecked(checked);
 		action->blockSignals(wasBlocked);
 	};
-	if (ghost) {
-		_ghostMode->setText(ghost->isGhostModeActive()
-			? tr::ayu_DisableGhostMode(tr::now)
-			: tr::ayu_EnableGhostMode(tr::now));
-		setChecked(_readOnInteract, ghost->markReadAfterAction());
-		setChecked(_scheduleMessages, ghost->useScheduledMessages());
-	} else {
-		_ghostMode->setText(tr::ayu_EnableGhostMode(tr::now));
-		setChecked(_readOnInteract, false);
-		setChecked(_scheduleMessages, false);
-	}
+	_ghostMode->setText(next.ghostModeActive
+		? tr::ayu_DisableGhostMode(tr::now)
+		: tr::ayu_EnableGhostMode(tr::now));
+	setChecked(_readOnInteract, next.readOnInteract);
+	setChecked(_scheduleMessages, next.scheduleMessages);
 }
 
 void Manager::buildAppleMenu(QMenu *main) {
