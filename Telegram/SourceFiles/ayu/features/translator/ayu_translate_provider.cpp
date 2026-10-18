@@ -33,7 +33,7 @@ public:
 	}
 
 	[[nodiscard]] bool supportsMessageId() const override {
-		return true;
+		return false;
 	}
 
 	void request(
