@@ -1,0 +1,4 @@
+interface:
+  display_name: "AywGram Clean Out"
+  short_description: "Selectively clean out while preserving logs and reports"
+  default_prompt: "Use $aywgram-clean-out to preview selected output categories and clean the authorized paths while retaining logs and final reports."

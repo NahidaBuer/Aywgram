@@ -24,7 +24,8 @@ def parse_changelog(changelog_path):
                        [])
             releases.append(release)
         elif entry_match is not None:
-            release[3].append(entry_match.group(1))
+            if releases:
+                release[3].append(entry_match.group(1))
 
     return releases
 

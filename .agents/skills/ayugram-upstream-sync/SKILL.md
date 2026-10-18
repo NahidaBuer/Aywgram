@@ -16,7 +16,7 @@ Use a staged, report-first workflow for recurring maintenance of this AywGram fo
    - `plan`: audit and propose ordered integration checkpoints.
    - `integrate`: perform the approved merges or ports and static validation.
    - `build`: run the authorized build after integration; use Release when the request does not name a configuration.
-4. Keep reports, logs, temporary patches, and generated files under `out/upstream-sync/`. Never create root `build/` or `cmake-build-*` directories.
+4. Follow the shared [out layout](../../../docs/agents/out-layout.md). Use `out/upstream-sync/<run-id>/logs/` for logs, `report.md` for the final report, `evidence/` for raw audits and patches, and `tmp/` for disposable scratch. Durable plans and decisions belong in the relevant task record. Never create root `build/` or `cmake-build-*` directories.
 
 ## Audit
 
@@ -28,9 +28,13 @@ Run the bundled audit from the repository root:
 powershell -NoProfile -ExecutionPolicy Bypass -File .agents/skills/ayugram-upstream-sync/scripts/audit-upstreams.ps1 -Fetch
 ```
 
-Omit `-Fetch` only for an offline snapshot. Read the generated `audit.md`, then inspect relevant commits and diffs directly; do not select patches from subjects alone.
+Omit `-Fetch` only for an offline snapshot. Read the generated `evidence/audit.md`, then inspect relevant commits and diffs directly; do not select patches from subjects alone.
 
 For planning or integration, read [integration-policy.md](references/integration-policy.md). Group incoming work by subsystem, user-visible effect, dependencies, overlap with current history, and conflict risk. Distinguish unique changes from merged or patch-equivalent work.
+
+## Changelog ownership
+
+The root `changelog.txt` belongs to AywGram. Route incoming official Telegram changelog changes into `docs/upstream/telegram-changelog.txt`, extracted from the selected upstream commit; do not overwrite or prepend official entries to the root log. Record the source SHA in the final report and update the upstream reference README baseline. Release summaries are prepared separately by aywgram-release.
 
 ## Integrate
 

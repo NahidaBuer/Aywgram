@@ -29,6 +29,8 @@ jobs:
           PRERELEASE_INPUT: ${{ inputs.prerelease_tag }}
         run: |
           set -euo pipefail
+          workspace="$GITHUB_WORKSPACE/out/tmp/metadata-select/ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$workspace"
           mapfile -t metadata_releases < <(
             gh api --paginate "repos/${GH_REPO}/releases?per_page=100" \
               --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name'
@@ -40,7 +42,7 @@ jobs:
           metadata_release="${metadata_releases[0]}"
 
           if [ -n "$PRERELEASE_INPUT" ]; then
-            prerelease_json="$RUNNER_TEMP/prerelease.json"
+            prerelease_json="$workspace/prerelease.json"
             if ! gh api "repos/${GH_REPO}/releases/tags/${PRERELEASE_INPUT}" > "$prerelease_json"; then
               echo "::error::Prerelease $PRERELEASE_INPUT does not exist."
               exit 1
@@ -91,7 +93,7 @@ jobs:
         shell: bash
         env:
           PRERELEASE_TAG: ${{ needs.select.outputs.prerelease_tag }}
-        run: python3 .github/scripts/release_version.py --tag "$PRERELEASE_TAG" --github-output "$GITHUB_OUTPUT"
+        run: python3 tools/maintenance/release_version.py --tag "$PRERELEASE_TAG" --github-output "$GITHUB_OUTPUT"
 
       - name: Scan assets and update rolling metadata.
         shell: bash
@@ -105,10 +107,12 @@ jobs:
           VERSION_NAME: ${{ steps.version.outputs.version_name }}
         run: |
           set -euo pipefail
+          workspace="out/tmp/metadata/ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$workspace"
 
-          prerelease_json="$RUNNER_TEMP/prerelease.json"
+          prerelease_json="$workspace/prerelease.json"
           gh api "repos/${GH_REPO}/releases/tags/${PRERELEASE_TAG}" > "$prerelease_json"
-          mkdir -p assets fragments previous output
+          mkdir -p "$workspace/assets" "$workspace/previous" "out/metadata/$PRERELEASE_TAG/fragments" "out/metadata/$PRERELEASE_TAG/output"
           found=0
           while IFS='|' read -r target asset_name; do
             if ! jq -e --arg name "$asset_name" \
@@ -119,15 +123,15 @@ jobs:
             gh release download "$PRERELEASE_TAG" \
               --repo "$GH_REPO" \
               --pattern "$asset_name" \
-              --dir assets
-            python3 .github/scripts/update_release_metadata.py fragment \
+              --dir "$workspace/assets"
+            python3 tools/maintenance/update_release_metadata.py fragment \
               --target "$target" \
               --app-version "$APP_VERSION" \
               --revision "$RELEASE_REVISION" \
               --version-name "$VERSION_NAME" \
               --release "$PRERELEASE_TAG" \
-              --asset "assets/$asset_name" \
-              --output "fragments/$target.json"
+              --asset "$workspace/assets/$asset_name" \
+              --output "out/metadata/$PRERELEASE_TAG/fragments/$target.json"
             found=$((found + 1))
           done <<EOF
           windows-x86_64|AywGram-v${VERSION_NAME}-windows-x86_64.zip
@@ -144,26 +148,26 @@ jobs:
           if gh release download "$METADATA_RELEASE" \
             --repo "$GH_REPO" \
             --pattern update-metadata.json \
-            --dir previous; then
-            base_arguments=(--base previous/update-metadata.json)
+            --dir "$workspace/previous"; then
+            base_arguments=(--base "$workspace/previous/update-metadata.json")
           fi
           arguments=(
             merge
             "${base_arguments[@]}"
             --feed-release "$METADATA_RELEASE"
-            --output output/update-metadata.json
+            --output "out/metadata/$PRERELEASE_TAG/output/update-metadata.json"
           )
           while IFS= read -r fragment; do
             arguments+=(--fragment "$fragment")
-          done < <(find fragments -type f -name '*.json' -print | sort)
-          python3 .github/scripts/update_release_metadata.py "${arguments[@]}"
-          python3 -m json.tool output/update-metadata.json >/dev/null
-          python3 .github/scripts/update_release_metadata.py notes \
-            --metadata output/update-metadata.json \
-            --output output/release-notes.md
-          gh release upload "$METADATA_RELEASE" output/update-metadata.json \
+          done < <(find "out/metadata/$PRERELEASE_TAG/fragments" -type f -name '*.json' -print | sort)
+          python3 tools/maintenance/update_release_metadata.py "${arguments[@]}"
+          python3 -m json.tool "out/metadata/$PRERELEASE_TAG/output/update-metadata.json" >/dev/null
+          python3 tools/maintenance/update_release_metadata.py notes \
+            --metadata "out/metadata/$PRERELEASE_TAG/output/update-metadata.json" \
+            --output "out/metadata/$PRERELEASE_TAG/output/release-notes.md"
+          gh release upload "$METADATA_RELEASE" "out/metadata/$PRERELEASE_TAG/output/update-metadata.json" \
             --repo "$GH_REPO" \
             --clobber
           gh release edit "$METADATA_RELEASE" \
             --repo "$GH_REPO" \
-            --notes-file output/release-notes.md
+            --notes-file "out/metadata/$PRERELEASE_TAG/output/release-notes.md"

@@ -1,14 +1,18 @@
 # Agent Build Guide: Windows
 
-Read this file only for native Windows toolchain work. Follow the repository [build skill](../../.agents/skills/aywgram-build/SKILL.md) for authorization, build mode, tagged revision injection and release consistency. Human setup instructions are in the [Windows x64 build guide](../building-win-x64.md).
+Read this file only for native Windows toolchain work. Follow the repository [build skill](../../.agents/skills/aywgram-build/SKILL.md) for authorization, build mode, tagged revision injection and release consistency. Human setup instructions are in the [Windows x64 build guide](../development/building-win-x64.md).
 
 An ordinary local build without a supplied release tag temporarily injects revision `1` before compilation and therefore produces a version such as `7.2.8-1`. An explicit prerelease tag supplies its revision instead. Keep the committed `AppReleaseRevision` at `0`, and restore the temporary injection only after packaging the binaries built from it.
 
 A checkout opened through `\\wsl.localhost\...` is a Linux checkout. Do not use native Windows CMake on its `out/` tree; follow the [Linux agent guide](building-linux.md).
 
+## Output paths
+
+Use the [shared output layout](out-layout.md). Resolve paths with `out_layout.py paths` as described in the build skill, assign its returned build/artifact/log paths to task-specific shell variables, and capture each phase with the command runner. Configure with `-B` using the selected absolute build path. Never move an existing CMake tree to adopt the layout.
+
 ## Existing Configuration First
 
-Before configuring or building, inspect repository-root `out/CMakeCache.txt`: `CMAKE_COMMAND`, `CMAKE_GENERATOR`, `CMAKE_GENERATOR_INSTANCE`, `CMAKE_GENERATOR_PLATFORM` and `CMAKE_HOME_DIRECTORY`. Verify the referenced executable and installation exist, the source path identifies this checkout, and the architecture and dependency layout match the intended target. Compare any local override snapshot with these facts; no fixed Visual Studio version applies to every machine.
+Before configuring or building, inspect `<AYW_BUILD_DIR>/CMakeCache.txt`: `CMAKE_COMMAND`, `CMAKE_GENERATOR`, `CMAKE_GENERATOR_INSTANCE`, `CMAKE_GENERATOR_PLATFORM` and `CMAKE_HOME_DIRECTORY`. Verify the referenced executable and installation exist, the source path identifies this checkout, and the architecture and dependency layout match the intended target. Compare any local override snapshot with these facts; no fixed Visual Studio version applies to every machine.
 
 For an existing Visual Studio tree, an ordinary PowerShell session can invoke the cached absolute CMake executable. Missing `cmake` on PATH does not establish a compiler or source failure. Keep CMake and its modules from the same installation; inspect stale module paths before diagnosing regeneration failures.
 
@@ -18,12 +22,13 @@ For the native Windows agent environment, run authorized CMake configuration and
 
 When using `exec_command`, request `sandbox_permissions: "require_escalated"` for the build command and supply a justification describing the already-authorized configuration and target. Follow the tool's approval process; build authorization does not bypass execution approval. If escalation is rejected, report the rejection and stop the build rather than trying another shell or changing permissions. Do not ask the user to authorize the same build again when that authorization is already present.
 
-An accidentally sandboxed invocation may report `Permission denied` for `out/CMakeFiles/VerifyGlobs.cmake.tmp` or `cmake.check_cache`, sometimes alongside a `generate.stamp` timestamp error. These generation errors alone do not establish that the application or debugger holds a file open. Preserve the log and rerun the authorized command through the supported escalation mechanism. Do not delete `out/`, reset ACLs, or ask the user to close the application solely because of this known sandbox failure.
+An accidentally sandboxed invocation may report `Permission denied` for `<AYW_BUILD_DIR>/CMakeFiles/VerifyGlobs.cmake.tmp` or `cmake.check_cache`, sometimes alongside a `generate.stamp` timestamp error. These generation errors alone do not establish that the application or debugger holds a file open. Preserve the log and rerun the authorized command through the supported escalation mechanism. Do not delete `out/`, reset ACLs, or ask the user to close the application solely because of this known sandbox failure.
 
 After the user authorizes a build and the configuration checks pass, run this Release example outside the sandbox from the repository root. Use Debug only when explicitly requested or approved for diagnosis:
 
 ```powershell
-$ayuBuildTree = Join-Path (Get-Location).Path 'out'
+$ayuBuildTree = $env:AYW_BUILD_DIR
+if (-not $ayuBuildTree) { throw 'Select the build layout first.' }
 $ayuCachePath = Join-Path $ayuBuildTree 'CMakeCache.txt'
 if (-not (Test-Path -LiteralPath $ayuCachePath -PathType Leaf)) {
     throw 'No configured out tree. Inspect the environment before configuring.'
@@ -37,17 +42,17 @@ if (-not (Test-Path -LiteralPath $ayuCmakePath -PathType Leaf)) {
     throw 'The cached CMake executable is missing. Inspect the installation.'
 }
 $env:CL = '/utf-8'
-& $ayuCmakePath --build $ayuBuildTree --config Release --target Telegram
+python tools/maintenance/out_layout.py run --log "$env:AYW_LOG_DIR/build.log" -- $ayuCmakePath --build $ayuBuildTree --config Release --target Telegram
 if ($LASTEXITCODE -ne 0) { throw 'Release build failed; do not package existing artifacts.' }
 ```
 
-If the shell cannot change directories, set `$ayuBuildTree` to the verified absolute `out/` path and use that same tree for cache inspection and the build. The target is `Telegram`; this fork's Release executable is `out/Release/AywGram.exe`.
+If the shell cannot change directories, set `$ayuBuildTree` to the selected verified absolute build path and use that same tree for cache inspection and the build. The target is `Telegram`; this fork's Release executable is `<AYW_BUILD_DIR>/Release/AywGram.exe`.
 
 ## Release Packaging
 
 Every successful authorized local Windows x64 Release build includes packaging before reporting completion. Match the distribution layout in `.github/workflows/win.yml`, with generated output under `out/dist/`. Run the following from the repository root only after the current Release build succeeds and the cache confirms x64. The `Telegram` target depends on `Updater` when auto-update is enabled; if either executable is missing, stop and investigate the configuration instead of producing an incomplete ZIP.
 
-Use the version constants from the source used for that build: `AppVersionStr` alone when `AppReleaseRevision` is zero, otherwise `<AppVersionStr>-<AppReleaseRevision>`. This matches CI's `.github/scripts/release_version.py` naming. For a tagged release, ensure the source revision matches the intended `pre-release-v<base>-<revision>` tag before building; changing only the ZIP name does not change the embedded version.
+Use the version constants from the source used for that build: `AppVersionStr` alone when `AppReleaseRevision` is zero, otherwise `<AppVersionStr>-<AppReleaseRevision>`. This matches CI's `tools/maintenance/release_version.py` naming. For a tagged release, ensure the source revision matches the intended `pre-release-v<base>-<revision>` tag before building; changing only the ZIP name does not change the embedded version.
 
 ```powershell
 $ayuVersionSource = Get-Content -LiteralPath 'Telegram/SourceFiles/core/version.h' -Raw -Encoding UTF8
@@ -60,7 +65,10 @@ $ayuVersionName = $ayuBaseMatch.Groups[1].Value
 $ayuRevision = [int]$ayuRevisionMatch.Groups[1].Value
 if ($ayuRevision -gt 99) { throw 'Release revision must be between 0 and 99.' }
 if ($ayuRevision -gt 0) { $ayuVersionName += "-$ayuRevision" }
-$ayuReleaseDir = Join-Path (Get-Location).Path 'out/Release'
+$ayuNativeDir = Join-Path $ayuBuildTree 'Release'
+python tools/maintenance/out_layout.py stage --target windows-x86_64 --source $ayuNativeDir --destination $env:AYW_ARTIFACT_DIR
+if ($LASTEXITCODE -ne 0) { throw 'Artifact staging failed.' }
+$ayuReleaseDir = $env:AYW_ARTIFACT_DIR
 $ayuItems = @(
     (Join-Path $ayuReleaseDir 'AywGram.exe'),
     (Join-Path $ayuReleaseDir 'Updater.exe')

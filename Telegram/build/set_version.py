@@ -77,7 +77,7 @@ def checkChangelog():
   global scriptPath, versionStr, versionStrSmall
 
   count = 0
-  with io.open(scriptPath + '/../../changelog.txt', encoding='utf-8') as f:
+  with io.open(scriptPath + '/../../docs/upstream/telegram-changelog.txt', encoding='utf-8') as f:
     for line in f:
       if line.startswith(versionStr + ' ') or line.startswith(versionStrSmall + ' '):
         count = count + 1

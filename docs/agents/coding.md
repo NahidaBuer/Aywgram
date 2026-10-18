@@ -1,6 +1,6 @@
 # Agent Coding Reference
 
-Read only the sections relevant to the current change: [API Usage](#api-usage), [UI Styling](#ui-styling), [Localization](#localization), or [RPL](#rpl). Repository paths in code spans are relative to the checkout root. Follow [REVIEW.md](../../REVIEW.md) for coding style; illustrative comments below explain examples rather than relaxing its source-comment rules.
+Read only the sections relevant to the current change: [API Usage](#api-usage), [UI Styling](#ui-styling), [Localization](#localization), or [RPL](#rpl). Repository paths in code spans are relative to the checkout root. Follow [shared coding style](../development/code-style.md) for coding style; illustrative comments below explain examples rather than relaxing its source-comment rules.
 
 ## API Usage
 
@@ -202,7 +202,7 @@ auto filesTextProducer = tr::lng_files_selected(
 - Placeholders use `lt_tag_name, value` pattern
 - For `{count}`: immediate uses `int`, reactive uses `rpl::producer<float64>` with `| tr::to_count()`
 - Move producers with `std::move` when passing to placeholders
-- Rich text projectors — these `tr::` helpers serve double duty: as the **last argument** (projector) they set the return type to `TextWithEntities`, and as **placeholder values** they wrap individual substitutions in formatting. Always prefer them over `Ui::Text::Bold()`, `Ui::Text::RichLangValue`, etc. — see [REVIEW.md](../../REVIEW.md) for the full mapping.
+- Rich text projectors — these `tr::` helpers serve double duty: as the **last argument** (projector) they set the return type to `TextWithEntities`, and as **placeholder values** they wrap individual substitutions in formatting. Always prefer them over `Ui::Text::Bold()`, `Ui::Text::RichLangValue`, etc. — see [shared coding style](../development/code-style.md) for the full mapping.
   - `tr::marked` — basic projection, converts `QString` to `TextWithEntities`
   - `tr::rich` — interprets `**bold**`/`__italic__` markup in the string
   - `tr::bold`, `tr::italic`, `tr::underline` — wrap text in that formatting

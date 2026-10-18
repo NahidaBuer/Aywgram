@@ -11,7 +11,7 @@ import unittest
 import zipfile
 
 
-SCRIPT = pathlib.Path(__file__).with_name("update_release_metadata.py")
+SCRIPT = pathlib.Path(__file__).resolve().parents[1].joinpath("update_release_metadata.py")
 SPEC = importlib.util.spec_from_file_location("update_release_metadata", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
@@ -134,6 +134,8 @@ class MetadataTest(unittest.TestCase):
         self.assertIn("Linux x86_64", notes)
         self.assertIn(self.asset("windows-x86_64", 7002000)["url"], notes)
         self.assertNotIn("macOS ARM64", notes)
+        self.assertIn("/releases/tag/pre-release-v7.2-1", notes)
+        self.assertIn("/releases/tag/pre-release-v7.1.4-1", notes)
 
     def test_upgrades_target(self):
         base = self.base({"linux-x86_64": self.asset("linux-x86_64", 7001004)})

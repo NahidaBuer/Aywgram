@@ -33,8 +33,10 @@ docker run --rm -it \
   -D TDESKTOP_API_HASH=b18441a1ff607e10a989891a5462e627
 ```
 
-生成的文件位于根目录 `out/`；可在发布前按需使用 `strip` 缩小二进制体积。API 标识的来源见 [API 凭据说明](api_credentials.md)。不要在提交中包含容器缓存或构建产物。
+构建树位于 `out/build/linux-x86_64/<configuration>/default/`；可在发布前按需使用 `strip` 缩小二进制体积。API 标识的来源见 [API 凭据说明](api_credentials.md)。不要在提交中包含容器缓存或构建产物。
 
 ## Visual Studio Code（可选）
 
 完成准备步骤后，可在 Visual Studio Code 中打开仓库并使用 Dev Containers 扩展。现有 `.devcontainer.json` 假定本机已具备 `tdesktop:centos_env` 镜像；若镜像不可用，请直接使用上方 Docker 命令，或先将开发容器配置改为团队可访问的镜像。
+
+遵循 [out 约定](../agents/out-layout.md)，成功的 AywGram 和 Updater 保留到 `out/artifacts/linux-x86_64/<configuration>/<run-id>/`，从该副本打包到 `out/dist/`，日志与最终报告放在 `out/logs/build/<run-id>/`。

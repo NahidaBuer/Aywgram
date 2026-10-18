@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class ReleaseSourceTests(unittest.TestCase):
     def setUp(self):
-        output = ROOT / "out/ci-validation"
+        output = ROOT / "out/tmp/tests/dispatch"
         output.mkdir(parents=True, exist_ok=True)
         directory = tempfile.TemporaryDirectory(dir=output)
         self.addCleanup(directory.cleanup)

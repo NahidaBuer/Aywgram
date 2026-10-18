@@ -19,6 +19,18 @@ Choose one mode before touching the build tree:
 
 Read only the selected platform guide before inspecting or running its toolchain: [Windows](../../../docs/agents/building-windows.md), [macOS](../../../docs/agents/building-macos.md), or [Linux/WSL](../../../docs/agents/building-linux.md). Honor checkout-local overrides without copying their machine-specific facts into tracked files.
 
+## Output layout and logging
+
+Follow the shared [out layout](../../../docs/agents/out-layout.md) for both local and CI builds. Resolve a target, configuration, profile and unique run-id with `tools/maintenance/out_layout.py paths --target <target> --run-id <run-id>`; use its returned `AYW_BUILD_DIR`, `AYW_ARTIFACT_DIR`, `AYW_DIST_DIR`, `AYW_METADATA_DIR` and `AYW_LOG_DIR`. CI can append these values with `--github-env "$GITHUB_ENV"`.
+
+Configure with an explicit `-B <AYW_BUILD_DIR>`; never configure directly in out or use configure's `force` option. Reuse a tree only after inspecting its actual source, generator, architecture, dependency and toolchain cache entries. A profile separates intentionally coexisting toolchains; its name is not verification. Keep existing legacy trees untouched unless their manual handling is requested.
+
+Capture configure/build/package output using `tools/maintenance/out_layout.py run --log <AYW_LOG_DIR>/<phase>.log -- <command>`. It streams output, preserves the command's failure status and registers a live activity marker. Use logs and a final report even after failure. Record the resolved source/version, exact native product paths, verification, archive size/hash and the returned layout in this run directory.
+
+After a successful build, copy complete native products with `tools/maintenance/out_layout.py stage --target <target> --source <native-output-directory> --destination <AYW_ARTIFACT_DIR>`. Inspect the native output rather than assuming every generator uses Release/. Apply stripping, architecture changes and signing only to the retained artifact copy. Package from that copy into out/dist; metadata fragments go into out/metadata/<tag-or-run-id>/ and verification results into the protected log directory. Do not leave required programs solely inside a disposable build tree.
+
+Supplemental dependency sources belong in out/dependencies/src, their target-specific compilation in out/dependencies/build, downloads in out/cache/downloads, compiler caches in out/cache/compiler/<target>, and tools in out/tools. Existing external Libraries remain managed by their own platform preparation workflow. Do not put credentials or modified source checkouts into a selectable cache category. Use the clean-out skill only when cleanup is requested, never as an automatic build prerequisite.
+
 ## Preserve the release identity
 
 Treat these values as one atomic release identity:
@@ -28,7 +40,7 @@ Treat these values as one atomic release identity:
 - `AppReleaseRevision`, which distinguishes distribution releases of that base;
 - the displayed `version_name`, archive name and metadata `(app_version, revision)` pair.
 
-Resolve every build through `.github/scripts/release_version.py`. For a default local build, first resolve the revision-zero source without a tag, form `pre-release-v<base>-1` from the returned base, and pass that value back with `--apply` before compilation. This is a local version injection and does not claim that the corresponding Git tag exists. CI and tagged local builds must instead pass the actual release tag. The script changes only `AppReleaseRevision`; it does not append digits to `AppVersion`.
+Resolve every build through `tools/maintenance/release_version.py`. For a default local build, first resolve the revision-zero source without a tag, form `pre-release-v<base>-1` from the returned base, and pass that value back with `--apply` before compilation. This is a local version injection and does not claim that the corresponding Git tag exists. CI and tagged local builds must instead pass the actual release tag. The script changes only `AppReleaseRevision`; it does not append digits to `AppVersion`.
 
 Never rename an unrevisioned archive to a revisioned name. Metadata validation cannot infer the compiled revision from an executable, so relabeling a revision-zero binary can cause it to repeatedly offer the revisioned update after installation.
 
@@ -41,10 +53,10 @@ Do not publish a default local `-1` artifact merely because its filename looks r
 Use the fast local Windows machine for x86_64 without weakening the shared release contract:
 
 1. Verify the intended tag resolves to the current `HEAD`, recursive submodule gitlinks match that commit, and `Telegram/SourceFiles/core/version.h` passes the common pre-injection cleanliness check.
-2. Run `.github/scripts/release_version.py --tag <tag>` without `--apply` and record the resolved `app_version`, `revision`, `version_name` and tag.
+2. Run `tools/maintenance/release_version.py --tag <tag>` without `--apply` and record the resolved `app_version`, `revision`, `version_name` and tag.
 3. Run the same command with `--apply` immediately before the authorized Release build. Treat the resulting `version.h` edit as temporary build input, not a commit.
 4. Follow the Windows guide to build `Telegram` and package `AywGram.exe`, `Updater.exe` and optional `modules/` while the injected revision is still present. The ZIP must be `out/dist/AywGram-v<version_name>-windows-x86_64.zip`.
-5. Validate the ZIP with `.github/scripts/update_release_metadata.py fragment`, using the recorded identity and an output below `out/`. This checks the exact filename, layout, size and digest before upload or metadata refresh.
+5. Validate the ZIP with `tools/maintenance/update_release_metadata.py fragment`, using the recorded identity and an output below `out/metadata/<tag>/`. This checks the exact filename, layout, size and digest before upload or metadata refresh.
 6. Apply the common guarded cleanup after packaging and validation or after a failed build.
 
 Uploading the ZIP, pushing a tag, editing a GitHub Release, publishing metadata or sending notifications each remains a separate external action requiring user authorization.

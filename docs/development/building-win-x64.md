@@ -71,7 +71,7 @@ AywGram\Telegram\build\prepare\win.bat skip-debug skip-dump-syms qt6
 
 ```bat
 cd /d D:\TBuild\AywGram\Telegram
-configure.bat x64 qt6 ^
+configure.bat x64 qt6 -B ..\out\build\windows-x86_64\Release\default ^
     -D TDESKTOP_API_ID=YOUR_API_ID ^
     -D TDESKTOP_API_HASH=YOUR_API_HASH ^
     -D CMAKE_C_FLAGS_RELEASE="/O2 /Ob2 /DNDEBUG" ^
@@ -79,14 +79,16 @@ configure.bat x64 qt6 ^
     -D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT=
 ```
 
-可以在 Visual Studio 2026 中打开 `BuildPath\AywGram\out\Telegram.slnx`，选择 `Telegram` 目标和 Release 配置；也可以直接使用 Visual Studio 随附的 CMake：
+可以在 Visual Studio 2026 中打开 `BuildPath\AywGram\out\build\windows-x86_64\Release\default\Telegram.slnx`，选择 `Telegram` 目标和 Release 配置；也可以直接使用 Visual Studio 随附的 CMake：
 
 ```bat
-"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" --build ..\out --config Release --target Telegram
+"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" --build ..\out\build\windows-x86_64\Release\default --config Release --target Telegram
 ```
 
-构建产物位于 `BuildPath\AywGram\out\Release\AywGram.exe`。不要提交 `out`、`Libraries`、`ThirdParty` 或其中的缓存文件。
+构建产物位于 `BuildPath\AywGram\out\build\windows-x86_64\Release\default\Release\AywGram.exe`。不要提交 `out`、`Libraries`、`ThirdParty` 或其中的缓存文件。
 
 ## Qt Visual Studio Tools
 
 如需改善 Visual Studio 中的 Qt 调试体验，可以打开 **扩展 > 管理扩展**，搜索并安装 **Qt Visual Studio Tools**。它只提供 IDE 集成，不负责本仓库所需 Qt 的下载和构建。
+
+输出遵循 [out 约定](../agents/out-layout.md)。成功程序先保留到 `out/artifacts/windows-x86_64/Release/<run-id>/`，再从该副本打包到 `out/dist/`；日志和最终校验报告保存在 `out/logs/build/<run-id>/`。

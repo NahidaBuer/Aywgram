@@ -13,8 +13,8 @@ import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[2]
-STATE = ROOT / "out/ci-cache"
-TOOLS = ROOT / "out/ci-tools"
+STATE = ROOT / "out/logs/ci" / (os.environ.get("GITHUB_RUN_ID", "local") + "-" + os.environ.get("GITHUB_RUN_ATTEMPT", "1"))
+TOOLS = ROOT / "out/tools"
 ASSETS = {
     "windows-arm64": (
         "mozilla/sccache", "v0.17.0", "sccache-v0.17.0-aarch64-pc-windows-msvc.zip",
@@ -117,7 +117,8 @@ def keys(args):
     values = make_keys(args.platform, args.arch, toolchain, dependencies,
         os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"])
     append_env_file("GITHUB_OUTPUT", values)
-    cache_directory = Path(os.environ["RUNNER_TEMP"]) / "ayw-app-cache"
+    target = f"{args.platform}-{args.arch}".replace("windows-x64", "windows-x86_64")
+    cache_directory = ROOT / "out/cache/compiler" / target
     cache_directory.mkdir(parents=True, exist_ok=True)
     environment = ({"SCCACHE_DIR": str(cache_directory), "SCCACHE_BASEDIRS": str(ROOT.parent)}
         if args.platform == "windows" else {"CCACHE_DIR": str(cache_directory)})

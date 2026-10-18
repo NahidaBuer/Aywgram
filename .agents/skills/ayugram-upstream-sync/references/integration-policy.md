@@ -25,7 +25,7 @@ Defer broad behavior changes, packaging/CI policy, branding replacement, agent w
 - Preserve Ayu JSON/KV preferences. For Telegram `QDataStream` settings, append new fields at the final end and guard reads with `!stream.atEnd()` plus a product default.
 - Keep AywGram/NahidaBuer application identity in `core/version.h`, Windows resources, packaging, updater files, icons, and macOS assets while advancing compatible version numbers.
 - Keep bundled Simplified Chinese initialization and mirror new `ayu_` language keys into `zh-hans.json`.
-- Preserve repository-owned `.agents` workflows. Do not accept other upstream Harness workflows, GitHub workflow, Snap, or release-policy changes as application-source conflict resolutions.
+- Preserve repository-owned `.agents` workflows, shared `tools/maintenance` tooling, and the documented output and release-note contracts. Do not accept other upstream Harness workflows, GitHub workflow, Snap, or release-policy changes as application-source conflict resolutions.
 - Preserve newer compatible submodule descendants when an official tag points backward. Merge diverged histories only inside the submodule.
 
 ## Submodule authorization

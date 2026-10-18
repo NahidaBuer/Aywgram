@@ -12,31 +12,32 @@ AywGram 采用滚动发布模式：不定期持续发布在 Pre-release，仓库
 
 本项目并非全新另起炉灶，因此一些内部标识仍然沿用 AyuGram，此为故意为之。截至 7.0 初期版本，本项目的 `tdata` 应该尚可与上游相互替换，但不对后续数据兼容性做出承诺。
 
-如果项目改名导致数据丢失，请手动迁移 `tdata` 目录。详见[迁移应用数据](docs/app-data-migration.md)。
+如果项目改名导致数据丢失，请手动迁移 `tdata` 目录。详见[迁移应用数据](docs/users/app-data-migration.md)。
 
 ## 功能
 
-基于 AyuGram 与 Telegram Desktop，AywGram 聚焦隐私、消息掌控和深度定制，提供幽灵模式、防撤回与编辑历史、消息过滤与转发增强、宽屏布局、Live Photo、会话迁移及云设置同步；同时吸收 Yurigram、Nagram、NekoGram 等客户端的优秀思路，并持续加入桌面端原创体验。详见[功能与来源](docs/features.md)。
+基于 AyuGram 与 Telegram Desktop，AywGram 聚焦隐私、消息掌控和深度定制，提供幽灵模式、防撤回与编辑历史、消息过滤与转发增强、宽屏布局、Live Photo、会话迁移及云设置同步；同时吸收 Yurigram、Nagram、NekoGram 等客户端的优秀思路，并持续加入桌面端原创体验。详见[功能与来源](docs/users/features.md)。
 
 > ~~AywGram 是我的个人项目~~
 
-功能会随上游同步和本仓库的维护策略变化。请只从本仓库的 [Releases](../../releases) 或 [Telegram 频道 @AywGram](https://t.me/AywGram) 获取与源码对应的发行包；第三方打包渠道不由本仓库维护。
+功能会随上游同步和本仓库的维护策略变化。请只从本仓库的 [Releases](https://github.com/NahidaBuer/AywGram/releases) 或 [Telegram 频道 @AywGram](https://t.me/AywGram) 获取与源码对应的发行包；第三方打包渠道不由本仓库维护。
 
 
 ## 构建与文档
 
+- [发行改动](changelog.txt) · [发布说明](docs/releases/README.md)
 - [文档索引](docs/README.md)
-- [Windows x64 构建](docs/building-win-x64.md)
-- [macOS 构建](docs/building-mac.md)
-- [Linux 构建](docs/building-linux.md)
-- [迁移应用数据](docs/app-data-migration.md)
-- [会话迁移与安全提示](docs/session-backup.md)
-- [自动更新与 metadata 发布](docs/aywgram-updater.md)
+- [Windows x64 构建](docs/development/building-win-x64.md)
+- [macOS 构建](docs/development/building-mac.md)
+- [Linux 构建](docs/development/building-linux.md)
+- [迁移应用数据](docs/users/app-data-migration.md)
+- [会话迁移与安全提示](docs/users/session-backup.md)
+- [自动更新与 metadata 发布](docs/development/aywgram-updater.md)
 - [贡献指南](.github/CONTRIBUTING.md)
 
 更多文档，包括实现细节、Agent 说明等，请阅读[文档索引](docs/README.md)。
 
-构建时使用与 AyuGram 一致的 Telegram 官方 API 标识；详见 [API 凭据说明](docs/api_credentials.md)。不要把会话文件、`tdata`、代理密钥或构建产物提交到仓库。
+构建时使用与 AyuGram 一致的 Telegram 官方 API 标识；详见 [API 凭据说明](docs/development/api_credentials.md)。不要把会话文件、`tdata`、代理密钥或构建产物提交到仓库。
 
 ## 许可证与致谢
 

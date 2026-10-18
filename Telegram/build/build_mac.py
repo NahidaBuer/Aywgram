@@ -1,4 +1,5 @@
 import argparse
+import datetime
 import os
 import pathlib
 import plistlib
@@ -252,9 +253,10 @@ def main():
     environment, sdk = toolchain_environment(toolchain)
     if args.check:
         return
-    base = root / 'out' / (target + '-26.6') / args.configuration
-    destination = args.output or (root / 'out/Release' if args.configuration == 'Release' else base / 'universal')
-    builds = {arch: base / arch for arch in ('arm64', 'x86_64')}
+    run_id = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d-%H%M%S-mac')
+    destination = args.output or root / 'out/artifacts/mac-universal' / args.configuration / run_id
+    builds = {arch: root / 'out/build' / ('mac-' + arch) / args.configuration / (target + '-26.6')
+        for arch in ('arm64', 'x86_64')}
     for arch, folder in builds.items():
         command = [sys.executable, root / 'Telegram/configure.py', '-GNinja', '-B', folder,
             '-DCMAKE_BUILD_TYPE=' + args.configuration,

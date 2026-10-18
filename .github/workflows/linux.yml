@@ -150,13 +150,24 @@ jobs:
         with:
           ref: ${{ inputs.warm_cache && github.sha || inputs.source_sha || inputs.release_tag || github.ref }}
           submodules: recursive
+          fetch-depth: 0
+
+      - name: Select output layout.
+        shell: bash
+        run: |
+          python3 tools/maintenance/out_layout.py paths \
+            --target linux-x86_64 \
+            --run-id "ci-${{ github.run_id }}-${{ github.run_attempt }}-linux-x86_64" \
+            --github-env "$GITHUB_ENV"
 
       - name: Resolve release version.
         id: release_version
         shell: bash
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
-        run: python3 .github/scripts/release_version.py --tag "$RELEASE_TAG" --apply --github-output "$GITHUB_OUTPUT"
+        run: |
+          if [ -n "$RELEASE_TAG" ]; then python3 tools/maintenance/release_notes.py validate --tag "$RELEASE_TAG"; fi
+          python3 tools/maintenance/release_version.py --tag "$RELEASE_TAG" --apply --github-output "$GITHUB_OUTPUT"
 
       - name: First set up.
         run: |
@@ -189,10 +200,10 @@ jobs:
 
       - name: Fetch cache-dance CLI.
         run: |
-          mkdir -p out/ci-tools
+          mkdir -p out/tools
           curl --fail --show-error --location --retry 3 \
             "https://raw.githubusercontent.com/reproducible-containers/buildkit-cache-dance/$CACHE_DANCE_REVISION/dist/index.js" \
-            --output out/ci-tools/cache-dance.js
+            --output out/tools/cache-dance.js
 
       - name: Libraries cache.
         id: cache-libs
@@ -213,7 +224,7 @@ jobs:
           BUILDER: ${{ steps.setup-buildx.outputs.name }}
         run: |
           python3 .github/scripts/ci_cache.py mark dependencies
-          node out/ci-tools/cache-dance.js \
+          node out/tools/cache-dance.js \
             --builder "$BUILDER" --cache-dir "$RUNNER_TEMP/.mount-cache" \
             --scratch-dir "$RUNNER_TEMP/cache-dance" \
             --dockerfile Telegram/build/docker/centos_env/Dockerfile
@@ -239,7 +250,7 @@ jobs:
         env:
           BUILDER: ${{ steps.setup-buildx.outputs.name }}
         run: |
-          node out/ci-tools/cache-dance.js --extract \
+          node out/tools/cache-dance.js --extract \
             --builder "$BUILDER" --cache-dir "$RUNNER_TEMP/.mount-cache" \
             --scratch-dir "$RUNNER_TEMP/cache-dance" \
             --dockerfile Telegram/build/docker/centos_env/Dockerfile
@@ -295,11 +306,12 @@ jobs:
             API_ARGS=(-D TDESKTOP_API_ID="$API_ID" -D TDESKTOP_API_HASH="$API_HASH")
           fi
 
-          docker run --rm \
+          python3 tools/maintenance/out_layout.py run --log "$AYW_LOG_DIR/build.log" -- docker run --rm \
           -u "$(id -u)" \
           -v "$PWD:/usr/src/tdesktop" \
           -v "$CCACHE_DIR:/var/cache/ccache" \
           -e CONFIG=Release \
+          -e AYW_BUILD_DIR=/usr/src/tdesktop/out/build/linux-x86_64/Release/default \
           -e CCACHE_MAXSIZE=1Gi \
           -e CCACHE_SLOPPINESS=pch_defines,time_macros \
           "$IMAGE_TAG" \
@@ -326,7 +338,7 @@ jobs:
 
       - name: Check.
         run: |
-          filePath="out/Release/AywGram"
+          filePath="$AYW_BUILD_DIR/Release/AywGram"
           if test -f "$filePath"; then
             echo "Build successfully done! :)"
 
@@ -336,7 +348,7 @@ jobs:
             echo "Build error, output file does not exist."
             exit 1
           fi
-          test -x out/Release/Updater
+          test -x "$AYW_BUILD_DIR/Release/Updater"
 
       - name: Package distribution.
         id: package
@@ -346,20 +358,21 @@ jobs:
           set -euo pipefail
           version="${{ steps.release_version.outputs.version_name }}"
           asset_name="AywGram-v${version}-linux-x86_64.tar.gz"
-          asset_path="dist/${asset_name}"
-          mkdir -p dist
-          test -x out/Release/AywGram
-          test -x out/Release/Updater
-          tar -czf "$asset_path" -C out/Release AywGram Updater
+          asset_path="$AYW_DIST_DIR/${asset_name}"
+          mkdir -p "$AYW_DIST_DIR" "$AYW_METADATA_DIR"
+          python3 tools/maintenance/out_layout.py stage --target linux-x86_64 --source "$AYW_BUILD_DIR/Release" --destination "$AYW_ARTIFACT_DIR"
+          test -x "$AYW_ARTIFACT_DIR/AywGram"
+          test -x "$AYW_ARTIFACT_DIR/Updater"
+          tar -czf "$asset_path" -C "$AYW_ARTIFACT_DIR" AywGram Updater
           if [ "${{ inputs.update_metadata }}" = true ]; then
-            python3 .github/scripts/update_release_metadata.py fragment \
+            python3 tools/maintenance/update_release_metadata.py fragment \
               --target linux-x86_64 \
               --app-version "${{ steps.release_version.outputs.app_version }}" \
               --revision "${{ steps.release_version.outputs.revision }}" \
               --version-name "$version" \
               --release "${{ inputs.release_tag }}" \
               --asset "$asset_path" \
-              --output dist/update-fragment-linux-x86_64.json
+              --output "$AYW_METADATA_DIR/update-fragment-linux-x86_64.json"
           fi
           echo "asset_name=$asset_name" >> "$GITHUB_OUTPUT"
           echo "asset_path=$asset_path" >> "$GITHUB_OUTPUT"
@@ -392,7 +405,7 @@ jobs:
         name: Upload update metadata fragment.
         with:
           name: update-fragment-linux-x86_64
-          path: dist/update-fragment-linux-x86_64.json
+          path: ${{ env.AYW_METADATA_DIR }}/update-fragment-linux-x86_64.json
           retention-days: 1
 
       - name: Summarize caches.
@@ -405,3 +418,21 @@ jobs:
           CACHE_RESULTS: >-
             [{"layer": "Docker layers", "key": "${{ steps.cache-libs.outputs.cache-primary-key }}", "restored": "${{ steps.cache-libs.outputs.cache-matched-key }}", "hit": "${{ steps.cache-libs.outputs.cache-hit }}"}, {"layer": "Docker mounts", "key": "${{ steps.cache-mounts.outputs.cache-primary-key }}", "restored": "${{ steps.cache-mounts.outputs.cache-matched-key }}", "hit": "${{ steps.cache-mounts.outputs.cache-hit }}"}, {"layer": "Application", "key": "${{ steps.cache-app.outputs.cache-primary-key }}", "restored": "${{ steps.cache-app.outputs.cache-matched-key }}", "hit": "${{ steps.cache-app.outputs.cache-hit }}"}]
         run: python3 .github/scripts/ci_cache.py summary
+
+      - name: Write final build report.
+        if: always() && env.AYW_LOG_DIR != ''
+        shell: bash
+        env:
+          BUILD_STATUS: ${{ job.status }}
+          BUILD_VERSION: ${{ steps.release_version.outputs.version_name }}
+          BUILD_ASSET: ${{ steps.package.outputs.asset_path }}
+        run: |
+          python3 tools/maintenance/out_layout.py report --log-dir "$AYW_LOG_DIR" --status "$BUILD_STATUS" --version "$BUILD_VERSION" --asset "$BUILD_ASSET"
+
+      - name: Preserve build logs and final diagnostics.
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-logs-linux-x86_64
+          path: ${{ env.AYW_LOG_DIR }}
+          if-no-files-found: warn

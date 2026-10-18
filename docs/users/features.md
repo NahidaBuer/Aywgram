@@ -1,6 +1,6 @@
 # AywGram 功能与来源
 
-[English](features.EN.md) · [功能变更日志](change-log.md)
+[English](features.EN.md) · [功能变更日志](feature-history.md)
 
 本文梳理 AywGram 相对 Telegram Desktop 的差异化功能，并说明实现进入本项目的路径与已知 idea 来源。核验基线为 2026-09-11 的 `102ecf4494`；普通 Telegram Desktop 功能不重复罗列。
 

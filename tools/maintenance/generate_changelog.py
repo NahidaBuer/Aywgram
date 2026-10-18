@@ -13,7 +13,7 @@ MONTHS = [
 ]
 
 VERSION_RE = re.compile(
-    r"^(\d+\.\d+(?:\.\d+)?)\s*"        # version number
+    r"^(\d+\.\d+(?:\.\d+)?(?:-\d+)?)\s*"        # version number
     r"(?:(alpha|beta|dev|stable)\s*)?"   # optional tag
     r"\((\d{2})\.(\d{2})\.(\d{2,4})\)$" # date (DD.MM.YY or DD.MM.YYYY)
 )
@@ -72,6 +72,10 @@ def parse_changelog(text: str) -> list[dict]:
     return entries
 
 
+def linkify(text):
+    return re.sub(r'https://[^\s<>()]+', lambda m: '<a href="' + m[0] + '">' + m[0] + '</a>', html.escape(text))
+
+
 def render_entry(entry: dict) -> str:
     version = html.escape(entry["version"])
     tag = entry["tag"]
@@ -98,13 +102,13 @@ def render_entry(entry: dict) -> str:
                 parts.append("  <ul>")
                 in_list = True
             bullet_text = stripped[2:]
-            parts.append(f"    <li>{html.escape(bullet_text)}</li>")
+            parts.append(f"    <li>{linkify(bullet_text)}</li>")
         else:
             if in_list:
                 parts.append("  </ul>")
                 in_list = False
             if stripped:
-                parts.append(f"  <p>{html.escape(stripped)}</p>")
+                parts.append(f"  <p>{linkify(stripped)}</p>")
 
     if in_list:
         parts.append("  </ul>")
@@ -119,13 +123,15 @@ def build_html(entries: list[dict]) -> str:
     latest_version = entries[0]["version"] if entries else ""
 
     entries_html = "\n\n".join(render_entry(e) for e in entries)
+    history_summary = (f"{count} releases since {first_date} &middot; latest: {latest_version}"
+        if entries else "发行记录将从下一版开始 / Release history starts with the next version.")
 
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Version history</title>
+<title>AywGram version history</title>
 <link rel="icon" type="image/png" sizes="32x32" href="icon32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="icon16.png">
 <style>
@@ -238,8 +244,8 @@ footer a:hover {{ text-decoration: underline; }}
 <body>
 
 <header>
-  <h1>Version history</h1>
-  <p>{count} releases since {first_date} &middot; latest: {latest_version}</p>
+  <h1>AywGram 版本历史 / Version history</h1>
+  <p>{history_summary}</p>
 </header>
 
 <div class="container">
@@ -255,9 +261,9 @@ footer a:hover {{ text-decoration: underline; }}
 
 <footer>
   Auto-generated from
-  <a href="https://github.com/telegramdesktop/tdesktop/blob/dev/changelog.txt">changelog.txt</a>.
+  <a href="https://github.com/NahidaBuer/AywGram/blob/main/changelog.txt">changelog.txt</a>.
   Source code is published under
-  <a href="https://github.com/telegramdesktop/tdesktop">GPL v3</a>.
+  <a href="https://github.com/NahidaBuer/AywGram">GPL v3</a>.
 </footer>
 
 <script>
@@ -303,7 +309,7 @@ def main():
     if len(sys.argv) > 1:
         src = Path(sys.argv[1])
 
-    out = repo / "docs" / "changelog" / "index.html"
+    out = repo / "out" / "tmp" / "site" / "changelog" / "index.html"
     if len(sys.argv) > 2:
         out = Path(sys.argv[2])
 

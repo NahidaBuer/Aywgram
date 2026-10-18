@@ -18,11 +18,17 @@ Use the repository-owned [upstream sync skill](.agents/skills/ayugram-upstream-s
 
 ## Output and Local Tools
 
-Keep build artifacts, maintenance reports, logs and generated patches under repository-root `out/`. Keep reusable checkout-local scripts under `.local-tools/`, never under upstream-owned directories such as `Telegram/tests/`. Local Python probe output is the explicit exception to the output rule: use `.local-tools/results/`. All local tools, credentials and probe results remain local-only; do not stage or commit anything under `.local-tools/`, or add exceptions for it to tracked `.gitignore`.
+Follow the [out layout](docs/agents/out-layout.md) for local and CI output. Use `out/build/<target>/<configuration>/<profile>/` for build trees, `out/artifacts/` for retained programs, `out/dist/` for final archives, and the documented workflow directories for logs, reports, evidence and temporary files. Use the [clean-out skill](.agents/skills/aywgram-clean-out/SKILL.md) for selected cleanup categories; preserve logs and final reports. It does not recognize or migrate legacy layouts. Keep reusable checkout-local scripts under `.local-tools/`, never under upstream-owned directories such as `Telegram/tests/`. Local Python probe output is the explicit exception to the output rule: use `.local-tools/results/`. All local tools, credentials and probe results remain local-only; do not stage or commit anything under `.local-tools/`, or add exceptions for it to tracked `.gitignore`.
+
+## Task Records and Releases
+
+Maintain one [task record](docs/agents/work-tracking.md) for important bugs, complex features and work spanning sessions; keep ordinary small changes in Git history. Durable records live in `docs/agents/tasks/`, while temporary plans and raw evidence follow the out layout.
+
+Use the [release skill](.agents/skills/aywgram-release/SKILL.md) to review a distribution release range and prepare bilingual release documents and the Ayw-only root `changelog.txt` before tagging. Keep Telegram changelog changes in `docs/upstream/telegram-changelog.txt`; never merge them over the Ayw root log. Release preparation does not itself authorize a build or publication.
 
 ## Coding and Reference Routing
 
-Before editing or reviewing code, read the applicable rules in [REVIEW.md](REVIEW.md). It owns mechanical style, source comments, type deduction, QString literals, return types and platform checks. Preserve its constraints; use clear names instead of redundant comments, prefer `auto` and `u"..."_q`, and distinguish Windows/macOS/all-other platforms as the project requires.
+Before editing or reviewing code, read the applicable rules in [shared coding and review style](docs/development/code-style.md). It owns mechanical style, source comments, type deduction, QString literals, return types and platform checks. Preserve its constraints; use clear names instead of redundant comments, prefer `auto` and `u"..."_q`, and distinguish Windows/macOS/all-other platforms as the project requires.
 
 Read only the relevant sections of the [coding reference](docs/agents/coding.md):
 

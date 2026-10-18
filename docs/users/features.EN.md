@@ -1,6 +1,6 @@
 # AywGram Features and Provenance
 
-[简体中文](features.md) · [Chinese-only feature changelog](change-log.md)
+[简体中文](features.md) · [Chinese-only feature changelog](feature-history.md)
 
 This document inventories AywGram features that differ from Telegram Desktop and records both how each implementation entered the project and the known origin of its idea. The audited implementation baseline is `102ecf4494` from September 11, 2026. Standard Telegram Desktop features are not repeated.
 

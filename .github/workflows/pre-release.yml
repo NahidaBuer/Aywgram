@@ -89,13 +89,19 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ steps.source.outputs.source_sha }}
+          fetch-depth: 0
 
       - name: Validate release version.
         id: version
         shell: bash
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
-        run: python3 .github/scripts/release_version.py --tag "$RELEASE_TAG" --github-output "$GITHUB_OUTPUT"
+        run: python3 tools/maintenance/release_version.py --tag "$RELEASE_TAG" --github-output "$GITHUB_OUTPUT"
+
+      - name: Validate prepared release notes.
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: python3 tools/maintenance/release_notes.py validate --tag "$RELEASE_TAG"
 
       - name: Create or update prerelease.
         id: release
@@ -112,10 +118,15 @@ jobs:
           started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           source_sha="$SOURCE_SHA"
           version="$VERSION_NAME"
-          title="AywGram v${version} CI"
-          notes="$RUNNER_TEMP/prerelease-notes.md"
+          title="AywGram v${version}"
+          log_dir="out/logs/release/ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$log_dir"
+          notes="$log_dir/release-notes.md"
+          ci_notes="$log_dir/ci-body.md"
 
-          cat > "$notes" <<EOF
+          cat > "$ci_notes" <<EOF
+          ## CI / 构建信息
+
           Automated CI prerelease for AywGram v${version}.
 
           - Source version: \`${version}\`
@@ -153,12 +164,15 @@ jobs:
               echo "::error::Release $release_tag already exists and is not a prerelease."
               exit 1
             fi
+            gh api "repos/${GH_REPO}/releases/tags/${release_tag}" > "$log_dir/existing.json"
+            python3 tools/maintenance/release_notes.py compose --tag "$release_tag" --ci-body "$ci_notes" --existing-json "$log_dir/existing.json" --output "$notes"
             gh release edit "$release_tag" \
               --repo "$GH_REPO" \
               --prerelease \
               --title "$title" \
               --notes-file "$notes"
           else
+            python3 tools/maintenance/release_notes.py compose --tag "$release_tag" --ci-body "$ci_notes" --output "$notes"
             gh release create "$release_tag" \
               --repo "$GH_REPO" \
               --verify-tag \
@@ -168,7 +182,7 @@ jobs:
               --notes-file "$notes"
           fi
 
-          release_json="$RUNNER_TEMP/release.json"
+          release_json="$log_dir/release.json"
           gh api "repos/${GH_REPO}/releases/tags/${release_tag}" > "$release_json"
           linux_asset="AywGram-v${version}-linux-x86_64.tar.gz"
           mac_arm_asset="AywGram-v${version}-mac-arm64.zip"
@@ -245,6 +259,9 @@ jobs:
     if: ${{ !cancelled() && needs.prepare.result == 'success' && (needs.linux.result == 'success' || needs.mac.result == 'success' || needs.windows.result == 'success') }}
     needs: [prepare, linux, mac, windows]
     runs-on: ubuntu-latest
+    env:
+      AYW_METADATA_DIR: out/metadata/${{ needs.prepare.outputs.release_tag }}
+      AYW_TEMP_DIR: out/tmp/metadata/ci-${{ github.run_id }}-${{ github.run_attempt }}
     concurrency:
       group: update-metadata-release
       cancel-in-progress: false
@@ -259,7 +276,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           pattern: update-fragment-*
-          path: fragments
+          path: ${{ env.AYW_METADATA_DIR }}/fragments
           merge-multiple: true
 
       - name: Validate release version.
@@ -267,7 +284,7 @@ jobs:
         shell: bash
         env:
           RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
-        run: python3 .github/scripts/release_version.py --tag "$RELEASE_TAG" --github-output "$GITHUB_OUTPUT"
+        run: python3 tools/maintenance/release_version.py --tag "$RELEASE_TAG" --github-output "$GITHUB_OUTPUT"
 
       - name: Collect metadata from prerelease assets.
         shell: bash
@@ -280,11 +297,12 @@ jobs:
           VERSION_NAME: ${{ steps.version.outputs.version_name }}
         run: |
           set -euo pipefail
-          prerelease_json="$RUNNER_TEMP/prerelease.json"
+          mkdir -p "$AYW_TEMP_DIR"
+          prerelease_json="$AYW_TEMP_DIR/prerelease.json"
           gh api "repos/${GH_REPO}/releases/tags/${RELEASE_TAG}" > "$prerelease_json"
-          mkdir -p assets fragments
+          mkdir -p "$AYW_TEMP_DIR/assets" "$AYW_METADATA_DIR/fragments"
           while IFS='|' read -r target asset_name; do
-            fragment="fragments/update-fragment-${target}.json"
+            fragment="$AYW_METADATA_DIR/fragments/update-fragment-${target}.json"
             if [ -f "$fragment" ]; then
               continue
             fi
@@ -296,14 +314,14 @@ jobs:
             gh release download "$RELEASE_TAG" \
               --repo "$GH_REPO" \
               --pattern "$asset_name" \
-              --dir assets
-            python3 .github/scripts/update_release_metadata.py fragment \
+              --dir "$AYW_TEMP_DIR/assets"
+            python3 tools/maintenance/update_release_metadata.py fragment \
               --target "$target" \
               --app-version "$APP_VERSION" \
               --revision "$RELEASE_REVISION" \
               --version-name "$VERSION_NAME" \
               --release "$RELEASE_TAG" \
-              --asset "assets/$asset_name" \
+              --asset "$AYW_TEMP_DIR/assets/$asset_name" \
               --output "$fragment"
           done <<EOF
           windows-x86_64|AywGram-v${VERSION_NAME}-windows-x86_64.zip
@@ -328,7 +346,8 @@ jobs:
             exit 1
           fi
           metadata_release="${metadata_releases[0]}"
-          release_json="$RUNNER_TEMP/metadata-release.json"
+          mkdir -p "$AYW_TEMP_DIR"
+          release_json="$AYW_TEMP_DIR/metadata-release.json"
           gh api "repos/${GH_REPO}/releases/tags/${metadata_release}" > "$release_json"
           unexpected_assets="$(jq -r '[.assets[]? | select(.name != "update-metadata.json") | .name] | join(", ")' "$release_json")"
           if [ -n "$unexpected_assets" ]; then
@@ -336,34 +355,34 @@ jobs:
             exit 1
           fi
 
-          mkdir -p previous output
+          mkdir -p "$AYW_TEMP_DIR/previous" "$AYW_METADATA_DIR/output"
           base_arguments=()
           if gh release download "$metadata_release" \
             --repo "$GH_REPO" \
             --pattern update-metadata.json \
-            --dir previous; then
-            base_arguments=(--base previous/update-metadata.json)
+            --dir "$AYW_TEMP_DIR/previous"; then
+            base_arguments=(--base "$AYW_TEMP_DIR/previous/update-metadata.json")
           fi
           arguments=(
             merge
             "${base_arguments[@]}"
             --feed-release "$metadata_release"
-            --output output/update-metadata.json
+            --output "$AYW_METADATA_DIR/output/update-metadata.json"
           )
           while IFS= read -r fragment; do
             arguments+=(--fragment "$fragment")
-          done < <(find fragments -type f -name '*.json' -print | sort)
-          python3 .github/scripts/update_release_metadata.py "${arguments[@]}"
-          python3 -m json.tool output/update-metadata.json >/dev/null
-          python3 .github/scripts/update_release_metadata.py notes \
-            --metadata output/update-metadata.json \
-            --output output/release-notes.md
-          gh release upload "$metadata_release" output/update-metadata.json \
+          done < <(find "$AYW_METADATA_DIR/fragments" -type f -name '*.json' -print | sort)
+          python3 tools/maintenance/update_release_metadata.py "${arguments[@]}"
+          python3 -m json.tool "$AYW_METADATA_DIR/output/update-metadata.json" >/dev/null
+          python3 tools/maintenance/update_release_metadata.py notes \
+            --metadata "$AYW_METADATA_DIR/output/update-metadata.json" \
+            --output "$AYW_METADATA_DIR/output/release-notes.md"
+          gh release upload "$metadata_release" "$AYW_METADATA_DIR/output/update-metadata.json" \
             --repo "$GH_REPO" \
             --clobber
           gh release edit "$metadata_release" \
             --repo "$GH_REPO" \
-            --notes-file output/release-notes.md
+            --notes-file "$AYW_METADATA_DIR/output/release-notes.md"
 
   finalize:
     name: Finalize prerelease status
@@ -372,6 +391,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Clone release content.
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+
       - name: Update prerelease status.
         shell: bash
         env:
@@ -390,10 +414,14 @@ jobs:
           WINDOWS_RESULT: ${{ needs.windows.result }}
         run: |
           set -euo pipefail
-          release_json="$RUNNER_TEMP/release.json"
-          notes="$RUNNER_TEMP/prerelease-notes.md"
+          log_dir="out/logs/release/ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$log_dir"
+          release_json="$log_dir/release.json"
+          notes="$log_dir/release-notes.md"
+          ci_notes="$log_dir/ci-body.md"
           gh api "repos/${GH_REPO}/releases/tags/${RELEASE_TAG}" > "$release_json"
 
+          # shellcheck disable=SC2016
           asset_row() {
             local target="$1"
             local name="$2"
@@ -416,6 +444,7 @@ jobs:
               "$target" "$name" "$url" "$state" "$workflow_result"
           }
 
+          # shellcheck disable=SC2016
           manual_asset_row() {
             local target="$1"
             local name="$2"
@@ -430,7 +459,9 @@ jobs:
               "$target" "$name" "$url"
           }
 
+          # shellcheck disable=SC2016
           {
+            printf '## CI / 构建信息\n\n'
             printf 'Automated CI prerelease for AywGram v%s.\n\n' "$VERSION"
             printf -- '- Source version: `%s`\n' "$VERSION"
             printf -- '- Trigger tag: `%s`\n' "$RELEASE_TAG"
@@ -450,10 +481,12 @@ jobs:
             printf 'Assets uploaded after metadata collection starts require the Refresh update metadata workflow.\n\n'
             printf 'Recognized optional filenames:\n\n'
             printf -- '- `AywGram-v%s-windows-x86_64.zip`\n' "$VERSION"
-          } > "$notes"
+          } > "$ci_notes"
+
+          python3 tools/maintenance/release_notes.py compose --tag "$RELEASE_TAG" --ci-body "$ci_notes" --existing-json "$release_json" --output "$notes"
 
           gh release edit "$RELEASE_TAG" \
             --repo "$GH_REPO" \
             --prerelease \
-            --title "AywGram v${VERSION} CI" \
+            --title "AywGram v${VERSION}" \
             --notes-file "$notes"

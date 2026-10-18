@@ -2,29 +2,23 @@
 
 Follow [AGENTS.md](../../AGENTS.md#build-and-validation) for build authorization and configuration selection.
 
-Read this file only for macOS builds. Human setup instructions are in the
-[macOS build guide](../building-mac.md).
+Read this file only for macOS builds. Human setup instructions are in the [macOS build guide](../development/building-mac.md).
 
-macOS builds require Xcode and dependencies under
-`../Libraries/local/Qt-*`. The Qt version is selected by
-`Telegram/build/qt_version.py`; do not hardcode or manually override it unless
-diagnosis requires a deliberate version change.
+macOS builds require Xcode and dependencies under `../Libraries/local/Qt-*`. The Qt version is selected by `Telegram/build/qt_version.py`; do not hardcode or manually override it unless diagnosis requires a deliberate version change.
 
-Keep `DEVELOPER_DIR`, dependency preparation, configure, and build on the same
-Xcode installation. Before reusing `out/`, verify its generator, Release
-configuration, target architecture, deployment target, and existing
-artifacts.
+Keep `DEVELOPER_DIR`, dependency preparation, configure, and build on the same Xcode installation. Before reusing `out/`, verify its generator, Release configuration, target architecture, deployment target, and existing artifacts.
 
-For an already configured tree, run from the repository root:
+Follow the [out layout](out-layout.md) and build skill to resolve `AYW_BUILD_DIR`, `AYW_ARTIFACT_DIR` and the log directory. Configure with explicit `-B "$AYW_BUILD_DIR"`. For an already verified tree, run from the repository root:
 
 ```bash
-cmake --build out --config Release --target Telegram
+cmake --build "$AYW_BUILD_DIR" --config Release --target Telegram
 ```
+
+Stage the complete successful native bundle into `AYW_ARTIFACT_DIR` before packaging. Strip, thin and sign only that copy; write final ZIPs to `out/dist/` and metadata fragments to `out/metadata/`.
 
 ## Single-architecture Release artifacts
 
-A successful CMake/Xcode Release build is not yet a size-ready artifact. For
-an explicitly requested single-architecture build:
+A successful CMake/Xcode Release build is not yet a size-ready artifact. For an explicitly requested single-architecture build:
 
 1. Capture any required symbols before stripping the only copy of a binary.
 2. Strip the main executable and each bundled project helper.
@@ -37,17 +31,8 @@ an explicitly requested single-architecture build:
 6. Run `codesign --verify --deep --strict` and repeat the complete Mach-O
    architecture scan.
 
-`swift-stdlib-tool` may copy an x86-only `libswiftCore.dylib` and a universal
-`libswift_Concurrency.dylib` even when the application executable is thin
-ARM64. Confirm the executable does not load the bundled Swift Core before
-removing that incompatible copy, and use `lipo -thin arm64` to replace the
-Concurrency library with its ARM64 slice.
+`swift-stdlib-tool` may copy an x86-only `libswiftCore.dylib` and a universal `libswift_Concurrency.dylib` even when the application executable is thin ARM64. Confirm the executable does not load the bundled Swift Core before removing that incompatible copy, and use `lipo -thin arm64` to replace the Concurrency library with its ARM64 slice.
 
-`strip`, `lipo`, and removing bundled libraries invalidate the current code
-signature. Do not use a developer identity or notarize unless the user
-explicitly requests it. Apply all packaging operations only below `out/`, and
-preserve a recoverable original bundle or rely on rebuilding it.
+`strip`, `lipo`, and removing bundled libraries invalidate the current code signature. Do not use a developer identity or notarize unless the user explicitly requests it. Apply all packaging operations only below `out/`, and preserve a recoverable original bundle or rely on rebuilding it.
 
-After a build, report the Xcode selection, command, configuration,
-architecture, artifact path, signing and architecture verification, source
-changes required, and remaining warnings.
+After a build, report the Xcode selection, command, configuration, architecture, artifact path, signing and architecture verification, source changes required, and remaining warnings.

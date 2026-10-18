@@ -364,8 +364,10 @@ def render_release_notes(args):
     lines = [
         "AywGram 采用按平台独立推进的滚动发布模式。此 Release 是固定下载入口，应用归档实际存放在对应的 prerelease。",
         "",
-        "| 平台 | 当前版本 | 下载 |",
-        "| --- | --- | --- |",
+        "Each platform advances independently. Follow its version link for release notes. / 各平台独立推进，请查看对应版本的发行说明。",
+        "",
+        "| 平台 / Platform | 当前版本 / Version | 下载 / Download | 说明 / Notes |",
+        "| --- | --- | --- | --- |",
     ]
     for target, name in TARGET_NAMES.items():
         asset = metadata["targets"].get(target)
@@ -375,11 +377,12 @@ def render_release_notes(args):
         archive_format = "ZIP" if asset["format"] == "zip" else "tar.gz"
         lines.append(
             f"| {name} | `{asset['version_name']}` | "
-            f"[下载 {archive_format}（{size:.1f} MiB）]({asset['url']}) |"
+            f"[下载 {archive_format}（{size:.1f} MiB）]({asset['url']}) | "
+            f"[发行说明 / Notes](https://github.com/NahidaBuer/AywGram/releases/tag/{asset['release']}) |"
         )
     lines.extend([
         "",
-        f"Metadata 更新时间：`{metadata['generated_at']}`。自动更新协议和归档布局见 [项目文档](https://github.com/NahidaBuer/AywGram/blob/main/docs/aywgram-updater.md)。",
+        f"Metadata 更新时间：`{metadata['generated_at']}`。自动更新协议和归档布局见 [项目文档](https://github.com/NahidaBuer/AywGram/blob/main/docs/development/aywgram-updater.md)。",
         "",
     ])
     destination = pathlib.Path(args.output)

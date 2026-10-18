@@ -65,7 +65,10 @@ if (!$reportBase.StartsWith($allowedRoot + [System.IO.Path]::DirectorySeparatorC
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $reportDirectory = Join-Path $reportBase $timestamp
 New-Item -ItemType Directory -Path $reportDirectory -Force | Out-Null
-$reportPath = Join-Path $reportDirectory 'audit.md'
+$evidenceDirectory = Join-Path $reportDirectory 'evidence'
+$logsDirectory = Join-Path $reportDirectory 'logs'
+New-Item -ItemType Directory -Path $evidenceDirectory, $logsDirectory -Force | Out-Null
+$reportPath = Join-Path $evidenceDirectory 'audit.md'
 
 $remoteRoles = [ordered]@{
 	upstream = 'optional supplemental source'
@@ -219,7 +222,33 @@ $content = $lines -join "`r`n"
 	[System.Text.UTF8Encoding]::new($false))
 }
 
+$summaryPath = Join-Path $reportDirectory 'report.md'
+$summary = [System.Collections.Generic.List[string]]::new()
+$summary.Add('# Upstream audit report')
+$summary.Add('')
+$summary.Add("- HEAD: $((Invoke-Git -Arguments @('rev-parse', 'HEAD')).Output[0])")
+$summary.Add("- Fetch requested: $Fetch")
+$summary.Add("- Fetch failures: $fetchFailureCount")
+$summary.Add('- Integration and application build: not performed by this audit.')
+$summary.Add('')
+$summary.Add('## Compared remote refs')
+$summary.Add('')
+$summary.Add('```text')
+foreach ($remote in $remoteRoles.Keys) {
+	if ($remoteNames -contains $remote) {
+		foreach ($line in (Invoke-Git -Arguments @('for-each-ref', '--format=%(refname:short) %(objectname)', "refs/remotes/$remote")).Output) {
+			$summary.Add($line)
+		}
+	}
+}
+$summary.Add('```')
+$summary.Add('')
+$summary.Add('Raw commit inventories are in evidence/audit.md and may be removed separately. Review selected changes before integration.')
+[System.IO.File]::WriteAllText($summaryPath, ($summary -join "`n") + "`n", [System.Text.UTF8Encoding]::new($false))
+[System.IO.File]::WriteAllText((Join-Path $logsDirectory 'fetch.log'), ($fetchLog -join "`n") + "`n", [System.Text.UTF8Encoding]::new($false))
+
 Write-Output $reportPath
+Write-Output $summaryPath
 if ($fetchFailureCount -ne 0) {
 	[Console]::Error.WriteLine("One or more remotes failed to fetch. Do not integrate from this audit.")
 	exit 2

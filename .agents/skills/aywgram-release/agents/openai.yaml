@@ -1,0 +1,4 @@
+interface:
+  display_name: "AywGram Release"
+  short_description: "Prepare bilingual AywGram changelogs and release notes"
+  default_prompt: "Use $aywgram-release to review the release range and prepare bilingual AywGram release notes before tagging."

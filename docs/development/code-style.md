@@ -1,6 +1,6 @@
-# Code Review Style Guide
+# Coding and Review Style
 
-This file contains style and formatting rules that the review subagent must check and fix. These are mechanical issues that should always be caught during code review.
+Audience: human contributors and agents. Follow these shared style and formatting rules when editing or reviewing project code.
 
 ## Comments
 
@@ -146,6 +146,8 @@ if (const auto peer = session().data().peerLoaded(peerId)
 // GOOD - simple nested ifs when direct lookup isn't available:
 if (const auto peer = session().data().peerLoaded(peerId)) {
 	if (const auto user = peer->asUser()) {
+
+```
 
 ## Always initialize variables of basic types
 
@@ -560,8 +562,7 @@ auto ComputeTitle() -> QString;
 	const std::vector<Block> &blocks) -> TextWithEntities;
 ```
 
-Use `auto` with a trailing return type only when the normal opening line
-`{attributes} {return-type} {class-name::}{function-name(}` would be too long, or would force the return type onto its own line. In that case, put the arrow and return type on the next line:
+Use `auto` with a trailing return type only when the normal opening line `{attributes} {return-type} {class-name::}{function-name(}` would be too long, or would force the return type onto its own line. In that case, put the arrow and return type on the next line:
 
 ```cpp
 // BAD - return type orphaned on its own line:

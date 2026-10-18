@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 
-SCRIPT = pathlib.Path(__file__).with_name("release_version.py")
+SCRIPT = pathlib.Path(__file__).resolve().parents[1].joinpath("release_version.py")
 SPEC = importlib.util.spec_from_file_location("release_version", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)

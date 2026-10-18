@@ -79,22 +79,28 @@ Flatpak、Snap 和商店构建仍使用各自平台的更新渠道。
 
 唯一普通 Release 需要先在 GitHub 上创建并发布一次。它的 tag 和标题可以自行选择，但此后不要删除、重建或改名，并确保其中除 `update-metadata.json` 外没有其他资产。两个 metadata 写入路径都会检查仓库中恰好只有这一个普通 Release，否则停止而不覆盖任何内容。
 
+### 发版前准备
+
+使用仓库的 `aywgram-release` skill 审阅上一份已发布 Ayw 发行至候选提交之间的实际改动，编写中英双语说明，并生成根 `changelog.txt`。根日志只收录 Ayw 自身变化；Ayu 与 Telegram 的已纳入改动在逐版说明中分别列出。先提交说明和 changelog，再打 tag；摘要缺失、版本不匹配或审阅之后增加实质改动都会在构建前失败。详见[发布说明规范](../releases/README.md)。
+
+版本 Release 的正文顺序为 Ayw 改动、贡献者、Ayu、Telegram、CI 信息。CI 只维护 `ayw-ci:start/end` 标记之间的尾部区块，不覆盖编辑摘要。缺少或重复标记会停止更新。
+
 ### 自动 prerelease 构建
 
-将严格格式的 tag，例如 `pre-release-v7.1.3-1`，推送到仓库后，[`.github/workflows/pre-release.yml`](../.github/workflows/pre-release.yml) 创建或更新同名 prerelease，并调用 Linux、macOS ARM64 和 Windows ARM64 的复用构建工作流。tag 的 base 必须与所指向源码的 `AppVersionStr` 完全一致，且按现有公式计算出的数值必须等于 `AppVersion`，否则工作流在创建 Release 前失败。
+将严格格式的 tag，例如 `pre-release-v7.1.3-1`，推送到仓库后，[`.github/workflows/pre-release.yml`](../../.github/workflows/pre-release.yml) 创建或更新同名 prerelease，并调用 Linux、macOS ARM64 和 Windows ARM64 的复用构建工作流。tag 的 base 必须与所指向源码的 `AppVersionStr` 完全一致，且按现有公式计算出的数值必须等于 `AppVersion`，否则工作流在创建 Release 前失败。
 
 1. 平台工作流验证归档布局、Updater、文件类型和权限。
 2. 归档上传到当前 prerelease。
 3. 每个成功平台输出 metadata fragment，其中包含归档大小和 SHA-256。
 4. metadata job 下载本次成功 fragments，并按精确文件名扫描当前 prerelease；若某个平台没有本次 fragment 但已有手动上传的归档，则下载、验证并为其补充 fragment。
-5. metadata job 读取唯一普通 Release 中的旧 metadata，滚动合并后覆盖该 Release 的 `update-metadata.json`，并用合并结果同步正文中的平台下载表格。
+5. metadata job 读取唯一普通 Release 中的旧 metadata，滚动合并后覆盖该 Release 的 `update-metadata.json`，并用合并结果同步正文中的双语平台下载表格，每个平台链接其实际版本的发布说明。
 6. 缺失或失败的平台不会清空旧记录；整个过程中 prerelease 始终保持 prerelease。
 
-重复推送或移动同一个 tag 会复用 prerelease 并覆盖同名资产及摘要，只适合 CI 重试或替换尚未安装的构建。已经安装相同 `(app_version, revision)` 的客户端不会再次下载；若要向这些用户发布新构建，必须提高 revision 并创建新 tag，例如从 `pre-release-v7.1.3-1` 改为 `pre-release-v7.1.3-2`。revision 可以跳号，但不能回退。
+同一源码 tag 的 CI 重跑会复用 prerelease、覆盖同名资产，并只替换正文末尾的 CI 区块，保留前面的发布摘要。不要移动已发布的 tag。已经安装相同 `(app_version, revision)` 的客户端不会再次下载；若要向这些用户发布新构建，必须提高 revision 并创建新 tag，例如从 `pre-release-v7.1.3-1` 改为 `pre-release-v7.1.3-2`。revision 可以跳号，但不能回退。
 
 ### 手动上传后 refresh
 
-为节省构建资源，可把 updater 兼容的 Windows x86_64 或其他平台归档手动上传到 prerelease。若上传在自动构建的 metadata 收集开始前完成，自动流程会直接识别；更晚的上传需要运行 [`.github/workflows/refresh-update-metadata.yml`](../.github/workflows/refresh-update-metadata.yml)。
+为节省构建资源，可把 updater 兼容的 Windows x86_64 或其他平台归档手动上传到 prerelease。若上传在自动构建的 metadata 收集开始前完成，自动流程会直接识别；更晚的上传需要运行 [`.github/workflows/refresh-update-metadata.yml`](../../.github/workflows/refresh-update-metadata.yml)。
 
 `prerelease_tag` 留空时，refresh 选择仓库中最新发布的 prerelease；也可以显式指定另一个 prerelease。工作流 checkout 该 tag，用共用版本脚本解析 base、revision 和完整版本，并验证源码的 `AppVersion` 与 `AppVersionStr`，然后按上表的精确文件名扫描四个活跃平台。它只下载和验证命中的归档，生成 fragments 并滚动覆盖唯一普通 Release 的 metadata。名称不匹配的安装器或附件会被忽略。
 

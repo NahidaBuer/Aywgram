@@ -17,11 +17,11 @@ remain AyuGram. Around the early 7.0 releases, its `tdata` should still be inter
 with upstream builds, but no promise is made about future data compatibility.
 
 If the project rename makes existing accounts appear to be missing, manually migrate the
-`tdata` directory. See [Migrating application data](docs/app-data-migration.md).
+`tdata` directory. See [Migrating application data](docs/users/app-data-migration.md).
 
 ## Features
 
-Built on AyuGram and Telegram Desktop, AywGram focuses on privacy, message control, and deep customization. It offers Ghost Mode, anti-recall and edit history, message filtering and forwarding enhancements, wide-screen layouts, Live Photos, session transfer, and cloud settings sync. It also adapts ideas from clients such as Yurigram, Nagram, and NekoGram while continuing to add original desktop experiences. See [Features and provenance](docs/features.EN.md).
+Built on AyuGram and Telegram Desktop, AywGram focuses on privacy, message control, and deep customization. It offers Ghost Mode, anti-recall and edit history, message filtering and forwarding enhancements, wide-screen layouts, Live Photos, session transfer, and cloud settings sync. It also adapts ideas from clients such as Yurigram, Nagram, and NekoGram while continuing to add original desktop experiences. See [Features and provenance](docs/users/features.EN.md).
 
 ~~AywGram is my personal project.~~
 
@@ -31,16 +31,17 @@ packages are not maintained here.
 
 ## Building and documentation
 
+- [Release changes](changelog.txt) · [Release notes](docs/releases/README.md)
 - [Documentation index](docs/README.md)
-- [Windows x64 build](docs/building-win-x64.md)
-- [macOS build](docs/building-mac.md)
-- [Linux build](docs/building-linux.md)
-- [Migrating application data](docs/app-data-migration.md)
-- [Session transfer and security](docs/session-backup.md)
+- [Windows x64 build](docs/development/building-win-x64.md)
+- [macOS build](docs/development/building-mac.md)
+- [Linux build](docs/development/building-linux.md)
+- [Migrating application data](docs/users/app-data-migration.md)
+- [Session transfer and security](docs/users/session-backup.md)
 - [Contributing](.github/CONTRIBUTING.md)
 
 Builds use the Telegram API identity consistent with AyuGram; see
-[API credentials](docs/api_credentials.md). Never commit session files, `tdata`, proxy
+[API credentials](docs/development/api_credentials.md). Never commit session files, `tdata`, proxy
 secrets, or build artifacts.
 
 ## License and credits

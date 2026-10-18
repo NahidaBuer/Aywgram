@@ -1,23 +1,21 @@
 # 文档索引
 
-这里收录普通用户需要的迁移说明，以及面向构建者和贡献者的构建与维护资料。
+按主要读者组织仓库自有文档。技术规范也供 Agent 引用，但只维护一份内容源。
 
-## 构建
+## 用户
 
-- [Windows x64](building-win-x64.md)
-- [macOS](building-mac.md)
-- [Linux](building-linux.md)
-- Agent 构建规则：[Windows](agents/building-windows.md)、[macOS](agents/building-macos.md)、[Linux](agents/building-linux.md)
-- [Telegram API 凭据](api_credentials.md)
+- [功能与来源](users/features.md)（[English](users/features.EN.md)）与[历史功能资料](users/feature-history.md)。
+- [迁移应用数据](users/app-data-migration.md)、[会话迁移与格式](users/session-backup.md)。
+- [Ayw 发行改动](../changelog.txt)、[逐版发布说明](releases/README.md)、[上游资料](upstream/README.md)。
 
-构建脚本和依赖版本会随 Telegram Desktop 上游变化。若文档与脚本不一致，以 `Telegram/build/prepare/`、`Telegram/configure.*` 和本仓库的 CMake 配置为准，并在提交中一并更新文档。
+## 贡献者与维护者
 
-## 功能与维护资料
+- [开发与维护索引](development/README.md)：构建、共享编码规范、API 凭据、更新与 metadata、CI 缓存。
+- [贡献指南](../.github/CONTRIBUTING.md)。
 
-- [功能与来源](features.md)（[English](features.EN.md)）：当前差异功能、原创实现、外部客户端 idea 和 Ayu/Telegram 上游归属。
-- [功能变更日志](change-log.md)：仅中文，按时间记录 AywGram 差异功能的引入与显著调整。
-- [迁移应用数据](app-data-migration.md)：Windows、macOS 与 Linux 的默认数据路径、便携模式和迁移注意事项。
-- [会话迁移](session-backup.md)：Pyrogram 会话串与 Mithka JSON 的格式、安全限制和互操作范围。
-- [自动更新与 metadata 发布](aywgram-updater.md)：GitHub Release metadata、发行资产布局、客户端安装流程和维护政策。
+## Agent
 
-不在此目录保存个人维护记录、私有远程地址、测试账户资料或部署凭据。
+- [操作指引](agents/README.md)：按任务读取的规则、长期任务记录和 out 输出约定。
+- 仓库规则以 [AGENTS.md](../AGENTS.md) 为入口，可复用工作流保存在 `.agents/skills/`。
+
+不保存个人维护资料、测试账户或凭据。生成日志和产物遵循 [out 约定](agents/out-layout.md)，不提交。

@@ -173,7 +173,17 @@ jobs:
         with:
           ref: ${{ inputs.warm_cache && github.sha || inputs.source_sha || inputs.release_tag || github.ref }}
           submodules: recursive
+          fetch-depth: 0
           path: ${{ env.REPO_NAME }}
+
+      - name: Select output layout.
+        shell: bash
+        run: |
+          cd "$REPO_NAME"
+          python3 tools/maintenance/out_layout.py paths \
+            --target mac-${{ inputs.arch }} \
+            --run-id "ci-${{ github.run_id }}-${{ github.run_attempt }}-mac-${{ inputs.arch }}" \
+            --github-env "$GITHUB_ENV"
 
       - name: Resolve release version.
         id: release_version
@@ -182,7 +192,8 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           cd "$REPO_NAME"
-          python3 .github/scripts/release_version.py --tag "$RELEASE_TAG" --apply --github-output "$GITHUB_OUTPUT"
+          if [ -n "$RELEASE_TAG" ]; then python3 tools/maintenance/release_notes.py validate --tag "$RELEASE_TAG"; fi
+          python3 tools/maintenance/release_version.py --tag "$RELEASE_TAG" --apply --github-output "$GITHUB_OUTPUT"
 
       - name: Set up build tools.
         run: |
@@ -271,7 +282,7 @@ jobs:
               "-DCMAKE_OBJCXX_FLAGS=-Xclang -fno-pch-timestamp"
             )
           fi
-          ./configure.sh \
+          python3 ../tools/maintenance/out_layout.py run --log "$AYW_LOG_DIR/configure.log" -- ./configure.sh -B "$AYW_BUILD_DIR" \
           "${CACHE_ARGS[@]}" \
           -D CMAKE_CONFIGURATION_TYPES=Release \
           -D CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
@@ -291,16 +302,17 @@ jobs:
             XROS_DEPLOYMENT_TARGET=
             DRIVERKIT_DEPLOYMENT_TARGET=
           )
-          xcodebuild -project ../out/Telegram.xcodeproj \
+          xcodebuild -project "$AYW_BUILD_DIR/Telegram.xcodeproj" \
             -target external_qt_static_plugins_kimageformats_autogen \
             -configuration Release -showBuildSettings -json \
-            "${XCODE_SETTINGS[@]}" > ../out/ci-xcode-build-settings.json
+            "${XCODE_SETTINGS[@]}" > "$AYW_LOG_DIR/xcode-build-settings.json"
           python3 - "${XCODE_SETTINGS[@]}" <<'PY'
           import json
           import pathlib
+          import os
           import sys
 
-          targets = json.loads(pathlib.Path('../out/ci-xcode-build-settings.json').read_text())
+          targets = json.loads((pathlib.Path(os.environ['AYW_LOG_DIR']) / 'xcode-build-settings.json').read_text())
           if not targets:
               sys.exit('Xcode returned no AutoMoc build settings.')
           for target in targets:
@@ -312,7 +324,7 @@ jobs:
                   if settings.get(name):
                       sys.exit(f"Unexpected Xcode build setting: {name}={settings[name]}")
           PY
-          cmake --build ../out --config Release --parallel -- "${XCODE_SETTINGS[@]}"
+          python3 ../tools/maintenance/out_layout.py run --log "$AYW_LOG_DIR/build.log" -- cmake --build "$AYW_BUILD_DIR" --config Release --parallel -- "${XCODE_SETTINGS[@]}"
           python3 ../.github/scripts/ci_cache.py mark application --end
 
       - name: Read compiler cache statistics.
@@ -338,20 +350,21 @@ jobs:
           cd "$REPO_NAME"
           VERSION="${{ steps.release_version.outputs.version_name }}"
           ASSET_NAME="AywGram-v${VERSION}-mac-${{ inputs.arch }}.zip"
-          ASSET_PATH="$GITHUB_WORKSPACE/dist/$ASSET_NAME"
-          mkdir -p "$GITHUB_WORKSPACE/dist"
-          ditto -c -k --sequesterRsrc --keepParent out/Release/AywGram.app "$ASSET_PATH"
-          test -x out/Release/AywGram.app/Contents/MacOS/AywGram
-          test -x out/Release/AywGram.app/Contents/Frameworks/Updater
+          ASSET_PATH="$AYW_DIST_DIR/$ASSET_NAME"
+          mkdir -p "$AYW_DIST_DIR" "$AYW_METADATA_DIR"
+          python3 tools/maintenance/out_layout.py stage --target mac-${{ inputs.arch }} --source "$AYW_BUILD_DIR/Release" --destination "$AYW_ARTIFACT_DIR"
+          ditto -c -k --sequesterRsrc --keepParent "$AYW_ARTIFACT_DIR/AywGram.app" "$ASSET_PATH"
+          test -x "$AYW_ARTIFACT_DIR/AywGram.app/Contents/MacOS/AywGram"
+          test -x "$AYW_ARTIFACT_DIR/AywGram.app/Contents/Frameworks/Updater"
           if [ "${{ inputs.update_metadata }}" = true ]; then
-            python3 .github/scripts/update_release_metadata.py fragment \
+            python3 tools/maintenance/update_release_metadata.py fragment \
               --target mac-${{ inputs.arch }} \
               --app-version "${{ steps.release_version.outputs.app_version }}" \
               --revision "${{ steps.release_version.outputs.revision }}" \
               --version-name "$VERSION" \
               --release "${{ inputs.release_tag }}" \
               --asset "$ASSET_PATH" \
-              --output "$GITHUB_WORKSPACE/dist/update-fragment-mac-${{ inputs.arch }}.json"
+              --output "$AYW_METADATA_DIR/update-fragment-mac-${{ inputs.arch }}.json"
           fi
           echo "asset_name=$ASSET_NAME" >> "$GITHUB_OUTPUT"
           echo "asset_path=$ASSET_PATH" >> "$GITHUB_OUTPUT"
@@ -384,7 +397,7 @@ jobs:
         name: Upload update metadata fragment.
         with:
           name: update-fragment-mac-${{ inputs.arch }}
-          path: dist/update-fragment-mac-${{ inputs.arch }}.json
+          path: ${{ env.AYW_METADATA_DIR }}/update-fragment-mac-${{ inputs.arch }}.json
           retention-days: 1
 
       - name: Summarize caches.
@@ -397,3 +410,22 @@ jobs:
           CACHE_RESULTS: >-
             [{"layer": "Libraries", "key": "${{ steps.cache-libs.outputs.cache-primary-key }}", "restored": "${{ steps.cache-libs.outputs.cache-matched-key }}", "hit": "${{ steps.cache-libs.outputs.cache-hit }}"}, {"layer": "Application", "key": "${{ steps.cache-app.outputs.cache-primary-key }}", "restored": "${{ steps.cache-app.outputs.cache-matched-key }}", "hit": "${{ steps.cache-app.outputs.cache-hit }}"}]
         run: python3 "$REPO_NAME/.github/scripts/ci_cache.py" summary
+
+      - name: Write final build report.
+        if: always() && env.AYW_LOG_DIR != ''
+        shell: bash
+        env:
+          BUILD_STATUS: ${{ job.status }}
+          BUILD_VERSION: ${{ steps.release_version.outputs.version_name }}
+          BUILD_ASSET: ${{ steps.package.outputs.asset_path }}
+        run: |
+          cd "$REPO_NAME"
+          python3 tools/maintenance/out_layout.py report --log-dir "$AYW_LOG_DIR" --status "$BUILD_STATUS" --version "$BUILD_VERSION" --asset "$BUILD_ASSET"
+
+      - name: Preserve build logs and final diagnostics.
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-logs-mac-${{ inputs.arch || 'x86_64' }}
+          path: ${{ env.AYW_LOG_DIR }}
+          if-no-files-found: warn

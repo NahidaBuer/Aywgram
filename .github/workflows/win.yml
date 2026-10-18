@@ -197,7 +197,17 @@ jobs:
         with:
           ref: ${{ inputs.warm_cache && github.sha || inputs.source_sha || inputs.release_tag || github.ref }}
           submodules: recursive
+          fetch-depth: 0
           path: ${{ env.TBUILD }}\${{ env.REPO_NAME }}
+
+      - name: Select output layout.
+        shell: bash
+        run: |
+          cd "$TBUILD/$REPO_NAME"
+          python tools/maintenance/out_layout.py paths \
+            --target windows-${{ inputs.arch == 'x64' && 'x86_64' || inputs.arch }} \
+            --run-id "ci-${{ github.run_id }}-${{ github.run_attempt }}-windows-${{ inputs.arch == 'x64' && 'x86_64' || inputs.arch }}" \
+            --github-env "$GITHUB_ENV"
 
       - name: Resolve release version.
         id: release_version
@@ -206,12 +216,13 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           cd "$TBUILD/$REPO_NAME"
-          python .github/scripts/release_version.py --tag "$RELEASE_TAG" --apply --github-output "$GITHUB_OUTPUT"
+          if [ -n "$RELEASE_TAG" ]; then python tools/maintenance/release_notes.py validate --tag "$RELEASE_TAG"; fi
+          python tools/maintenance/release_version.py --tag "$RELEASE_TAG" --apply --github-output "$GITHUB_OUTPUT"
 
       - name: First set up.
         shell: bash
         run: |
-          DOCPATH="$TBUILD/$REPO_NAME/docs/building-win-x64.md"
+          DOCPATH="$TBUILD/$REPO_NAME/docs/development/building-win-x64.md"
           SDK="$(grep -A 1 'Windows SDK' "$DOCPATH" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)"
           if [ -z "$SDK" ]; then
             echo "Could not determine the Windows SDK version from $DOCPATH" >&2
@@ -398,7 +409,7 @@ jobs:
         run: |
           Set-Location "$env:TBUILD\$env:REPO_NAME\Telegram"
           $configureArgs = @(
-            '-G', 'Ninja Multi-Config', 'qt6',
+            '-G', 'Ninja Multi-Config', 'qt6', '-B', $env:AYW_BUILD_DIR,
             '-D', 'CMAKE_CONFIGURATION_TYPES=Release',
             '-D', 'CMAKE_MSVC_DEBUG_INFORMATION_FORMAT=',
             '-D', 'DESKTOP_APP_DISABLE_AUTOUPDATE=OFF',
@@ -412,9 +423,9 @@ jobs:
           if ($env:COMPILER_CACHE -eq 'true') {
             $configureArgs += @('-D', 'CMAKE_C_COMPILER_LAUNCHER=sccache', '-D', 'CMAKE_CXX_COMPILER_LAUNCHER=sccache')
           }
-          python configure.py @configureArgs
+          python ../tools/maintenance/out_layout.py run --log "$env:AYW_LOG_DIR/configure.log" -- python configure.py @configureArgs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cmake --build ..\out --config Release --parallel 2
+          python ../tools/maintenance/out_layout.py run --log "$env:AYW_LOG_DIR/build.log" -- cmake --build "$env:AYW_BUILD_DIR" --config Release --parallel 2
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python ..\.github\scripts\ci_cache.py mark application --end
 
@@ -439,11 +450,13 @@ jobs:
         run: |
           $target = "${{ steps.matrix.outputs.target }}"
           $assetName = "AywGram-v${{ steps.release_version.outputs.version_name }}-$target.zip"
-          $dist = Join-Path $env:GITHUB_WORKSPACE 'dist'
+          $dist = $env:AYW_DIST_DIR
           $assetPath = Join-Path $dist $assetName
-          $binary = Join-Path $env:TBUILD "$env:REPO_NAME\out\Release\AywGram.exe"
-          $updater = Join-Path $env:TBUILD "$env:REPO_NAME\out\Release\Updater.exe"
-          $modules = Join-Path $env:TBUILD "$env:REPO_NAME\out\Release\modules"
+          python "$env:TBUILD/$env:REPO_NAME/tools/maintenance/out_layout.py" stage --target "$target" --source "$env:AYW_BUILD_DIR/Release" --destination "$env:AYW_ARTIFACT_DIR"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $binary = Join-Path $env:AYW_ARTIFACT_DIR "AywGram.exe"
+          $updater = Join-Path $env:AYW_ARTIFACT_DIR "Updater.exe"
+          $modules = Join-Path $env:AYW_ARTIFACT_DIR "modules"
           if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw "Missing AywGram.exe" }
           if (-not (Test-Path -LiteralPath $updater -PathType Leaf)) { throw "Missing Updater.exe" }
           New-Item -ItemType Directory -Path $dist -Force | Out-Null
@@ -451,20 +464,20 @@ jobs:
           if (Test-Path -LiteralPath $modules -PathType Container) { $items += $modules }
           Compress-Archive -LiteralPath $items -DestinationPath $assetPath -CompressionLevel Optimal
           "asset_name=$assetName" >> $env:GITHUB_OUTPUT
-          "asset_path=dist/$assetName" >> $env:GITHUB_OUTPUT
+          "asset_path=$($assetPath.Replace('\', '/'))" >> $env:GITHUB_OUTPUT
 
       - name: Create update metadata fragment.
         if: inputs.update_metadata == true && inputs.warm_cache != true
         shell: bash
         run: |
-          python "$TBUILD/$REPO_NAME/.github/scripts/update_release_metadata.py" fragment \
+          python "$TBUILD/$REPO_NAME/tools/maintenance/update_release_metadata.py" fragment \
             --target "${{ steps.matrix.outputs.target }}" \
             --app-version "${{ steps.release_version.outputs.app_version }}" \
             --revision "${{ steps.release_version.outputs.revision }}" \
             --version-name "${{ steps.release_version.outputs.version_name }}" \
             --release "${{ inputs.release_tag }}" \
             --asset "${{ steps.package.outputs.asset_path }}" \
-            --output "dist/update-fragment-${{ steps.matrix.outputs.target }}.json"
+            --output "$AYW_METADATA_DIR/update-fragment-${{ steps.matrix.outputs.target }}.json"
 
       - uses: actions/upload-artifact@v7
         name: Upload artifact.
@@ -494,7 +507,7 @@ jobs:
         name: Upload update metadata fragment.
         with:
           name: update-fragment-${{ steps.matrix.outputs.target }}
-          path: dist/update-fragment-${{ steps.matrix.outputs.target }}.json
+          path: ${{ env.AYW_METADATA_DIR }}/update-fragment-${{ steps.matrix.outputs.target }}.json
           retention-days: 1
 
       - name: Summarize caches.
@@ -507,3 +520,22 @@ jobs:
           CACHE_RESULTS: >-
             [{"layer": "ThirdParty", "key": "${{ steps.cache-third-party.outputs.cache-primary-key }}", "restored": "${{ steps.cache-third-party.outputs.cache-matched-key }}", "hit": "${{ steps.cache-third-party.outputs.cache-hit }}"}, {"layer": "Libraries", "key": "${{ steps.cache-libs.outputs.cache-primary-key }}", "restored": "${{ steps.cache-libs.outputs.cache-matched-key }}", "hit": "${{ steps.cache-libs.outputs.cache-hit }}"}, {"layer": "Qt", "key": "${{ steps.cache-qt.outputs.cache-primary-key }}", "restored": "${{ steps.cache-qt.outputs.cache-matched-key }}", "hit": "${{ steps.cache-qt.outputs.cache-hit }}"}, {"layer": "Application", "key": "${{ steps.cache-app.outputs.cache-primary-key }}", "restored": "${{ steps.cache-app.outputs.cache-matched-key }}", "hit": "${{ steps.cache-app.outputs.cache-hit }}"}]
         run: python "$TBUILD/$REPO_NAME/.github/scripts/ci_cache.py" summary
+
+      - name: Write final build report.
+        if: always() && env.AYW_LOG_DIR != ''
+        shell: bash
+        env:
+          BUILD_STATUS: ${{ job.status }}
+          BUILD_VERSION: ${{ steps.release_version.outputs.version_name }}
+          BUILD_ASSET: ${{ steps.package.outputs.asset_path }}
+        run: |
+          cd "$TBUILD/$REPO_NAME"
+          python tools/maintenance/out_layout.py report --log-dir "$AYW_LOG_DIR" --status "$BUILD_STATUS" --version "$BUILD_VERSION" --asset "$BUILD_ASSET"
+
+      - name: Preserve build logs and final diagnostics.
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-logs-win-${{ inputs.arch || 'x86_64' }}
+          path: ${{ env.AYW_LOG_DIR }}
+          if-no-files-found: warn
