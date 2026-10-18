@@ -61,6 +61,7 @@ struct GifSection;
 
 struct GifsListDescriptor {
 	std::shared_ptr<Show> show;
+	bool requireConfirmation = false;
 	Fn<bool()> paused;
 	const style::EmojiPan *st = nullptr;
 };
@@ -177,6 +178,7 @@ private:
 		bool needsCaption = false);
 
 	const std::shared_ptr<Show> _show;
+	const bool _requireConfirmation = false;
 	std::unique_ptr<Ui::TabbedSearch> _search;
 
 	MTP::Sender _api;

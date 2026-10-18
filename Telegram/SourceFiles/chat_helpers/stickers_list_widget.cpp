@@ -3044,7 +3044,7 @@ void StickersListWidget::mouseReleaseEvent(QMouseEvent *e) {
 						});
 					});
 
-				if (settings.stickerConfirmation() && (_mode == Mode::Full || _mode == Mode::ChatIntro) && _requireConfirmation) {
+				if (settings.stickerConfirmation() && _requireConfirmation) {
 					_show->showBox(Ui::MakeConfirmBox({
 						.text = tr::ayu_ConfirmationSticker(),
 						.confirmed = sendStickerCallback,

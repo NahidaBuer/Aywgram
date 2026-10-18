@@ -113,6 +113,7 @@ GifsListWidget::GifsListWidget(
 	descriptor.show,
 	descriptor.paused)
 , _show(std::move(descriptor.show))
+, _requireConfirmation(descriptor.requireConfirmation)
 , _api(&session().mtp())
 , _section(Section::Gifs)
 , _updateInlineItems([=] { updateInlineItems(); })
@@ -540,7 +541,9 @@ void GifsListWidget::selectInlineResult(
 				});
 
 			const auto &settings = AyuSettings::getInstance();
-			if (settings.gifConfirmation()) {
+			if (settings.gifConfirmation()
+				&& _requireConfirmation
+				&& !needsCaption) {
 				_show->showBox(Ui::MakeConfirmBox({
 					.text = tr::ayu_ConfirmationGIF(),
 					.confirmed = sendGIFCallback,
