@@ -9,6 +9,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "api/api_sending.h"
 #include "apiwrap.h"
+#include "ayu/features/message_shot/message_shot.h"
 #include "base/call_delayed.h"
 #include "boxes/delete_messages_box.h"
 #include "boxes/send_files_box.h"
@@ -160,6 +161,10 @@ WelcomeMessagesWidget::WelcomeMessagesWidget(
 	_topBar->deleteSelectionRequest(
 	) | rpl::on_next([=] {
 		confirmDeleteSelected();
+	}, _topBar->lifetime());
+	_topBar->messageShotSelectionRequest(
+	) | rpl::on_next([=] {
+		AyuFeatures::MessageShot::Wrapper(_inner, [=] { clearSelected(); });
 	}, _topBar->lifetime());
 	_topBar->clearSelectionRequest(
 	) | rpl::on_next([=] {
