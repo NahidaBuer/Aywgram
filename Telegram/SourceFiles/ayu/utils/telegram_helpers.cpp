@@ -445,29 +445,30 @@ void readHistory(not_null<HistoryItem*> message) {
 	const auto history = message->history();
 	const auto tillId = message->id;
 
-	history->session().data().histories()
-		.sendRequest(history,
-					 Data::Histories::RequestType::ReadInbox,
-					 [=](Fn<void()> finish)
-					 {
-						 if (const auto channel = history->peer->asChannel()) {
-							 return history->session().api().request(MTPchannels_ReadHistory(
-								 channel->inputChannel(),
-								 MTP_int(tillId)
-							 )).done([=] { AyuWorker::markAsOnline(&history->session()); }).send();
-						 }
-
-						 return history->session().api().request(MTPmessages_ReadHistory(
-							 history->peer->input(),
-							 MTP_int(tillId)
-						 )).done([=](const MTPmessages_AffectedMessages &result)
-						 {
-							 history->session().api().applyAffectedMessages(history->peer, result);
-							 AyuWorker::markAsOnline(&history->session());
-						 }).fail([=]
-						 {
-						 }).send();
-					 });
+	history->owner().histories().sendRequest(
+		history,
+		Data::Histories::RequestType::ReadInbox,
+		[=](Fn<void()> finish) {
+			const auto done = [=] {
+				AyuWorker::markAsOnline(&history->session());
+				finish();
+			};
+			if (const auto channel = history->peer->asChannel()) {
+				return history->session().api().request(MTPchannels_ReadHistory(
+					channel->inputChannel(),
+					MTP_int(tillId)
+				)).done(done).fail(finish).send();
+			}
+			return history->session().api().request(MTPmessages_ReadHistory(
+				history->peer->input(),
+				MTP_int(tillId)
+			)).done([=](const MTPmessages_AffectedMessages &result) {
+				history->session().api().applyAffectedMessages(
+					history->peer,
+					result);
+				done();
+			}).fail(finish).send();
+		});
 
 	if (history->unreadMentions().has()) {
 		readMentions(history->asThread());
