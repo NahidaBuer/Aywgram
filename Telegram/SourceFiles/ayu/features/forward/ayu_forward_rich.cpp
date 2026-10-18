@@ -113,6 +113,7 @@ void CollectMedia(
 			break;
 		case BlockKind::Video:
 		case BlockKind::Audio:
+		case BlockKind::File:
 			addDocument(block.documentId, block.document);
 			break;
 		case BlockKind::GroupedMedia:
@@ -154,6 +155,21 @@ void SanitizeRichText(Iv::RichPage::RichText &text) {
 	};
 	const auto removed = std::ranges::remove_if(text.text.entities, autolink);
 	text.text.entities.erase(removed.begin(), removed.end());
+}
+
+[[nodiscard]] bool IsSerializableButton(
+		const HistoryMessageMarkupButton &button) {
+	using Type = HistoryMessageMarkupButton::Type;
+	switch (button.type) {
+	case Type::Url:
+	case Type::CopyText:
+	case Type::Disabled:
+		return true;
+	case Type::UserProfile:
+		return button.data.toULongLong() != 0;
+	default:
+		return false;
+	}
 }
 
 void PruneBlocks(
@@ -200,10 +216,25 @@ void PruneBlocks(
 		break;
 	case BlockKind::Video:
 	case BlockKind::Audio:
+	case BlockKind::File:
 		if (!remapDocument(block.documentId, block.document)) {
 			return false;
 		}
 		break;
+	case BlockKind::ButtonRow: {
+		auto &buttons = block.buttons;
+		const auto removed = std::ranges::remove_if(buttons, [](
+				const Iv::RichPage::Button &button) {
+			return !IsSerializableButton(button.button);
+		});
+		buttons.erase(removed.begin(), removed.end());
+		if (buttons.empty()) {
+			return false;
+		}
+		for (auto &button : buttons) {
+			SanitizeRichText(button.text);
+		}
+	} break;
 	case BlockKind::GroupedMedia: {
 		auto &items = block.mediaItems;
 		for (auto i = items.begin(); i != items.end();) {
