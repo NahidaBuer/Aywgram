@@ -57,6 +57,10 @@ bool TTLButton::isVisible() const {
 	return _button.isVisible();
 }
 
+bool TTLButton::isHidden() const {
+	return _button.isHidden();
+}
+
 void TTLButton::move(int x, int y) {
 	_button.move(x, y);
 }

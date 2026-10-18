@@ -3536,7 +3536,7 @@ void ComposeControls::fieldChanged() {
 		&& !_giftToUser->isHidden();
 	const auto silentVisible = _silent && !_silent->isHidden();
 	const auto scheduledVisible = _scheduled && !_scheduled->isHidden();
-	const auto ttlVisible = _ttlInfo && _ttlInfo->isVisible();
+	const auto ttlVisible = _ttlInfo && !_ttlInfo->isHidden();
 	updateSendButtonType();
 	_hasSendText = _field->isVisible() && HasSendText(_field);
 	_fieldCharsCountManager.setCount(Ui::ComputeFieldCharacterCount(_field));
@@ -3547,6 +3547,8 @@ void ComposeControls::fieldChanged() {
 	const auto hideExtra = hideExtraButtons()
 		|| isEditingMessage()
 		|| textExceedsMaxSize();
+	const auto ttlAllowed = AyuSettings::getInstance()
+		.showAutoDeleteButtonInMessageField();
 	const auto refreshControls = commandShown
 		|| menuRefreshed
 		|| likeShown
@@ -3555,7 +3557,7 @@ void ComposeControls::fieldChanged() {
 			&& !hideExtra))
 		|| (silentVisible != (_silent && !hideExtra))
 		|| (scheduledVisible != (_scheduled && !hideExtra))
-		|| (ttlVisible != (_ttlInfo && !hideExtra));
+		|| (ttlVisible != (_ttlInfo && !hideExtra && ttlAllowed));
 	if (refreshControls) {
 		updateControlsVisibility();
 		updateControlsGeometry(_wrap->size());
@@ -5211,7 +5213,7 @@ void ComposeControls::updateControlsGeometry(QSize size) {
 			: 0)
 		- (_botKeyboardShow ? _botKeyboardShow->width() : 0)
 		- (_botKeyboardHide ? _botKeyboardHide->width() : 0)
-		- ((_ttlInfo && _ttlInfo->isVisible()) ? _ttlInfo->width() : 0)
+		- ((_ttlInfo && !_ttlInfo->isHidden()) ? _ttlInfo->width() : 0)
 		- (_starsReaction
 			? (_st.starsSkip + _starsReaction->width())
 			: 0);
@@ -5365,9 +5367,6 @@ void ComposeControls::updateControlsVisibility() {
 	}
 	if (_editStars) {
 		_editStars->show();
-	}
-	if (_ttlInfo) {
-		_ttlInfo->setVisible(!hide);
 	}
 	if (_sendAs) {
 		_sendAs->show();

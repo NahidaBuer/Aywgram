@@ -30,6 +30,7 @@ public:
 	void hide();
 	void setVisible(bool visible);
 	[[nodiscard]] bool isVisible() const;
+	[[nodiscard]] bool isHidden() const;
 	void move(int x, int y);
 
 	[[nodiscard]] int width() const;
