@@ -24,7 +24,6 @@ ICON(CHIBI2, "chibi2");
 ICON(EXTERA2, "extera2");
 ICON(NAHIDA, "nahida");
 ICON(NAHIDA2, "nahida2");
-ICON(ROSSI, "rossi");
 
 void loadAppIco();
 QString appIcoPath();

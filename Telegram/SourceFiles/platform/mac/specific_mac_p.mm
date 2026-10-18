@@ -37,6 +37,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <IOKit/hidsystem/ev_keymap.h>
 
 // AyuGram includes
+#include "ayu/ui/ayu_logo.h"
 #include "ayu/ayu_settings.h"
 
 using Platform::Q2NSString;
@@ -199,25 +200,27 @@ namespace Platform {
 
 void SetApplicationIcon(const QIcon &icon) {
 	const auto &settings = AyuSettings::getInstance();
-    if (settings.appIcon().isEmpty()) {
-        return;
-    }
+	if (settings.appIcon().isEmpty()) {
+		return;
+	}
 
-	const auto name = QString("AppIcon-") + settings.appIcon()[0].toUpper() + settings.appIcon().mid(1);
-    @autoreleasepool {
-        if (name == QString("AppIcon-Default")) {
-            NSApplication.sharedApplication.applicationIconImage = nil;
-            return;
-        }
-        
-        // NSString *iconPath = [NSBundle.mainBundle pathForResource:Q2NSString(name) ofType:@"icns"];
-        // NSImage *icon = [[NSImage alloc] initWithContentsOfFile:iconPath];
-		NSImage *icon = [NSBundle.mainBundle imageForResource:Q2NSString(name)];
+	const auto name = u"AppIcon-"_q
+		+ settings.appIcon()[0].toUpper()
+		+ settings.appIcon().mid(1);
+	@autoreleasepool {
+		if (settings.appIcon() == AyuAssets::NAHIDA_ICON) {
+			NSApplication.sharedApplication.applicationIconImage = nil;
+			return;
+		}
 
-        if (icon) {
-            NSApplication.sharedApplication.applicationIconImage = icon;
-        }
-    }
+		auto nativeIcon = [NSBundle.mainBundle imageForResource:Q2NSString(name)];
+		if (!nativeIcon) {
+			nativeIcon = Q2NSImage(AyuAssets::currentAppLogo());
+		}
+		if (nativeIcon) {
+			NSApplication.sharedApplication.applicationIconImage = nativeIcon;
+		}
+	}
 }
 
 } // namespace Platform

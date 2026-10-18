@@ -30,7 +30,6 @@ const QVector<QString> icons{
 	AyuAssets::NOTHING_ICON,
 	AyuAssets::NAHIDA_ICON,
 	AyuAssets::NAHIDA2_ICON,
-	AyuAssets::ROSSI_ICON,
 	AyuAssets::BARD_ICON,
 	AyuAssets::YAPLUS_ICON,
 	AyuAssets::WIN95_ICON,

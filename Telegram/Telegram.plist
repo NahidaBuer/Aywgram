@@ -7,22 +7,40 @@
 	<key>CFBundleGetInfoString</key>
 	<string>Unofficial Telegram Desktop app</string>
 	<key>CFBundleIconFile</key>
-	<string>AppIcon-Default.icns</string>
+	<string>AppIcon-Nahida.icns</string>
 	<key>CFBundleIconName</key>
-	<string>AppIcon-Default.icns</string>
+	<string>AppIcon-Nahida</string>
     <key>CFBundleIcons</key>
     <dict>
         <key>CFBundlePrimaryIcon</key>
         <dict>
             <key>CFBundleIconFiles</key>
             <array>
-                <string>AppIcon-Default</string>
+                <string>AppIcon-Nahida</string>
             </array>
             <key>CFBundleIconName</key>
-            <string>AppIcon-Default</string>
+            <string>AppIcon-Nahida</string>
         </dict>
         <key>CFBundleAlternateIcons</key>
         <dict>
+            <key>AppIcon-Default</key>
+            <dict>
+                <key>CFBundleIconFiles</key>
+                <array>
+                    <string>AppIcon-Default</string>
+                </array>
+                <key>CFBundleIconName</key>
+                <string>AppIcon-Default</string>
+            </dict>
+            <key>AppIcon-Nahida2</key>
+            <dict>
+                <key>CFBundleIconFiles</key>
+                <array>
+                    <string>AppIcon-Nahida2</string>
+                </array>
+                <key>CFBundleIconName</key>
+                <string>AppIcon-Nahida2</string>
+            </dict>
             <key>AppIcon-Alt</key>
             <dict>
                 <key>CFBundleIconFiles</key>
@@ -148,7 +166,7 @@
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 			<key>CFBundleURLIconFile</key>
-			<string>AppIcon-Default.icns</string>
+			<string>AppIcon-Nahida.icns</string>
 			<key>CFBundleURLName</key>
 			<string>@bundle_identifier_plist@</string>
 			<key>CFBundleURLSchemes</key>

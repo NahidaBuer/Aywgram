@@ -2614,6 +2614,8 @@ elseif (APPLE)
     if (CMAKE_GENERATOR STREQUAL Xcode)
         set(ayugram_icons
             Default
+            Nahida
+            Nahida2
             Alt
             Discord
             Spotify
@@ -2655,33 +2657,36 @@ elseif (APPLE)
         endforeach()
     else()
         set(icon_path ${icons_path}/Icon.iconset)
+        file(GLOB icon_files CONFIGURE_DEPENDS "${icon_path}/*.png")
         find_program(ICONUTIL iconutil)
         find_program(PNG2ICNS png2icns)
         if (ICONUTIL)
             add_custom_command(
-                OUTPUT AppIcon-Default.icns
+                OUTPUT AppIcon-Nahida.icns
                 COMMAND ${ICONUTIL}
                 ARGS
                     --convert icns
-                    --output AppIcon-Default.icns
+                    --output AppIcon-Nahida.icns
                     ${icon_path}
+                DEPENDS ${icon_files}
             )
         elseif (PNG2ICNS)
             add_custom_command(
-                OUTPUT AppIcon-Default.icns
+                OUTPUT AppIcon-Nahida.icns
                 COMMAND ${PNG2ICNS}
                 ARGS
-                    AppIcon-Default.icns
+                    AppIcon-Nahida.icns
                     ${icon_path}/icon_16x16.png
                     ${icon_path}/icon_32x32.png
                     ${icon_path}/icon_128x128.png
                     ${icon_path}/icon_256x256.png
                     ${icon_path}/icon_512x512.png
+                DEPENDS ${icon_files}
             )
         endif()
         if (ICONUTIL OR PNG2ICNS)
-            set_source_files_properties(AppIcon-Default.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
-            target_add_resource(Telegram AppIcon-Default.icns)
+            set_source_files_properties(AppIcon-Nahida.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+            target_add_resource(Telegram AppIcon-Nahida.icns)
         endif()
     endif()
 
@@ -2779,8 +2784,8 @@ set_target_properties(Telegram PROPERTIES
     XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER ${bundle_identifier}
     XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION ${desktop_app_version_string}
     XCODE_ATTRIBUTE_PRODUCT_NAME ${output_name}
-    XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME AppIcon-Default
-    XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES AppIcon-Alt AppIcon-Discord AppIcon-Spotify AppIcon-Extera AppIcon-Nothing AppIcon-Bard AppIcon-Yaplus AppIcon-Win95 AppIcon-Chibi AppIcon-Chibi2 AppIcon-Extera2
+    XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME AppIcon-Nahida
+    XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES AppIcon-Default AppIcon-Nahida2 AppIcon-Alt AppIcon-Discord AppIcon-Spotify AppIcon-Extera AppIcon-Nothing AppIcon-Bard AppIcon-Yaplus AppIcon-Win95 AppIcon-Chibi AppIcon-Chibi2 AppIcon-Extera2
     XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS YES
     XCODE_ATTRIBUTE_ENABLE_HARDENED_RUNTIME YES
     XCODE_ATTRIBUTE_COMBINE_HIDPI_IMAGES YES
