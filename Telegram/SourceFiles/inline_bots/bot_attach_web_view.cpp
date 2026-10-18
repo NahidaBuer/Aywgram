@@ -1354,7 +1354,7 @@ void WebViewInstance::requestChatJoin() {
 		MTP_flags(Flag::f_theme_params),
 		MTP_long(join.queryId),
 		MTP_dataJSON(MTP_bytes(botThemeParams().json)),
-		MTP_string("tdesktop")
+		MTP_string(WebviewPlatform())
 	)).done([=](const MTPWebViewResult &result) {
 		_requestId = 0;
 		show({

@@ -400,6 +400,19 @@ void LogNativeMessageRejected(
 		+ title;
 }
 
+[[nodiscard]] QSize PanelInnerSize() {
+	const auto &settings = AyuSettings::getInstance();
+	auto size = QSize(st::botWebViewPanelSize);
+	if (settings.increaseWebviewHeight()) {
+		size.setHeight(st::botWebViewPanelHeightIncreased);
+	}
+	if (settings.increaseWebviewWidth()) {
+		size.setWidth(st::botWebViewPanelWidthIncreased);
+	}
+
+	return size;
+}
+
 [[nodiscard]] QColor ResolveExternalShellThemeColor(QColor color) {
 	return (color.alpha() == 255) ? color : st::windowBg->c;
 }
@@ -1260,17 +1273,7 @@ Panel::Panel(Args &&args)
 	}
 	_widget->setWindowFlag(Qt::WindowStaysOnTopHint, false);
 
-	const auto &settings = AyuSettings::getInstance();
-	auto size = QSize(st::botWebViewPanelSize);
-	if (settings.increaseWebviewHeight()) {
-		size.setHeight(st::botWebViewPanelHeightIncreased);
-	}
-	if (settings.increaseWebviewWidth()) {
-		size.setWidth(st::botWebViewPanelWidthIncreased);
-	}
-
-	_widget->setInnerSize(size, true);
-
+	_widget->setInnerSize(PanelInnerSize(), true);
 	const auto panel = _widget.get();
 	rpl::duplicate(
 		args.title
@@ -2192,7 +2195,7 @@ bool Panel::createWebview(const Webview::ThemeParams &params) {
 				? LinuxShell::Unscaled(st::botWebViewShellShadowPadding)
 				: QMargins(),
 			.initialSize = _externalShell
-				? LinuxShell::WindowSize(st::botWebViewPanelSize)
+				? LinuxShell::WindowSize(PanelInnerSize())
 				: QSize(),
 			.shellMessageToken = _externalShell
 				? _externalShellToken
