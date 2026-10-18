@@ -225,7 +225,7 @@ jobs:
           python3 "$REPO_NAME/.github/scripts/ci_cache.py" mark dependencies --end
 
       - name: Prune dependency cache.
-        run: find Libraries '(' '(' ! '(' -name '*.a' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -name '*.pc' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -perm +111 ')' -type f ')' -o -empty ')' -delete
+        run: find Libraries '(' '(' ! '(' -name '*.a' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -name '*.pc' -o -path '*/include/*' -o -path '*/src/wallet_engine/*' -o -path '*/tlottie/*' -o -path '*/wallet-engine/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -perm +111 ')' -type f ')' -o -empty ')' -delete
 
       - name: Save libraries cache.
         if: steps.cache-libs.outputs.cache-hit != 'true'
